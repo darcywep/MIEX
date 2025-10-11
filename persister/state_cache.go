@@ -20,8 +20,8 @@ type StateCache struct {
 	mu        sync.RWMutex
 }
 
-func NewStateCache(leveldbPath string) *StateCache {
-	persister, err := NewPersister(leveldbPath)
+func NewStateCache(JanusDBPath string) *StateCache {
+	persister, err := NewPersister(JanusDBPath)
 	if err != nil {
 		fmt.Println(err)
 		return nil
@@ -30,6 +30,7 @@ func NewStateCache(leveldbPath string) *StateCache {
 	if err != nil {
 		fmt.Println(err)
 	}
+
 	return &StateCache{
 		data:      make(map[string]WriteEntry),
 		persister: persister,

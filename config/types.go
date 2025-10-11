@@ -6,7 +6,7 @@ type TransactionType int
 const (
 	ComputeTx TransactionType = 1
 	IOTx      TransactionType = 2
-	TotalKeys                 = 10547700000 // LevelDB 总数据量
+	TotalKeys                 = 10000000000 // LevelDB 总数据量
 )
 
 // KV 表示要更新的键值对

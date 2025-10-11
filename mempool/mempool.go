@@ -4,7 +4,12 @@ import (
 	"MixedLoadTransactionConcurrency/config"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
 const (
@@ -22,8 +27,8 @@ type Mempool struct {
 }
 
 // NewMempool 创建一个空交易池
-func NewMempool() *Mempool {
-	competingTxs, ioTxs := generateTxs()
+func NewMempool(key2AddrDBPath string) *Mempool {
+	competingTxs, ioTxs := generateTxs(key2AddrDBPath)
 	return &Mempool{
 		ComputeTxs: competingTxs,
 		IOTxs:      ioTxs,
@@ -92,7 +97,42 @@ func genTxs(txType config.TransactionType, txNum, writeN, readN, idx int, keyLis
 	return idx, transactions
 }
 
-func generateTxs() ([]*config.Transaction, []*config.Transaction) {
+func generateTxs(key2AddrDBPath string) ([]*config.Transaction, []*config.Transaction) {
+	key2AddrDB, err := leveldb.OpenFile(key2AddrDBPath, &opt.Options{
+		BlockCacheCapacity: 0, // 禁用 block cache
+		WriteBuffer:        0, // 禁用写缓冲
+		Strict:             opt.DefaultStrict,
+	})
+	if err != nil {
+		fmt.Println(err)
+		return nil, nil
+	}
+	defer key2AddrDB.Close()
+	//// 创建一个迭代器
+	//iter := key2AddrDB.NewIterator(nil, nil)
+	//defer iter.Release() // 用完记得释放资源
+	//
+	//// 遍历整个数据库
+	//for iter.Next() {
+	//	key := iter.Key()
+	//	value := iter.Value()
+	//
+	//	fmt.Printf("Key: %s, Value: %s\n", key, value)
+	//}
+	//
+	//// 检查是否发生错误
+	//if err := iter.Error(); err != nil {
+	//	log.Fatal(err)
+	//}
+	//"4336668687"
+	addr, err := key2AddrDB.Get([]byte("4336668687"), nil)
+	if err != nil {
+		fmt.Println("Get address error!!!,", err)
+	}
+	addrStr := common.BytesToAddress(addr).Hex()
+	fmt.Println("address:", addrStr, "key:", "4336668687")
+	return nil, nil
+
 	rand.Seed(time.Now().UnixNano())
 
 	totalNeeded := competingTxCount*calcKeysPerTx + ioTxCount*ioKeysPerTx
@@ -108,7 +148,14 @@ func generateTxs() ([]*config.Transaction, []*config.Transaction) {
 	// 转换为切片
 	keyList := make([]string, 0, totalNeeded)
 	for k := range keys {
-		keyList = append(keyList, fmt.Sprintf("key-%08d", k))
+		addr, err := key2AddrDB.Get([]byte(strconv.Itoa(int(k))), nil)
+		if err != nil {
+			fmt.Println("Get address error!!!,", err)
+		}
+		addrStr := common.BytesToAddress(addr).Hex()
+		fmt.Println("address:", addrStr, "key:", k)
+
+		keyList = append(keyList, addrStr)
 	}
 
 	// ---------------------

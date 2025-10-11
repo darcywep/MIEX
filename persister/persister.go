@@ -2,7 +2,6 @@ package persister
 
 import (
 	"errors"
-	"os"
 
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
@@ -15,8 +14,7 @@ type Persister struct {
 
 // NewPersister 打开 LevelDB，缓存为 0
 func NewPersister(path string) (*Persister, error) {
-	_ = os.MkdirAll(path, 0755)
-
+	//_ = os.MkdirAll(path, 0755)
 	db, err := leveldb.OpenFile(path, &opt.Options{
 		BlockCacheCapacity: 0, // 禁用 block cache
 		WriteBuffer:        0, // 禁用写缓冲

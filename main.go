@@ -10,54 +10,76 @@ import (
 	"sync"
 )
 
-func runAll() {
-	wg := new(sync.WaitGroup)
+const (
+	allThreadNum       = 4
+	ioThreadNum        = 1
+	competingThreadNum = 3
+	blockSum           = 10000 // 执行多少个区块
+	chanLen            = 2000  // 每个区块有多少笔交易
+	txSum              = 200   // 每个区块有多少笔交易
+)
 
+func runAll(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.Scheduler) {
+	wg := new(sync.WaitGroup)
+	runtime.GOMAXPROCS(allThreadNum)
+	for i := 0; i < blockSum; i++ { // 区块
+		txChan := make(chan *config.Transaction, chanLen)
+
+		for j := 0; j < txSum; j++ { // 每个区块中的交易个数
+			txChan <- mp.GetTx()
+		}
+		close(txChan)
+		wg.Add(allThreadNum)
+		for k := 0; k < allThreadNum; k++ {
+			go s.Run(stateCache, txChan, wg)
+		}
+		wg.Wait()
+		stateCache.Commit()
+		fmt.Printf("Finished %d block", i)
+		//time.Sleep(5 * time.Second)
+	}
+}
+
+func runSep(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.Scheduler) {
+	comWg := new(sync.WaitGroup)
+	ioWg := new(sync.WaitGroup)
+	runtime.GOMAXPROCS(allThreadNum)
+	for i := 0; i < blockSum; i++ { // 区块
+		competingTxChan := make(chan *config.Transaction, chanLen)
+		ioTxChan := make(chan *config.Transaction, chanLen)
+		for j := 0; j < txSum; j++ { // 每个区块中的交易个数
+			competingTxChan <- mp.GetCompetingTx()
+			ioTxChan <- mp.GetIOTx()
+		}
+		close(ioTxChan)
+		close(competingTxChan)
+
+		comWg.Add(competingThreadNum)
+		for k := 0; k < competingThreadNum; k++ {
+			go s.Run(stateCache, competingTxChan, comWg)
+		}
+		comWg.Wait()
+
+		ioWg.Add(ioThreadNum)
+		for k := 0; k < ioThreadNum; k++ {
+			go s.Run(stateCache, ioTxChan, ioWg)
+		}
+		ioWg.Wait()
+		stateCache.Commit()
+		fmt.Printf("Finished %d block", i)
+		//time.Sleep(5 * time.Second)
+	}
 }
 
 func main() {
-	// 初始化 Mempool
-	mp := mempool.NewMempool()
-
-	stateCache := persister.NewStateCache("./statedb")
-	// 调度执行
-	s := scheduler.NewScheduler(stateCache)
-
-	//comWg := new(sync.WaitGroup)
-	//ioWg := new(sync.WaitGroup)
-	threadNum := 4
-	runtime.GOMAXPROCS(threadNum)
-	for i := 0; i < 10000; i++ { // 区块
-		txChan := make(chan *config.Transaction, 2000)
-		competingTxChan := make(chan *config.Transaction, 1000)
-		ioTxChan := make(chan *config.Transaction, 1000)
-		for j := 0; j < 100; j++ { // 每个区块中的交易个数
-			txChan <- mp.GetTx()
-			//competingTxChan <- mp.GetCompetingTx()
-			//ioTxChan <- mp.GetIOTx()
-		}
-		close(txChan)
-		close(ioTxChan)
-		close(competingTxChan)
-		wg.Add(threadNum)
-		for k := 0; k < threadNum; k++ {
-			go s.Run(stateCache, txChan, wg)
-		}
-
-		wg.Wait()
-		//comWg.Add(threadNum / 2)
-		//for k := 0; k < threadNum/2; k++ {
-		//	go s.Run(stateCache, competingTxChan, comWg)
-		//}
-		//comWg.Wait()
-
-		//ioWg.Add(threadNum)
-		//for k := 0; k < threadNum; k++ {
-		//	go s.Run(stateCache, ioTxChan, ioWg)
-		//}
-		//ioWg.Wait()
-		stateCache.Commit()
-		fmt.Println("Finished one block")
-		//time.Sleep(5 * time.Second)
+	mp := mempool.NewMempool("./key2addrDB")
+	if mp.ComputeTxs == nil {
+		return
 	}
+
+	//stateCache := persister.NewStateCache("./statedb")
+	//// 调度执行
+	//s := scheduler.NewScheduler(stateCache)
+	//runAll(stateCache, mp, s)
+	//runSep(stateCache, mp, s)
 }
