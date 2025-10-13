@@ -16,13 +16,14 @@ const (
 	ioThreadNum        = 1
 	competingThreadNum = 3
 	blockSum           = 10000 // 执行多少个区块
-	chanLen            = 10000 // 每个区块有多少笔交易
-	txSum              = 10000 // 每个区块有多少笔交易
+	chanLen            = 20000 // 每个区块有多少笔交易
+	txSum              = 20000 // 每个区块有多少笔交易
 	JanusDBPath        = "./JanusDB"
 	key2addrDBPath     = "./key2addrDB"
 )
 
 func runAll(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.Scheduler) {
+	fmt.Println("Running all...")
 	wg := new(sync.WaitGroup)
 	runtime.GOMAXPROCS(allThreadNum)
 	for i := 0; i < blockSum; i++ { // 区块
@@ -42,7 +43,6 @@ func runAll(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.
 		stateCache.Commit()
 		fmt.Printf("Finished %d block, TPS: %f\n", i, txSum/time.Since(start).Seconds())
 		//time.Sleep(1 * time.Second)
-		//time.Sleep(5 * time.Second)
 	}
 }
 
