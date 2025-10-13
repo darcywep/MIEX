@@ -1,13 +1,16 @@
 package main
 
 import (
-	"MixedLoadTransactionConcurrency/config"
-	"MixedLoadTransactionConcurrency/mempool"
-	"MixedLoadTransactionConcurrency/persister"
-	"MixedLoadTransactionConcurrency/scheduler"
+	"Janus/config"
+	"Janus/mempool"
+	"Janus/persister"
+	"Janus/scheduler"
 	"fmt"
 	"runtime"
 	"sync"
+
+	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
 const (
@@ -72,7 +75,18 @@ func runSep(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.
 }
 
 func main() {
-	mp := mempool.NewMempool("./key2addrDB")
+	key2AddrDB, err := leveldb.OpenFile("./key2addrDB", &opt.Options{
+		BlockCacheCapacity: 0, // 禁用 block cache
+		WriteBuffer:        0, // 禁用写缓冲
+		Strict:             opt.DefaultStrict,
+	})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer key2AddrDB.Close()
+
+	mp := mempool.NewMempool()
 	if mp.ComputeTxs == nil {
 		return
 	}

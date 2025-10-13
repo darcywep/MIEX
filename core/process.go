@@ -6,8 +6,8 @@ import (
 	"math/rand"
 	"time"
 
-	"MixedLoadTransactionConcurrency/config"
-	"MixedLoadTransactionConcurrency/persister"
+	"Janus/config"
+	"Janus/persister"
 
 	"github.com/syndtr/goleveldb/leveldb"
 )

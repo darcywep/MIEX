@@ -1,9 +1,9 @@
 package scheduler
 
 import (
-	"MixedLoadTransactionConcurrency/config"
-	"MixedLoadTransactionConcurrency/core"
-	"MixedLoadTransactionConcurrency/persister"
+	"Janus/config"
+	"Janus/core"
+	"Janus/persister"
 	"sync"
 )
 

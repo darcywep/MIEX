@@ -1,15 +1,11 @@
 package mempool
 
 import (
-	"MixedLoadTransactionConcurrency/config"
+	"Janus/config"
 	"fmt"
 	"math/rand"
 	"strconv"
 	"time"
-
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
 const (
@@ -21,14 +17,15 @@ const (
 
 // Mempool 表示交易池
 type Mempool struct {
+	// 交易的key都是数字，读取的时候要转成address
 	ComputeTxs []*config.Transaction
 	IOTxs      []*config.Transaction
 	AllTxs     []*config.Transaction
 }
 
 // NewMempool 创建一个空交易池
-func NewMempool(key2AddrDBPath string) *Mempool {
-	competingTxs, ioTxs := generateTxs(key2AddrDBPath)
+func NewMempool() *Mempool {
+	competingTxs, ioTxs := generateTxs()
 	return &Mempool{
 		ComputeTxs: competingTxs,
 		IOTxs:      ioTxs,
@@ -77,7 +74,7 @@ func genTxs(txType config.TransactionType, txNum, writeN, readN, idx int, keyLis
 		}
 		reads := make([]string, 0)
 		for _, k := range rKeys {
-			updates = append(updates, config.KV{Key: k, Value: []byte("value")})
+			reads = append(reads, k)
 		}
 
 		var txId string
@@ -97,17 +94,8 @@ func genTxs(txType config.TransactionType, txNum, writeN, readN, idx int, keyLis
 	return idx, transactions
 }
 
-func generateTxs(key2AddrDBPath string) ([]*config.Transaction, []*config.Transaction) {
-	key2AddrDB, err := leveldb.OpenFile(key2AddrDBPath, &opt.Options{
-		BlockCacheCapacity: 0, // 禁用 block cache
-		WriteBuffer:        0, // 禁用写缓冲
-		Strict:             opt.DefaultStrict,
-	})
-	if err != nil {
-		fmt.Println(err)
-		return nil, nil
-	}
-	defer key2AddrDB.Close()
+func generateTxs() ([]*config.Transaction, []*config.Transaction) {
+
 	//// 创建一个迭代器
 	//iter := key2AddrDB.NewIterator(nil, nil)
 	//defer iter.Release() // 用完记得释放资源
@@ -125,13 +113,13 @@ func generateTxs(key2AddrDBPath string) ([]*config.Transaction, []*config.Transa
 	//	log.Fatal(err)
 	//}
 	//"4336668687"
-	addr, err := key2AddrDB.Get([]byte("4336668687"), nil)
-	if err != nil {
-		fmt.Println("Get address error!!!,", err)
-	}
-	addrStr := common.BytesToAddress(addr).Hex()
-	fmt.Println("address:", addrStr, "key:", "4336668687")
-	return nil, nil
+	//addr, err := key2AddrDB.Get([]byte("4336668687"), nil)
+	//if err != nil {
+	//	fmt.Println("Get address error!!!,", err)
+	//}
+	//addrStr := common.BytesToAddress(addr).Hex()
+	//fmt.Println("address:", addrStr, "key:", "4336668687")
+	//return nil, nil
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -148,16 +136,8 @@ func generateTxs(key2AddrDBPath string) ([]*config.Transaction, []*config.Transa
 	// 转换为切片
 	keyList := make([]string, 0, totalNeeded)
 	for k := range keys {
-		addr, err := key2AddrDB.Get([]byte(strconv.Itoa(int(k))), nil)
-		if err != nil {
-			fmt.Println("Get address error!!!,", err)
-		}
-		addrStr := common.BytesToAddress(addr).Hex()
-		fmt.Println("address:", addrStr, "key:", k)
-
-		keyList = append(keyList, addrStr)
+		keyList = append(keyList, strconv.Itoa(int(k)))
 	}
-
 	// ---------------------
 	// 2. 分配交易
 	// ---------------------
@@ -173,6 +153,10 @@ func generateTxs(key2AddrDBPath string) ([]*config.Transaction, []*config.Transa
 	writeN = rand.Intn(1) + 0  // 6-10
 	readN = rand.Intn(3) + 100 // 8-10
 	idx, ioTxs := genTxs(config.IOTx, ioTxCount, writeN, readN, idx, keyList)
+
+	for _, tx := range competingTxs {
+		fmt.Println(tx.ReadKey)
+	}
 
 	return competingTxs, ioTxs
 }
