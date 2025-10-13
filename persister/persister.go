@@ -1,6 +1,7 @@
 package persister
 
 import (
+	"Janus/config"
 	"errors"
 
 	"github.com/syndtr/goleveldb/leveldb"
@@ -15,11 +16,7 @@ type Persister struct {
 // NewPersister 打开 LevelDB，缓存为 0
 func NewPersister(path string) (*Persister, error) {
 	//_ = os.MkdirAll(path, 0755)
-	db, err := leveldb.OpenFile(path, &opt.Options{
-		BlockCacheCapacity: 0, // 禁用 block cache
-		WriteBuffer:        0, // 禁用写缓冲
-		Strict:             opt.DefaultStrict,
-	})
+	db, err := leveldb.OpenFile(path, config.Options)
 	if err != nil {
 		return nil, err
 	}

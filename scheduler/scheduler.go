@@ -4,6 +4,7 @@ import (
 	"Janus/config"
 	"Janus/core"
 	"Janus/persister"
+	"runtime"
 	"sync"
 )
 
@@ -20,7 +21,7 @@ func NewScheduler(stateCache *persister.StateCache) *Scheduler {
 // Run 执行一批交易
 func (s *Scheduler) Run(cache *persister.StateCache, txChan chan *config.Transaction, wg *sync.WaitGroup) {
 	defer wg.Done()
-	//runtime.LockOSThread()
+	runtime.LockOSThread()
 	for tx := range txChan {
 		core.ExecuteTransaction(cache, tx)
 	}

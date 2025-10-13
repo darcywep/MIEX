@@ -1,13 +1,10 @@
 package core
 
 import (
-	"errors"
-	"log"
-	"math/rand"
-	"time"
-
 	"Janus/config"
 	"Janus/persister"
+	"errors"
+	"log"
 
 	"github.com/syndtr/goleveldb/leveldb"
 )
@@ -21,9 +18,11 @@ func fibonacci(n int) int {
 }
 
 func executeCompetingTransaction(cache *persister.StateCache, tx *config.Transaction) {
-	start := time.Now()
+	//start := time.Now()
 
-	n := rand.Intn(30) + 10 // 随机计算 Fibonacci(10~40)
+	//n := rand.Intn(30) + 10 // 随机计算 Fibonacci(10~40)
+	//n := rand.Intn(10) // 随机计算 Fibonacci(10~40)
+	n := 10
 	_ = fibonacci(n)
 
 	// 模拟写入执行结果
@@ -34,11 +33,11 @@ func executeCompetingTransaction(cache *persister.StateCache, tx *config.Transac
 	tx.Success = true
 	tx.Error = nil
 
-	log.Printf("✅ 交易 %s 执行完成 (type=%d)，耗时=%s", tx.ID, tx.Type, time.Since(start))
+	//log.Printf("✅ 交易 %s 执行完成 (type=%d)，耗时=%s", tx.ID, tx.Type, time.Since(start))
 }
 
 func executeIOTransaction(cache *persister.StateCache, tx *config.Transaction) {
-	start := time.Now()
+	//start := time.Now()
 	for _, key := range tx.ReadKey {
 		_, err := cache.Get(key)
 		if err != nil && !errors.Is(err, leveldb.ErrNotFound) {
@@ -55,7 +54,7 @@ func executeIOTransaction(cache *persister.StateCache, tx *config.Transaction) {
 	tx.Success = true
 	tx.Error = nil
 
-	log.Printf("✅ 交易 %s 执行完成 (type=%d)，耗时=%s", tx.ID, tx.Type, time.Since(start))
+	//log.Printf("✅ 交易 %s 执行完成 (type=%d)，耗时=%s", tx.ID, tx.Type, time.Since(start))
 }
 
 // ExecuteTransaction 执行一笔交易
