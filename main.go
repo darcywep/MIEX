@@ -3,6 +3,7 @@ package main
 import (
 	"Janus/config"
 	"Janus/mempool"
+	"Janus/monitor"
 	"Janus/persister"
 	"Janus/scheduler"
 	"fmt"
@@ -125,6 +126,12 @@ func runIO(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.S
 }
 
 func main() {
+
+	monitor_filename := "cpu_disk_Hybrid.xlsx"
+	//monitor_filename := "cpu_disk_monitor.xlsx"
+	//monitor_filename := "cpu_disk_monitor.xlsx"
+	monitor.MonitorMetrics(1*time.Second, monitor_filename) // 监控 CPU 和磁盘利用率，每秒更新一次
+
 	mp := mempool.NewMempool()
 	if mp.ComputeTxs == nil {
 		return

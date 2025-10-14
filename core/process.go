@@ -11,6 +11,7 @@ import (
 
 // Fibonacci: 模拟计算密集任务
 func fibonacci(n int) int {
+	//time.Sleep(1 * time.Microsecond)
 	if n <= 1 {
 		return n
 	}
@@ -19,7 +20,6 @@ func fibonacci(n int) int {
 
 func executeCompetingTransaction(cache *persister.StateCache, tx *config.Transaction) {
 	//start := time.Now()
-
 	//n := rand.Intn(30) + 10 // 随机计算 Fibonacci(10~40)
 	//n := rand.Intn(10) // 随机计算 Fibonacci(10~40)
 	n := 10
@@ -60,8 +60,10 @@ func executeIOTransaction(cache *persister.StateCache, tx *config.Transaction) {
 // ExecuteTransaction 执行一笔交易
 func ExecuteTransaction(cache *persister.StateCache, tx *config.Transaction) {
 	if config.ComputeTx == tx.Type {
+		//time.Sleep(1 * time.Microsecond)
 		executeCompetingTransaction(cache, tx)
 	} else {
+		//time.Sleep(1 * time.Microsecond)
 		executeIOTransaction(cache, tx)
 	}
 }
