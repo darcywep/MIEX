@@ -123,8 +123,8 @@ func main() {
 	runtime.GOMAXPROCS(allThreadNum + 1)
 	//monitor_filename := "cpu_disk_monitor/cpu_disk_Sep.xlsx"
 	//monitor_filename := "cpu_disk_monitor/cpu_disk_Hybrid.xlsx"
-	monitor_filename := "cpu_disk_monitor/cpu_disk_Compute.xlsx"
-	//monitor_filename := "cpu_disk_monitor/cpu_disk_IO.xlsx"
+	//monitor_filename := "cpu_disk_monitor/cpu_disk_Compute.xlsx"
+	monitor_filename := "cpu_disk_monitor/cpu_disk_IO.xlsx"
 
 	mp := mempool.NewMempool()
 	if mp.ComputeTxs == nil {
@@ -141,8 +141,8 @@ func main() {
 
 	//runAll(stateCache, mp, s)
 	//runSep(stateCache, mp, s)
-	//runIO(stateCache, mp, s)
-	runComputing(stateCache, mp, s)
+	runIO(stateCache, mp, s)
+	//runComputing(stateCache, mp, s)
 	close(signalChan)
 	signalWg.Wait()
 }
