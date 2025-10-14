@@ -14,8 +14,8 @@ import (
 
 const (
 	allThreadNum       = 8
-	ioThreadNum        = 2
-	computingThreadNum = 6
+	ioThreadNum        = 6
+	computingThreadNum = 2
 	blockSum           = 1000  // 执行多少个区块
 	chanLen            = 20000 // 每个区块有多少笔交易
 	txSum              = 20000 // 每个区块有多少笔交易
@@ -26,7 +26,6 @@ const (
 func runAll(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.Scheduler) {
 	fmt.Println("Running all...")
 	wg := new(sync.WaitGroup)
-	runtime.GOMAXPROCS(allThreadNum)
 	for i := 0; i < blockSum; i++ { // 区块
 		txChan := make(chan *config.Transaction, chanLen)
 
@@ -50,7 +49,6 @@ func runAll(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.
 func runSep(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.Scheduler) {
 	comWg := new(sync.WaitGroup)
 	ioWg := new(sync.WaitGroup)
-	runtime.GOMAXPROCS(allThreadNum)
 	for i := 0; i < blockSum; i++ { // 区块
 		computingTxChan := make(chan *config.Transaction, chanLen)
 		ioTxChan := make(chan *config.Transaction, chanLen)
@@ -83,7 +81,6 @@ func runComputing(stateCache *persister.StateCache, mp *mempool.Mempool, s *sche
 	fmt.Println("Running computing threads")
 	time.Sleep(1 * time.Second)
 	comWg := new(sync.WaitGroup)
-	runtime.GOMAXPROCS(allThreadNum)
 	for i := 0; i < blockSum; i++ { // 区块
 		computingTxChan := make(chan *config.Transaction, chanLen)
 		for j := 0; j < txSum; j++ { // 每个区块中的交易个数
@@ -106,7 +103,6 @@ func runComputing(stateCache *persister.StateCache, mp *mempool.Mempool, s *sche
 func runIO(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.Scheduler) {
 	fmt.Println("Running IO threads...")
 	ioWg := new(sync.WaitGroup)
-	runtime.GOMAXPROCS(allThreadNum)
 	for i := 0; i < blockSum; i++ { // 区块
 		ioTxChan := make(chan *config.Transaction, chanLen)
 		for j := 0; j < txSum; j++ { // 每个区块中的交易个数
@@ -127,11 +123,11 @@ func runIO(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.S
 }
 
 func main() {
-
+	runtime.GOMAXPROCS(allThreadNum + 1)
+	monitor_filename := "cpu_disk_monitor/cpu_disk_Sep.xlsx"
 	//monitor_filename := "cpu_disk_monitor/cpu_disk_Hybrid.xlsx"
-	monitor_filename := "cpu_disk_monitor/cpu_disk_Compute.xlsx"
-	//monitor_filename := "cpu_disk_monitor/cpu_disk_I/O.xlsx"
-	monitor.MonitorMetrics(1*time.Second, monitor_filename) // 监控 CPU 和磁盘利用率，每秒更新一次
+	//monitor_filename := "cpu_disk_monitor/cpu_disk_Compute.xlsx"
+	//monitor_filename := "cpu_disk_monitor/cpu_disk_IO.xlsx"
 
 	mp := mempool.NewMempool()
 	if mp.ComputeTxs == nil {
@@ -141,9 +137,15 @@ func main() {
 	stateCache := persister.NewStateCache(JanusDBPath, key2addrDBPath)
 	// 调度执行
 	s := scheduler.NewScheduler(stateCache)
+	signalChan := make(chan struct{})
+	signalWg := new(sync.WaitGroup)
+	signalWg.Add(1)
+	go monitor.MonitorMetrics(1*time.Second, monitor_filename, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+
 	//runAll(stateCache, mp, s)
-	//runSep(stateCache, mp, s)
-	//runSep(stateCache, mp, s)
+	runSep(stateCache, mp, s)
 	//runIO(stateCache, mp, s)
-	runComputing(stateCache, mp, s)
+	//runComputing(stateCache, mp, s)
+	close(signalChan)
+	signalWg.Wait()
 }

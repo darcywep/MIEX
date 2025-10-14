@@ -151,7 +151,7 @@ func generateTxs() ([]*config.Transaction, []*config.Transaction) {
 	// 生成计算型交易
 	//writeN := rand.Intn(2) + 1 // 1-2
 	//readN := rand.Intn(2) + 1 // 1-2
-	writeN := 2
+	writeN := 1
 	readN := 0
 
 	idx, competingTxs := genTxs(config.ComputeTx, competingTxCount, writeN, readN, idx, keyList)
