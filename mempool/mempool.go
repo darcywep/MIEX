@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	competingTxCount = 1 * 10000 * 10000 // 计算型交易数
-	ioTxCount        = 1 * 10000 * 10000 // IO 型交易数
+	competingTxCount = 2000 * 10000 // 计算型交易数
+	ioTxCount        = 2000 * 10000 // IO 型交易数
 	//ioTxCount     = 10  // IO 型交易数
 	calcKeysPerTx = 1 // 每个计算交易读的 key 数
 	ioKeysPerTx   = 2 // 每个 IO 交易读的 key 数
