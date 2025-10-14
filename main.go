@@ -127,9 +127,9 @@ func runIO(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.S
 
 func main() {
 
-	monitor_filename := "cpu_disk_Hybrid.xlsx"
-	//monitor_filename := "cpu_disk_monitor.xlsx"
-	//monitor_filename := "cpu_disk_monitor.xlsx"
+	//monitor_filename := "cpu_disk_monitor/cpu_disk_Hybrid.xlsx"
+	monitor_filename := "cpu_disk_monitor/cpu_disk_Compute.xlsx"
+	//monitor_filename := "cpu_disk_monitor/cpu_disk_I/O.xlsx"
 	monitor.MonitorMetrics(1*time.Second, monitor_filename) // 监控 CPU 和磁盘利用率，每秒更新一次
 
 	mp := mempool.NewMempool()
@@ -140,8 +140,8 @@ func main() {
 	stateCache := persister.NewStateCache(JanusDBPath, key2addrDBPath)
 	// 调度执行
 	s := scheduler.NewScheduler(stateCache)
-	runAll(stateCache, mp, s)
+	//runAll(stateCache, mp, s)
 	//runSep(stateCache, mp, s)
 	//runIO(stateCache, mp, s)
-	//runComputing(stateCache, mp, s)
+	runComputing(stateCache, mp, s)
 }

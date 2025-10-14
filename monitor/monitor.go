@@ -50,10 +50,10 @@ func MonitorMetrics(interval time.Duration, monitor_filename string) {
 					// 写入 Excel
 					f.SetCellValue(sheet, fmt.Sprintf("A%d", row), t)
 					f.SetCellValue(sheet, fmt.Sprintf("B%d", row), cpuPercent[0])
-					f.SetCellValue(sheet, fmt.Sprintf("E%d", row), diskUtil)
+					f.SetCellValue(sheet, fmt.Sprintf("C%d", row), diskUtil)
 					row++
 
-					if row%10 == 0 { // 每10次写完保存一次
+					if row%5 == 0 { // 每5次写完保存一次
 						if err := f.SaveAs(monitor_filename); err != nil {
 							fmt.Println("保存 Excel 出错:", err)
 						}
