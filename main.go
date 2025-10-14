@@ -12,10 +12,10 @@ import (
 )
 
 const (
-	allThreadNum       = 4
-	ioThreadNum        = 1
-	competingThreadNum = 3
-	blockSum           = 10000 // 执行多少个区块
+	allThreadNum       = 8
+	ioThreadNum        = 2
+	computingThreadNum = 6
+	blockSum           = 1000  // 执行多少个区块
 	chanLen            = 20000 // 每个区块有多少笔交易
 	txSum              = 20000 // 每个区块有多少笔交易
 	JanusDBPath        = "./JanusDB"
@@ -51,18 +51,19 @@ func runSep(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.
 	ioWg := new(sync.WaitGroup)
 	runtime.GOMAXPROCS(allThreadNum)
 	for i := 0; i < blockSum; i++ { // 区块
-		competingTxChan := make(chan *config.Transaction, chanLen)
+		computingTxChan := make(chan *config.Transaction, chanLen)
 		ioTxChan := make(chan *config.Transaction, chanLen)
-		for j := 0; j < txSum; j++ { // 每个区块中的交易个数
-			competingTxChan <- mp.GetCompetingTx()
+		for j := 0; j < txSum/2; j++ { // 每个区块中的交易个数
+			computingTxChan <- mp.GetCompetingTx()
 			ioTxChan <- mp.GetIOTx()
 		}
 		close(ioTxChan)
-		close(competingTxChan)
+		close(computingTxChan)
 
-		comWg.Add(competingThreadNum)
-		for k := 0; k < competingThreadNum; k++ {
-			go s.Run(stateCache, competingTxChan, comWg)
+		start := time.Now()
+		comWg.Add(computingThreadNum)
+		for k := 0; k < computingThreadNum; k++ {
+			go s.Run(stateCache, computingTxChan, comWg)
 		}
 		comWg.Wait()
 
@@ -72,7 +73,7 @@ func runSep(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.
 		}
 		ioWg.Wait()
 		stateCache.Commit()
-		fmt.Printf("Finished %d block", i)
+		fmt.Printf("Finished %d block, TPS: %f\n", i, txSum/time.Since(start).Seconds())
 		//time.Sleep(5 * time.Second)
 	}
 }
@@ -83,16 +84,16 @@ func runComputing(stateCache *persister.StateCache, mp *mempool.Mempool, s *sche
 	comWg := new(sync.WaitGroup)
 	runtime.GOMAXPROCS(allThreadNum)
 	for i := 0; i < blockSum; i++ { // 区块
-		competingTxChan := make(chan *config.Transaction, chanLen)
+		computingTxChan := make(chan *config.Transaction, chanLen)
 		for j := 0; j < txSum; j++ { // 每个区块中的交易个数
-			competingTxChan <- mp.GetCompetingTx()
+			computingTxChan <- mp.GetCompetingTx()
 		}
-		close(competingTxChan)
+		close(computingTxChan)
 
 		start := time.Now()
 		comWg.Add(allThreadNum)
 		for k := 0; k < allThreadNum; k++ {
-			go s.Run(stateCache, competingTxChan, comWg)
+			go s.Run(stateCache, computingTxChan, comWg)
 		}
 		comWg.Wait()
 		stateCache.Commit()
@@ -134,6 +135,7 @@ func main() {
 	// 调度执行
 	s := scheduler.NewScheduler(stateCache)
 	runAll(stateCache, mp, s)
+	//runSep(stateCache, mp, s)
 	//runSep(stateCache, mp, s)
 	//runIO(stateCache, mp, s)
 	//runComputing(stateCache, mp, s)
