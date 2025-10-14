@@ -18,11 +18,11 @@ func fibonacci(n int) int {
 	return fibonacci(n-1) + fibonacci(n-2)
 }
 
-func executeCompetingTransaction(cache *persister.StateCache, tx *config.Transaction) {
+func ExecuteCompetingTransaction(cache *persister.StateCache, tx *config.Transaction) {
 	//start := time.Now()
 	//n := rand.Intn(30) + 10 // 随机计算 Fibonacci(10~40)
 	//n := rand.Intn(10) // 随机计算 Fibonacci(10~40)
-	n := 10
+	n := 20
 	_ = fibonacci(n)
 
 	// 模拟写入执行结果
@@ -36,7 +36,7 @@ func executeCompetingTransaction(cache *persister.StateCache, tx *config.Transac
 	//log.Printf("✅ 交易 %s 执行完成 (type=%d)，耗时=%s", tx.ID, tx.Type, time.Since(start))
 }
 
-func executeIOTransaction(cache *persister.StateCache, tx *config.Transaction) {
+func ExecuteIOTransaction(cache *persister.StateCache, tx *config.Transaction) {
 	//start := time.Now()
 	for _, key := range tx.ReadKey {
 		_, err := cache.Get(key)
@@ -61,9 +61,9 @@ func executeIOTransaction(cache *persister.StateCache, tx *config.Transaction) {
 func ExecuteTransaction(cache *persister.StateCache, tx *config.Transaction) {
 	if config.ComputeTx == tx.Type {
 		//time.Sleep(1 * time.Microsecond)
-		executeCompetingTransaction(cache, tx)
+		ExecuteCompetingTransaction(cache, tx)
 	} else {
 		//time.Sleep(1 * time.Microsecond)
-		executeIOTransaction(cache, tx)
+		ExecuteIOTransaction(cache, tx)
 	}
 }

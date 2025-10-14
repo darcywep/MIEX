@@ -14,8 +14,8 @@ import (
 
 const (
 	allThreadNum       = 8
-	ioThreadNum        = 6
-	computingThreadNum = 2
+	ioThreadNum        = 1
+	computingThreadNum = 7
 	blockSum           = 1000  // 执行多少个区块
 	chanLen            = 20000 // 每个区块有多少笔交易
 	txSum              = 20000 // 每个区块有多少笔交易
@@ -47,8 +47,7 @@ func runAll(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.
 }
 
 func runSep(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.Scheduler) {
-	comWg := new(sync.WaitGroup)
-	ioWg := new(sync.WaitGroup)
+	wg := new(sync.WaitGroup)
 	for i := 0; i < blockSum; i++ { // 区块
 		computingTxChan := make(chan *config.Transaction, chanLen)
 		ioTxChan := make(chan *config.Transaction, chanLen)
@@ -60,17 +59,15 @@ func runSep(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.
 		close(computingTxChan)
 
 		start := time.Now()
-		comWg.Add(computingThreadNum)
+		wg.Add(computingThreadNum + ioThreadNum)
 		for k := 0; k < computingThreadNum; k++ {
-			go s.Run(stateCache, computingTxChan, comWg)
+			go s.RunComputingTx(stateCache, computingTxChan, wg)
 		}
-		comWg.Wait()
 
-		ioWg.Add(ioThreadNum)
 		for k := 0; k < ioThreadNum; k++ {
-			go s.Run(stateCache, ioTxChan, ioWg)
+			go s.RunIOTx(stateCache, ioTxChan, wg)
 		}
-		ioWg.Wait()
+		wg.Wait()
 		stateCache.Commit()
 		fmt.Printf("Finished %d block, TPS: %f\n", i, txSum/time.Since(start).Seconds())
 		//time.Sleep(5 * time.Second)
@@ -124,9 +121,9 @@ func runIO(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.S
 
 func main() {
 	runtime.GOMAXPROCS(allThreadNum + 1)
-	monitor_filename := "cpu_disk_monitor/cpu_disk_Sep.xlsx"
+	//monitor_filename := "cpu_disk_monitor/cpu_disk_Sep.xlsx"
 	//monitor_filename := "cpu_disk_monitor/cpu_disk_Hybrid.xlsx"
-	//monitor_filename := "cpu_disk_monitor/cpu_disk_Compute.xlsx"
+	monitor_filename := "cpu_disk_monitor/cpu_disk_Compute.xlsx"
 	//monitor_filename := "cpu_disk_monitor/cpu_disk_IO.xlsx"
 
 	mp := mempool.NewMempool()
@@ -143,9 +140,9 @@ func main() {
 	go monitor.MonitorMetrics(1*time.Second, monitor_filename, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 
 	//runAll(stateCache, mp, s)
-	runSep(stateCache, mp, s)
+	//runSep(stateCache, mp, s)
 	//runIO(stateCache, mp, s)
-	//runComputing(stateCache, mp, s)
+	runComputing(stateCache, mp, s)
 	close(signalChan)
 	signalWg.Wait()
 }
