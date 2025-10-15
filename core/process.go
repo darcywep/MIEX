@@ -2,9 +2,12 @@ package core
 
 import (
 	"Janus/config"
+	"Janus/file"
 	"Janus/persister"
 	"errors"
+	"fmt"
 	"log"
+	"path/filepath"
 
 	"github.com/syndtr/goleveldb/leveldb"
 )
@@ -18,12 +21,9 @@ func fibonacci(n int) int {
 	return fibonacci(n-1) + fibonacci(n-2)
 }
 
-func executeCompetingTransaction(cache *persister.StateCache, tx *config.Transaction) {
+func ExecuteCompetingTransaction(cache *persister.StateCache, tx *config.Transaction) {
 	//start := time.Now()
-	//n := rand.Intn(30) + 10 // 随机计算 Fibonacci(10~40)
-	//n := rand.Intn(10) // 随机计算 Fibonacci(10~40)
-	n := 10
-	_ = fibonacci(n)
+	_ = fibonacci(config.FibonacciN)
 
 	// 模拟写入执行结果
 	for _, key := range tx.Updates {
@@ -36,7 +36,7 @@ func executeCompetingTransaction(cache *persister.StateCache, tx *config.Transac
 	//log.Printf("✅ 交易 %s 执行完成 (type=%d)，耗时=%s", tx.ID, tx.Type, time.Since(start))
 }
 
-func executeIOTransaction(cache *persister.StateCache, tx *config.Transaction) {
+func ExecuteIOTransaction(cache *persister.StateCache, tx *config.Transaction, i int) {
 	//start := time.Now()
 	for _, key := range tx.ReadKey {
 		_, err := cache.Get(key)
@@ -54,16 +54,22 @@ func executeIOTransaction(cache *persister.StateCache, tx *config.Transaction) {
 	tx.Success = true
 	tx.Error = nil
 
+	// 读一次触发IO中断
+	name := filepath.Join(config.FilePath, fmt.Sprintf("file_%03d.bin", i))
+	if err := file.ReadOnce(name); err != nil {
+		fmt.Printf("读取 %s 失败: %v\n", name, err)
+	}
+
 	//log.Printf("✅ 交易 %s 执行完成 (type=%d)，耗时=%s", tx.ID, tx.Type, time.Since(start))
 }
 
 // ExecuteTransaction 执行一笔交易
-func ExecuteTransaction(cache *persister.StateCache, tx *config.Transaction) {
+func ExecuteTransaction(cache *persister.StateCache, tx *config.Transaction, i int) {
 	if config.ComputeTx == tx.Type {
 		//time.Sleep(1 * time.Microsecond)
-		executeCompetingTransaction(cache, tx)
+		ExecuteCompetingTransaction(cache, tx)
 	} else {
 		//time.Sleep(1 * time.Microsecond)
-		executeIOTransaction(cache, tx)
+		ExecuteIOTransaction(cache, tx, i)
 	}
 }

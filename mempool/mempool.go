@@ -12,8 +12,12 @@ const (
 	competingTxCount = 2000 * 10000 // 计算型交易数
 	ioTxCount        = 2000 * 10000 // IO 型交易数
 	//ioTxCount     = 10  // IO 型交易数
-	calcKeysPerTx = 1 // 每个计算交易读的 key 数
-	ioKeysPerTx   = 2 // 每个 IO 交易读的 key 数
+	computingWriteN = 1
+	computingReadN  = 0
+	ioWriteN        = 2
+	ioReadN         = 0
+	calcKeysPerTx   = computingWriteN + computingReadN // 每个计算交易读的 key 数
+	ioKeysPerTx     = ioWriteN + ioReadN               // 每个 IO 交易读的 key 数
 )
 
 // Mempool 表示交易池
@@ -149,19 +153,11 @@ func generateTxs() ([]*config.Transaction, []*config.Transaction) {
 	idx := 0
 
 	// 生成计算型交易
-	//writeN := rand.Intn(2) + 1 // 1-2
-	//readN := rand.Intn(2) + 1 // 1-2
-	writeN := 1
-	readN := 0
 
-	idx, competingTxs := genTxs(config.ComputeTx, competingTxCount, writeN, readN, idx, keyList)
+	idx, competingTxs := genTxs(config.ComputeTx, competingTxCount, computingWriteN, computingReadN, idx, keyList)
 
 	// 生成IO型交易
-	//writeN = rand.Intn(1) + 0 // 6-10
-	//readN = rand.Intn(1) + 1  // 8-10
-	writeN = 2
-	readN = 0 // 8-10
-	idx, ioTxs := genTxs(config.IOTx, ioTxCount, writeN, readN, idx, keyList)
+	idx, ioTxs := genTxs(config.IOTx, ioTxCount, ioWriteN, ioReadN, idx, keyList)
 
 	//for _, tx := range competingTxs {
 	//	fmt.Println(tx.ReadKey)

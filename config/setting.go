@@ -7,3 +7,10 @@ var Options = &opt.Options{
 	//WriteBuffer:        0, // 禁用写缓冲
 	//Strict:             opt.DefaultStrict,
 }
+
+const (
+	FilePath   = "./file"
+	FibonacciN = 26
+	//n := rand.Intn(30) + 10 // 随机计算 Fibonacci(10~40)
+	//n := rand.Intn(10) // 随机计算 Fibonacci(10~40)
+)
