@@ -27,21 +27,24 @@ func runAll(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.
 	fmt.Println("Running all...")
 	wg := new(sync.WaitGroup)
 	for i := 0; i < blockSum; i++ { // 区块
-		txChan := make(chan *config.Transaction, chanLen)
-
-		for j := 0; j < txSum/2; j++ { // 每个区块中的交易个数
-			txChan <- mp.GetIOTx()
-			txChan <- mp.GetCompetingTx()
+		occTxSlice := make([]chan *config.Transaction, 0)
+		for j := 0; j < (txSum/2)/allThreadNum; j++ { // 每个区块中的交易个数
+			txChan := make(chan *config.Transaction, chanLen)
+			for i := 0; i < allThreadNum; i++ {
+				txChan <- mp.GetIOTx()
+				txChan <- mp.GetCompetingTx()
+			}
+			occTxSlice = append(occTxSlice, txChan)
 		}
-		close(txChan)
-		start := time.Now()
-		wg.Add(allThreadNum)
-		for k := 0; k < allThreadNum; k++ {
-			go s.Run(stateCache, txChan, wg)
-		}
-		wg.Wait()
-		stateCache.Commit()
-		fmt.Printf("Finished %d block, TPS: %f\n", i, txSum/time.Since(start).Seconds())
+		//close(txChan)
+		//start := time.Now()
+		//wg.Add(allThreadNum)
+		//for k := 0; k < allThreadNum; k++ {
+		//	go s.Run(stateCache, txChan, wg)
+		//}
+		//wg.Wait()
+		//stateCache.Commit()
+		//fmt.Printf("Finished %d block, TPS: %f\n", i, txSum/time.Since(start).Seconds())
 		//time.Sleep(1 * time.Second)
 	}
 }
