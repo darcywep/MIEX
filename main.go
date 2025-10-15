@@ -2,153 +2,182 @@ package main
 
 import (
 	"Janus/config"
+	"Janus/file"
 	"Janus/mempool"
 	"Janus/monitor"
 	"Janus/persister"
 	"Janus/scheduler"
+	"flag"
 	"fmt"
 	"runtime"
 	"sync"
 	"time"
 )
 
-const (
-	allThreadNum       = 8
-	ioThreadNum        = 6
-	computingThreadNum = 2
-	blockSum           = 1000  // 执行多少个区块
-	chanLen            = 20000 // 每个区块有多少笔交易
-	txSum              = 20000 // 每个区块有多少笔交易
-	JanusDBPath        = "./JanusDB"
-	key2addrDBPath     = "./key2addrDB"
-)
-
 func runAll(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.Scheduler) {
 	fmt.Println("Running all...")
-	wg := new(sync.WaitGroup)
-	for i := 0; i < blockSum; i++ { // 区块
+	time.Sleep(1 * time.Second)
+	for i := 0; i < config.BlockSum; i++ { // 区块
 		occTxSlice := make([]chan *config.Transaction, 0)
-		for j := 0; j < (txSum/2)/allThreadNum; j++ { // 每个区块中的交易个数
-			txChan := make(chan *config.Transaction, chanLen)
-			for i := 0; i < allThreadNum; i++ {
+		for j := 0; j < (config.TxSum/2)/config.AllThreadNum; j++ { // 每个区块中的交易个数
+			txChan := make(chan *config.Transaction, config.ChanLen)
+			for i := 0; i < config.AllThreadNum; i++ {
 				txChan <- mp.GetIOTx()
 				txChan <- mp.GetCompetingTx()
 			}
 			occTxSlice = append(occTxSlice, txChan)
+			//fmt.Println("occTxSlice: ", occTxSlice)
 		}
-		//close(txChan)
-		//start := time.Now()
-		//wg.Add(allThreadNum)
-		//for k := 0; k < allThreadNum; k++ {
-		//	go s.Run(stateCache, txChan, wg)
-		//}
-		//wg.Wait()
-		//stateCache.Commit()
-		//fmt.Printf("Finished %d block, TPS: %f\n", i, txSum/time.Since(start).Seconds())
-		//time.Sleep(1 * time.Second)
+
+		start := time.Now()
+		for _, txChan := range occTxSlice { // 等待同一批次运行完成
+			wg := new(sync.WaitGroup)
+			close(txChan)
+			wg.Add(config.AllThreadNum)
+			for k := 0; k < config.AllThreadNum; k++ {
+				go s.Run(stateCache, txChan, wg, k)
+			}
+			wg.Wait()
+		}
+		stateCache.Commit()
+		fmt.Printf("Finished %d block, TPS: %f\n", i, config.TxSum/time.Since(start).Seconds())
 	}
 }
 
 func runSep(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.Scheduler) {
-	comWg := new(sync.WaitGroup)
-	ioWg := new(sync.WaitGroup)
-	for i := 0; i < blockSum; i++ { // 区块
-		computingTxChan := make(chan *config.Transaction, chanLen)
-		ioTxChan := make(chan *config.Transaction, chanLen)
-		for j := 0; j < txSum/2; j++ { // 每个区块中的交易个数
-			computingTxChan <- mp.GetCompetingTx()
-			ioTxChan <- mp.GetIOTx()
+	fmt.Println("Running sep...")
+	time.Sleep(1 * time.Second)
+	for i := 0; i < config.BlockSum; i++ { // 区块
+		occIOTxSlice := make([]chan *config.Transaction, 0)
+		occComputingTxSlice := make([]chan *config.Transaction, 0)
+		for j := 0; j < (config.TxSum/2)/config.AllThreadNum; j++ { // 每个区块中的交易个数
+			computingTxChan := make(chan *config.Transaction, config.ChanLen)
+			ioTxChan := make(chan *config.Transaction, config.ChanLen)
+			for j := 0; j < config.AllThreadNum/2; j++ { // 每个区块中的交易个数
+				computingTxChan <- mp.GetCompetingTx()
+				ioTxChan <- mp.GetIOTx()
+			}
+			occIOTxSlice = append(occIOTxSlice, ioTxChan)
+			occComputingTxSlice = append(occComputingTxSlice, computingTxChan)
 		}
-		close(ioTxChan)
-		close(computingTxChan)
 
 		start := time.Now()
-		comWg.Add(computingThreadNum)
-		for k := 0; k < computingThreadNum; k++ {
-			go s.Run(stateCache, computingTxChan, comWg)
-		}
-		comWg.Wait()
+		for i, ioTxChan := range occIOTxSlice { // 等待同一批次运行完成
+			computingTxChan := occComputingTxSlice[i]
+			close(ioTxChan)
+			close(computingTxChan)
 
-		ioWg.Add(ioThreadNum)
-		for k := 0; k < ioThreadNum; k++ {
-			go s.Run(stateCache, ioTxChan, ioWg)
+			wg := new(sync.WaitGroup)
+			wg.Add(config.AllThreadNum)
+			for k := 0; k < config.ComputingThreadNum; k++ {
+				go s.Run(stateCache, computingTxChan, wg, k)
+			}
+			for k := 0; k < config.IoThreadNum; k++ {
+				go s.Run(stateCache, ioTxChan, wg, k)
+			}
+			wg.Wait()
 		}
-		ioWg.Wait()
 		stateCache.Commit()
-		fmt.Printf("Finished %d block, TPS: %f\n", i, txSum/time.Since(start).Seconds())
-		//time.Sleep(5 * time.Second)
+		fmt.Printf("Finished %d block, TPS: %f\n", i, config.TxSum/time.Since(start).Seconds())
 	}
 }
 
 func runComputing(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.Scheduler) {
 	fmt.Println("Running computing threads")
 	time.Sleep(1 * time.Second)
-	comWg := new(sync.WaitGroup)
-	for i := 0; i < blockSum; i++ { // 区块
-		computingTxChan := make(chan *config.Transaction, chanLen)
-		for j := 0; j < txSum; j++ { // 每个区块中的交易个数
-			computingTxChan <- mp.GetCompetingTx()
+	for i := 0; i < config.BlockSum; i++ { // 区块
+		occTxSlice := make([]chan *config.Transaction, 0)
+		for j := 0; j < config.TxSum/config.AllThreadNum; j++ { // 每个区块中的交易个数
+			txChan := make(chan *config.Transaction, config.ChanLen)
+			for i := 0; i < config.AllThreadNum; i++ {
+				txChan <- mp.GetCompetingTx()
+			}
+			occTxSlice = append(occTxSlice, txChan)
 		}
-		close(computingTxChan)
 
 		start := time.Now()
-		comWg.Add(allThreadNum)
-		for k := 0; k < allThreadNum; k++ {
-			go s.Run(stateCache, computingTxChan, comWg)
+		for _, txChan := range occTxSlice { // 等待同一批次运行完成
+			wg := new(sync.WaitGroup)
+			close(txChan)
+			wg.Add(config.AllThreadNum)
+			for k := 0; k < config.AllThreadNum; k++ {
+				go s.Run(stateCache, txChan, wg, k)
+			}
+			wg.Wait()
 		}
-		comWg.Wait()
 		stateCache.Commit()
-		fmt.Printf("Finished %d block, TPS: %f\n", i, txSum/time.Since(start).Seconds())
-		//time.Sleep(1 * time.Second)
+		fmt.Printf("Finished %d block, TPS: %f\n", i, config.TxSum/time.Since(start).Seconds())
 	}
 }
 
 func runIO(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.Scheduler) {
 	fmt.Println("Running IO threads...")
-	ioWg := new(sync.WaitGroup)
-	for i := 0; i < blockSum; i++ { // 区块
-		ioTxChan := make(chan *config.Transaction, chanLen)
-		for j := 0; j < txSum; j++ { // 每个区块中的交易个数
-			ioTxChan <- mp.GetIOTx()
+	time.Sleep(1 * time.Second)
+	for i := 0; i < config.BlockSum; i++ { // 区块
+		occTxSlice := make([]chan *config.Transaction, 0)
+		for j := 0; j < config.TxSum/config.AllThreadNum; j++ { // 每个区块中的交易个数
+			txChan := make(chan *config.Transaction, config.ChanLen)
+			for i := 0; i < config.AllThreadNum; i++ {
+				txChan <- mp.GetIOTx()
+			}
+			occTxSlice = append(occTxSlice, txChan)
 		}
-		close(ioTxChan)
 
 		start := time.Now()
-		ioWg.Add(allThreadNum)
-		for k := 0; k < allThreadNum; k++ {
-			go s.Run(stateCache, ioTxChan, ioWg)
+		for _, txChan := range occTxSlice { // 等待同一批次运行完成
+			wg := new(sync.WaitGroup)
+			close(txChan)
+			wg.Add(config.AllThreadNum)
+			for k := 0; k < config.AllThreadNum; k++ {
+				go s.Run(stateCache, txChan, wg, k)
+			}
+			wg.Wait()
 		}
-		ioWg.Wait()
 		stateCache.Commit()
-		fmt.Printf("Finished %d block, time cost %f, TPS: %f\n", i, time.Since(start).Seconds(), txSum/time.Since(start).Seconds())
-		//time.Sleep(1 * time.Second)
+		fmt.Printf("Finished %d block, TPS: %f\n", i, config.TxSum/time.Since(start).Seconds())
 	}
 }
 
 func main() {
-	runtime.GOMAXPROCS(allThreadNum + 1)
-	monitor_filename := "cpu_disk_monitor/cpu_disk_Sep.xlsx"
-	//monitor_filename := "cpu_disk_monitor/cpu_disk_Hybrid.xlsx"
-	//monitor_filename := "cpu_disk_monitor/cpu_disk_Compute.xlsx"
-	//monitor_filename := "cpu_disk_monitor/cpu_disk_IO.xlsx"
+	mode := flag.String("m", "h",
+		"mode: \n"+
+			"\th stands for hybrid\n"+
+			"\ts stands for Sep\n"+
+			"\ti stands for io\n"+
+			"\tc stands for compute\n")
+	flag.Parse()
+
+	fmt.Println("mode: ", *mode)
+
+	runtime.GOMAXPROCS(config.AllThreadNum + 1)
+	file.WriteFiles(config.FilePath, config.AllThreadNum)
 
 	mp := mempool.NewMempool()
 	if mp.ComputeTxs == nil {
 		return
 	}
 
-	stateCache := persister.NewStateCache(JanusDBPath, key2addrDBPath)
+	stateCache := persister.NewStateCache(config.JanusDBPath, config.Key2addrDBPath)
 	// 调度执行
 	s := scheduler.NewScheduler(stateCache)
 	signalChan := make(chan struct{})
 	signalWg := new(sync.WaitGroup)
 	signalWg.Add(1)
-	go monitor.MonitorMetrics(1*time.Second, monitor_filename, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-
-	//runAll(stateCache, mp, s)
-	runSep(stateCache, mp, s)
-	//runIO(stateCache, mp, s)
-	//runComputing(stateCache, mp, s)
+	if *mode == "h" {
+		go monitor.MonitorMetrics(1*time.Second, config.MonitorFilenameHybrid, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		runAll(stateCache, mp, s)
+	} else if *mode == "s" {
+		go monitor.MonitorMetrics(1*time.Second, config.MonitorFilenameSep, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		runSep(stateCache, mp, s)
+	} else if *mode == "i" {
+		go monitor.MonitorMetrics(1*time.Second, config.MonitorFilenameIO, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		runIO(stateCache, mp, s)
+	} else if *mode == "c" {
+		go monitor.MonitorMetrics(1*time.Second, config.MonitorFilenameCompute, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		runComputing(stateCache, mp, s)
+	} else {
+		fmt.Println("mode is invalid")
+	}
 	close(signalChan)
 	signalWg.Wait()
 }

@@ -3,6 +3,7 @@ package monitor
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -13,10 +14,19 @@ import (
 )
 
 // MonitorMetrics 监控 CPU 和磁盘利用率
-func MonitorMetrics(interval time.Duration, monitor_filename string, signalChan chan struct{}, signalWg *sync.WaitGroup) {
+func MonitorMetrics(interval time.Duration, monitorFilename string, signalChan chan struct{}, signalWg *sync.WaitGroup) {
 	defer signalWg.Done()
 	runtime.LockOSThread()
-	os.Remove(monitor_filename)
+	os.Remove(monitorFilename)
+	// 1. 提取目录并创建（如果不存在）
+	dir := filepath.Dir(monitorFilename)
+	if dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			fmt.Printf("创建目录失败: %v\n", err)
+			return
+		}
+	}
+
 	// 创建 Excel 文件
 	f := excelize.NewFile()
 	sheet := "Sheet1"
@@ -35,7 +45,7 @@ func MonitorMetrics(interval time.Duration, monitor_filename string, signalChan 
 	for {
 		select {
 		case <-signalChan:
-			if err := f.SaveAs(monitor_filename); err != nil {
+			if err := f.SaveAs(monitorFilename); err != nil {
 				fmt.Println("保存 Excel 出错:", err)
 			}
 			return
