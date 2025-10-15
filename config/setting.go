@@ -8,13 +8,17 @@ var Options = &opt.Options{
 	//Strict:             opt.DefaultStrict,
 }
 
+var (
+	IoThreadNum        int = 4
+	ComputingThreadNum int = 4
+)
+
 const (
-	AllThreadNum       = 8
-	IoThreadNum        = 4
-	ComputingThreadNum = 4
-	BlockSum           = 200   // 执行多少个区块
-	ChanLen            = 20000 // 每个区块有多少笔交易
-	TxSum              = 20000 // 每个区块有多少笔交易
+	AllThreadNum = 8
+	BlockSum     = 200   // 执行多少个区块
+	ChanLen      = 20000 // 每个区块有多少笔交易
+	TxSum        = 20000 // 每个区块有多少笔交易
+	OpenReadFile = true
 )
 
 const (

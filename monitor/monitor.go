@@ -19,7 +19,8 @@ import (
 func MonitorMetrics(interval time.Duration, monitorFilename string, signalChan chan struct{}, signalWg *sync.WaitGroup) {
 	defer signalWg.Done()
 	runtime.LockOSThread()
-	monitorFilename = monitorFilename + "CT" + strconv.Itoa(config.ComputingThreadNum) + "_IT" + strconv.Itoa(config.IoThreadNum)
+	monitorFilename = monitorFilename + "_CT" + strconv.Itoa(config.ComputingThreadNum) + "_IT" + strconv.Itoa(config.IoThreadNum)
+	monitorFilename = monitorFilename + ".xlsx"
 	os.Remove(monitorFilename)
 	// 1. 提取目录并创建（如果不存在）
 	dir := filepath.Dir(monitorFilename)

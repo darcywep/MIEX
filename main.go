@@ -10,9 +10,12 @@ import (
 	"flag"
 	"fmt"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 )
+
+const validTime = 20
 
 func runAll(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.Scheduler) {
 	fmt.Println("Running all...")
@@ -38,6 +41,7 @@ func runAll(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.
 				go s.Run(stateCache, txChan, wg, k)
 			}
 			wg.Wait()
+			//time.Sleep(validTime * time.Microsecond)
 		}
 		stateCache.Commit()
 		fmt.Printf("Finished %d block, TPS: %f\n", i, config.TxSum/time.Since(start).Seconds())
@@ -74,6 +78,7 @@ func runSep(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.
 					go s.Run(stateCache, computingTxChan, wg, k)
 				}
 				wg.Wait()
+				//time.Sleep(validTime * time.Microsecond)
 			}
 		}()
 		go func() {
@@ -86,6 +91,7 @@ func runSep(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.
 					go s.Run(stateCache, ioTxChan, wg, k)
 				}
 				wg.Wait()
+				//time.Sleep(validTime * time.Microsecond)
 			}
 		}()
 		newWg.Wait()
@@ -116,6 +122,7 @@ func runComputing(stateCache *persister.StateCache, mp *mempool.Mempool, s *sche
 				go s.Run(stateCache, txChan, wg, k)
 			}
 			wg.Wait()
+			//time.Sleep(validTime * time.Microsecond)
 		}
 		stateCache.Commit()
 		fmt.Printf("Finished %d block, TPS: %f\n", i, config.TxSum/time.Since(start).Seconds())
@@ -144,6 +151,7 @@ func runIO(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.S
 				go s.Run(stateCache, txChan, wg, k)
 			}
 			wg.Wait()
+			//time.Sleep(validTime * time.Microsecond)
 		}
 		stateCache.Commit()
 		fmt.Printf("Finished %d block, TPS: %f\n", i, config.TxSum/time.Since(start).Seconds())
@@ -157,10 +165,13 @@ func main() {
 			"\ts stands for Sep\n"+
 			"\ti stands for io\n"+
 			"\tc stands for compute\n")
+	ioThreadNum := flag.String("it", "4", "it: (io thread number)")
+	computingThreadNum := flag.String("ct", "4", "ct: (computing thread number)")
 	flag.Parse()
 
-	fmt.Println("mode: ", *mode)
-
+	fmt.Println("mode: ", *mode, "ioThreadNum: ", *ioThreadNum, "computingThreadNum: ", *computingThreadNum)
+	config.IoThreadNum, _ = strconv.Atoi(*ioThreadNum)
+	config.ComputingThreadNum, _ = strconv.Atoi(*computingThreadNum)
 	runtime.GOMAXPROCS(config.AllThreadNum + 3)
 	file.WriteFiles(config.FilePath, config.AllThreadNum)
 
