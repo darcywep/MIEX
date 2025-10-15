@@ -23,8 +23,9 @@ type StateCache struct {
 	key2addr    map[string]string
 	key2addrMtx sync.RWMutex
 
-	persister *Persister
-	snapshot  *leveldb.Snapshot
+	persister        *Persister
+	snapshot         *leveldb.Snapshot
+	key2addrSnapshot *leveldb.Snapshot
 }
 
 func NewStateCache(JanusDBPath, key2addrDBPath string) *StateCache {
@@ -42,13 +43,17 @@ func NewStateCache(JanusDBPath, key2addrDBPath string) *StateCache {
 		fmt.Println(err)
 		panic(err)
 	}
-
+	key2addrSnapshot, err := key2AddrDB.GetSnapshot()
+	if err != nil {
+		fmt.Println(err)
+	}
 	return &StateCache{
-		data:       make(map[string]WriteEntry),
-		persister:  persister,
-		snapshot:   snapshot,
-		key2AddrDB: key2AddrDB,
-		key2addr:   make(map[string]string),
+		data:             make(map[string]WriteEntry),
+		persister:        persister,
+		snapshot:         snapshot,
+		key2AddrDB:       key2AddrDB,
+		key2addr:         make(map[string]string),
+		key2addrSnapshot: key2addrSnapshot,
 	}
 }
 
@@ -60,13 +65,20 @@ func (c *StateCache) Get(key string) ([]byte, error) {
 	if ok {
 		return val.Value, nil
 	}
-	//value, err := c.snapshot.Get([]byte(key), nil)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//if value != nil {
-	//	return value, nil
-	//}
+
+	nKeyS, err := c.key2addrSnapshot.Get([]byte(key), nil)
+	if nKeyS != nil { // 能从快照中读取数据
+		value, _ := c.snapshot.Get(nKeyS, nil)
+		if value != nil { //
+			address := common.BytesToAddress(nKeyS).Hex()
+			c.dataMtx.Lock()
+			c.data[key] = WriteEntry{"", value}
+			c.key2addr[key] = address
+			c.dataMtx.Unlock()
+			return value, nil
+		}
+	}
+
 	nKey, err := c.key2AddrDB.Get([]byte(key), nil)
 	if nKey == nil {
 		return nil, err

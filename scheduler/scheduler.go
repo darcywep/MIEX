@@ -19,11 +19,11 @@ func NewScheduler(stateCache *persister.StateCache) *Scheduler {
 }
 
 // Run 执行一批交易
-func (s *Scheduler) Run(cache *persister.StateCache, txChan chan *config.Transaction, wg *sync.WaitGroup) {
+func (s *Scheduler) Run(cache *persister.StateCache, txChan chan *config.Transaction, wg *sync.WaitGroup, i int) {
 	defer wg.Done()
 	runtime.LockOSThread()
 	for tx := range txChan {
-		core.ExecuteTransaction(cache, tx)
+		core.ExecuteTransaction(cache, tx, i)
 	}
 }
 
@@ -35,10 +35,10 @@ func (s *Scheduler) RunComputingTx(cache *persister.StateCache, txChan chan *con
 	}
 }
 
-func (s *Scheduler) RunIOTx(cache *persister.StateCache, txChan chan *config.Transaction, wg *sync.WaitGroup) {
+func (s *Scheduler) RunIOTx(cache *persister.StateCache, txChan chan *config.Transaction, wg *sync.WaitGroup, i int) {
 	defer wg.Done()
 	runtime.LockOSThread()
 	for tx := range txChan {
-		core.ExecuteIOTransaction(cache, tx)
+		core.ExecuteIOTransaction(cache, tx, i)
 	}
 }

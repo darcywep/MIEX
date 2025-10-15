@@ -2,6 +2,7 @@ package main
 
 import (
 	"Janus/config"
+	"Janus/file"
 	"Janus/mempool"
 	"Janus/monitor"
 	"Janus/persister"
@@ -16,11 +17,12 @@ const (
 	allThreadNum       = 8
 	ioThreadNum        = 1
 	computingThreadNum = 7
-	blockSum           = 1000  // 执行多少个区块
+	blockSum           = 30    // 执行多少个区块
 	chanLen            = 20000 // 每个区块有多少笔交易
 	txSum              = 20000 // 每个区块有多少笔交易
 	JanusDBPath        = "./JanusDB"
 	key2addrDBPath     = "./key2addrDB"
+	filePath           = config.FilePath
 )
 
 func runAll(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.Scheduler) {
@@ -29,15 +31,15 @@ func runAll(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.
 	for i := 0; i < blockSum; i++ { // 区块
 		txChan := make(chan *config.Transaction, chanLen)
 
-		for j := 0; j < txSum/2; j++ { // 每个区块中的交易个数
-			txChan <- mp.GetIOTx()
-			txChan <- mp.GetCompetingTx()
+		for j := 0; j < txSum; j++ { // 每个区块中的交易个数
+			txChan <- mp.GetTx()
+			//txChan <- mp.GetCompetingTx()
 		}
 		close(txChan)
 		start := time.Now()
 		wg.Add(allThreadNum)
 		for k := 0; k < allThreadNum; k++ {
-			go s.Run(stateCache, txChan, wg)
+			go s.Run(stateCache, txChan, wg, k)
 		}
 		wg.Wait()
 		stateCache.Commit()
@@ -65,7 +67,7 @@ func runSep(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.
 		}
 
 		for k := 0; k < ioThreadNum; k++ {
-			go s.RunIOTx(stateCache, ioTxChan, wg)
+			go s.RunIOTx(stateCache, ioTxChan, wg, k)
 		}
 		wg.Wait()
 		stateCache.Commit()
@@ -88,7 +90,7 @@ func runComputing(stateCache *persister.StateCache, mp *mempool.Mempool, s *sche
 		start := time.Now()
 		comWg.Add(allThreadNum)
 		for k := 0; k < allThreadNum; k++ {
-			go s.Run(stateCache, computingTxChan, comWg)
+			go s.Run(stateCache, computingTxChan, comWg, k)
 		}
 		comWg.Wait()
 		stateCache.Commit()
@@ -110,7 +112,7 @@ func runIO(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.S
 		start := time.Now()
 		ioWg.Add(allThreadNum)
 		for k := 0; k < allThreadNum; k++ {
-			go s.Run(stateCache, ioTxChan, ioWg)
+			go s.Run(stateCache, ioTxChan, ioWg, k)
 		}
 		ioWg.Wait()
 		stateCache.Commit()
@@ -121,10 +123,11 @@ func runIO(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.S
 
 func main() {
 	runtime.GOMAXPROCS(allThreadNum + 1)
-	//monitor_filename := "cpu_disk_monitor/cpu_disk_Sep.xlsx"
+	file.WriteFiles(filePath, allThreadNum)
+	monitor_filename := "cpu_disk_monitor/cpu_disk_Sep.xlsx"
 	//monitor_filename := "cpu_disk_monitor/cpu_disk_Hybrid.xlsx"
 	//monitor_filename := "cpu_disk_monitor/cpu_disk_Compute.xlsx"
-	monitor_filename := "cpu_disk_monitor/cpu_disk_IO.xlsx"
+	//monitor_filename := "cpu_disk_monitor/cpu_disk_IO.xlsx"
 
 	mp := mempool.NewMempool()
 	if mp.ComputeTxs == nil {
@@ -140,8 +143,8 @@ func main() {
 	go monitor.MonitorMetrics(1*time.Second, monitor_filename, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 
 	//runAll(stateCache, mp, s)
-	//runSep(stateCache, mp, s)
-	runIO(stateCache, mp, s)
+	runSep(stateCache, mp, s)
+	//runIO(stateCache, mp, s)
 	//runComputing(stateCache, mp, s)
 	close(signalChan)
 	signalWg.Wait()
