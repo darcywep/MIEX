@@ -10,9 +10,9 @@ var Options = &opt.Options{
 
 const (
 	AllThreadNum       = 8
-	IoThreadNum        = 1
-	ComputingThreadNum = 7
-	BlockSum           = 100   // 执行多少个区块
+	IoThreadNum        = 4
+	ComputingThreadNum = 4
+	BlockSum           = 200   // 执行多少个区块
 	ChanLen            = 20000 // 每个区块有多少笔交易
 	TxSum              = 20000 // 每个区块有多少笔交易
 )
@@ -23,10 +23,10 @@ const (
 	TotalKeys                              = 25 * 10000 * 10000 // LevelDB 总数据量
 	JanusDBPath                            = "./JanusDB"
 	Key2addrDBPath                         = "./key2addrDB"
-	MonitorFilenameSep                     = "./cpu_disk_monitor/cpu_disk_Sep.xlsx"
-	MonitorFilenameHybrid                  = "./cpu_disk_monitor/cpu_disk_Hybrid.xlsx"
-	MonitorFilenameCompute                 = "./cpu_disk_monitor/cpu_disk_Compute.xlsx"
-	MonitorFilenameIO                      = "./cpu_disk_monitor/cpu_disk_IO.xlsx"
+	MonitorFilenameSep                     = "./cpu_disk_monitor/cpu_disk_Sep"
+	MonitorFilenameHybrid                  = "./cpu_disk_monitor/cpu_disk_Hybrid"
+	MonitorFilenameCompute                 = "./cpu_disk_monitor/cpu_disk_Compute"
+	MonitorFilenameIO                      = "./cpu_disk_monitor/cpu_disk_IO"
 )
 
 const (

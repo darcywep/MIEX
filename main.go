@@ -62,21 +62,33 @@ func runSep(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.
 		}
 
 		start := time.Now()
-		for i, ioTxChan := range occIOTxSlice { // 等待同一批次运行完成
-			computingTxChan := occComputingTxSlice[i]
-			close(ioTxChan)
-			close(computingTxChan)
-
-			wg := new(sync.WaitGroup)
-			wg.Add(config.AllThreadNum)
-			for k := 0; k < config.ComputingThreadNum; k++ {
-				go s.Run(stateCache, computingTxChan, wg, k)
+		newWg := new(sync.WaitGroup)
+		newWg.Add(2)
+		go func() {
+			defer newWg.Done()
+			for _, computingTxChan := range occComputingTxSlice { // 等待同一批次运行完成
+				close(computingTxChan)
+				wg := new(sync.WaitGroup)
+				wg.Add(config.ComputingThreadNum)
+				for k := 0; k < config.ComputingThreadNum; k++ {
+					go s.Run(stateCache, computingTxChan, wg, k)
+				}
+				wg.Wait()
 			}
-			for k := 0; k < config.IoThreadNum; k++ {
-				go s.Run(stateCache, ioTxChan, wg, k)
+		}()
+		go func() {
+			defer newWg.Done()
+			for _, ioTxChan := range occIOTxSlice { // 等待同一批次运行完成
+				close(ioTxChan)
+				wg := new(sync.WaitGroup)
+				wg.Add(config.IoThreadNum)
+				for k := 0; k < config.IoThreadNum; k++ {
+					go s.Run(stateCache, ioTxChan, wg, k)
+				}
+				wg.Wait()
 			}
-			wg.Wait()
-		}
+		}()
+		newWg.Wait()
 		stateCache.Commit()
 		fmt.Printf("Finished %d block, TPS: %f\n", i, config.TxSum/time.Since(start).Seconds())
 	}
@@ -149,7 +161,7 @@ func main() {
 
 	fmt.Println("mode: ", *mode)
 
-	runtime.GOMAXPROCS(config.AllThreadNum + 1)
+	runtime.GOMAXPROCS(config.AllThreadNum + 3)
 	file.WriteFiles(config.FilePath, config.AllThreadNum)
 
 	mp := mempool.NewMempool()

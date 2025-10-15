@@ -1,10 +1,12 @@
 package monitor
 
 import (
+	"Janus/config"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 func MonitorMetrics(interval time.Duration, monitorFilename string, signalChan chan struct{}, signalWg *sync.WaitGroup) {
 	defer signalWg.Done()
 	runtime.LockOSThread()
+	monitorFilename = monitorFilename + "CT" + strconv.Itoa(config.ComputingThreadNum) + "_IT" + strconv.Itoa(config.IoThreadNum)
 	os.Remove(monitorFilename)
 	// 1. 提取目录并创建（如果不存在）
 	dir := filepath.Dir(monitorFilename)
