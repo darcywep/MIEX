@@ -1,14 +1,14 @@
 package main
 
 import (
+	"Janus/baselines/common"
+	"Janus/baselines/generator"
+	"Janus/baselines/optme"
 	"Janus/config"
-	"Janus/file"
 	"Janus/mempool"
-	"Janus/monitor"
 	"Janus/persister"
 	"Janus/scheduler"
 	"fmt"
-	"runtime"
 	"sync"
 	"time"
 )
@@ -122,30 +122,44 @@ func runIO(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.S
 }
 
 func main() {
-	runtime.GOMAXPROCS(allThreadNum + 1)
-	file.WriteFiles(filePath, allThreadNum)
-	monitor_filename := "cpu_disk_monitor/cpu_disk_Sep.xlsx"
-	//monitor_filename := "cpu_disk_monitor/cpu_disk_Hybrid.xlsx"
-	//monitor_filename := "cpu_disk_monitor/cpu_disk_Compute.xlsx"
-	//monitor_filename := "cpu_disk_monitor/cpu_disk_IO.xlsx"
 
-	mp := mempool.NewMempool()
-	if mp.ComputeTxs == nil {
-		return
-	}
+	txGenerator := generator.NewTxGenerator(common.TX_NUM, common.BLOCK_SIZE)
+	blocks := txGenerator.GenerateWorkload(false)
 
-	stateCache := persister.NewStateCache(JanusDBPath, key2addrDBPath)
-	// 调度执行
-	s := scheduler.NewScheduler(stateCache)
-	signalChan := make(chan struct{})
-	signalWg := new(sync.WaitGroup)
-	signalWg.Add(1)
-	go monitor.MonitorMetrics(1*time.Second, monitor_filename, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+	fmt.Printf("blocks.size = %d \n", len(blocks))
+	fmt.Printf("generate over \n")
 
-	//runAll(stateCache, mp, s)
-	runSep(stateCache, mp, s)
-	//runIO(stateCache, mp, s)
-	//runComputing(stateCache, mp, s)
-	close(signalChan)
-	signalWg.Wait()
+	optme.OptmeTest()
+
+	/*
+
+		runtime.GOMAXPROCS(allThreadNum + 1)
+		file.WriteFiles(filePath, allThreadNum)
+		monitor_filename := "cpu_disk_monitor/cpu_disk_Sep.xlsx"
+		//monitor_filename := "cpu_disk_monitor/cpu_disk_Hybrid.xlsx"
+		//monitor_filename := "cpu_disk_monitor/cpu_disk_Compute.xlsx"
+		//monitor_filename := "cpu_disk_monitor/cpu_disk_IO.xlsx"
+
+		mp := mempool.NewMempool()
+		if mp.ComputeTxs == nil {
+			return
+		}
+
+		stateCache := persister.NewStateCache(JanusDBPath, key2addrDBPath)
+		// 调度执行
+		s := scheduler.NewScheduler(stateCache)
+		signalChan := make(chan struct{})
+		signalWg := new(sync.WaitGroup)
+		signalWg.Add(1)
+		go monitor.MonitorMetrics(1*time.Second, monitor_filename, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+
+		//runAll(stateCache, mp, s)
+		runSep(stateCache, mp, s)
+		//runIO(stateCache, mp, s)
+		//runComputing(stateCache, mp, s)
+		close(signalChan)
+		signalWg.Wait()
+
+
+	*/
 }
