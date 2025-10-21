@@ -8,18 +8,6 @@ import (
 	"time"
 )
 
-const (
-	competingTxCount = 2000 * 10000 // 计算型交易数
-	ioTxCount        = 2000 * 10000 // IO 型交易数
-	//ioTxCount     = 10  // IO 型交易数
-	computingWriteN = 1
-	computingReadN  = 0
-	ioWriteN        = 2
-	ioReadN         = 0
-	calcKeysPerTx   = computingWriteN + computingReadN // 每个计算交易读的 key 数
-	ioKeysPerTx     = ioWriteN + ioReadN               // 每个 IO 交易读的 key 数
-)
-
 // Mempool 表示交易池
 type Mempool struct {
 	// 交易的key都是数字，读取的时候要转成address
@@ -132,7 +120,7 @@ func generateTxs() ([]*config.Transaction, []*config.Transaction) {
 
 	rand.Seed(time.Now().UnixNano())
 
-	totalNeeded := competingTxCount*calcKeysPerTx + ioTxCount*ioKeysPerTx
+	totalNeeded := config.CompetingTxCount*config.CalcKeysPerTx + config.IoTxCount*config.IoKeysPerTx
 	fmt.Println("需要生成唯一 key 的数量:", totalNeeded)
 
 	// 生成全局唯一 key
@@ -154,10 +142,10 @@ func generateTxs() ([]*config.Transaction, []*config.Transaction) {
 
 	// 生成计算型交易
 
-	idx, competingTxs := genTxs(config.ComputeTx, competingTxCount, computingWriteN, computingReadN, idx, keyList)
+	idx, competingTxs := genTxs(config.ComputeTx, config.CompetingTxCount, config.ComputingWriteN, config.ComputingReadN, idx, keyList)
 
 	// 生成IO型交易
-	idx, ioTxs := genTxs(config.IOTx, ioTxCount, ioWriteN, ioReadN, idx, keyList)
+	idx, ioTxs := genTxs(config.IOTx, config.IoTxCount, config.IoWriteN, config.IoReadN, idx, keyList)
 
 	//for _, tx := range competingTxs {
 	//	fmt.Println(tx.ReadKey)
