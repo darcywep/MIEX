@@ -105,32 +105,46 @@ func (tg *TxGenerator) GenerateBlock(isNest bool, workload *common.Workload, blo
 func (tg *TxGenerator) GenerateTransaction(tx *common.TPCCTransaction, isNest bool, invertedIndex map[string]*common.RWSets) *common.HyperVertex {
 	// range of txid: [1, BLOCK_SIZE] => (x - 1) % BLOCK_SIZE + 1
 	txid := (tg.GetID()-1)%tg.blockSize + 1
+
+	fmt.Printf("txid: %d\n", txid)
+
 	hyperVertex := common.NewHyperVertex(txid, isNest)
 	rootVertex := common.NewVertex(hyperVertex, txid, fmt.Sprintf("%d", txid), 0, isNest)
-	txidStr := fmt.Sprintf("%d", txid)
+	//txidStr := fmt.Sprintf("%d", txid)
 
-	if isNest {
-		hyperVertex.BuildVertexs(tx, hyperVertex, rootVertex, txidStr, invertedIndex)
-		// 记录超节点包含的所有节点
-		for vertex := range rootVertex.CascadeVertices {
-			hyperVertex.Vertices[vertex] = true
-		}
-		// 根据子节点依赖更新回滚代价和级联子事务
-		hyperVertex.RootVertex = rootVertex
-		hyperVertex.RecognizeCascades(rootVertex)
-	} else {
-		//hyperVertex.BuildVertexsSimple(tx, rootVertex, invertedIndex)
-		hyperVertex.BuildVertexsSimple(tx, rootVertex, invertedIndex)
-		// 添加回滚代价
-		rootVertex.Cost = rootVertex.SelfCost
-		// 更新读写集
-		rootVertex.AllReadSet = rootVertex.ReadSet
-		rootVertex.AllWriteSet = rootVertex.WriteSet
-		// 添加自己
-		rootVertex.CascadeVertices[rootVertex] = true
-		hyperVertex.Vertices[rootVertex] = true
-		hyperVertex.RootVertex = rootVertex
-	}
+	hyperVertex.BuildVertexsSimple(tx, rootVertex, invertedIndex)
+	// 添加回滚代价
+	rootVertex.Cost = rootVertex.SelfCost
+	// 更新读写集
+	rootVertex.AllReadSet = rootVertex.ReadSet
+	rootVertex.AllWriteSet = rootVertex.WriteSet
+	// 添加自己
+	rootVertex.CascadeVertices[rootVertex] = true
+	hyperVertex.Vertices[rootVertex] = true
+	hyperVertex.RootVertex = rootVertex
+
+	// 不考虑嵌套交易场景
+	//if isNest {
+	//	hyperVertex.BuildVertexs(tx, hyperVertex, rootVertex, txidStr, invertedIndex)
+	//	// 记录超节点包含的所有节点
+	//	for vertex := range rootVertex.CascadeVertices {
+	//		hyperVertex.Vertices[vertex] = true
+	//	}
+	//	// 根据子节点依赖更新回滚代价和级联子事务
+	//	hyperVertex.RootVertex = rootVertex
+	//	hyperVertex.RecognizeCascades(rootVertex)
+	//} else {
+	//	hyperVertex.BuildVertexsSimple(tx, rootVertex, invertedIndex)
+	//	// 添加回滚代价
+	//	rootVertex.Cost = rootVertex.SelfCost
+	//	// 更新读写集
+	//	rootVertex.AllReadSet = rootVertex.ReadSet
+	//	rootVertex.AllWriteSet = rootVertex.WriteSet
+	//	// 添加自己
+	//	rootVertex.CascadeVertices[rootVertex] = true
+	//	hyperVertex.Vertices[rootVertex] = true
+	//	hyperVertex.RootVertex = rootVertex
+	//}
 
 	return hyperVertex
 }

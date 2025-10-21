@@ -55,11 +55,12 @@ func ExecuteIOTransaction(cache *persister.StateCache, tx *config.Transaction, i
 	tx.Error = nil
 
 	// 读一次触发IO中断
-	name := filepath.Join(config.FilePath, fmt.Sprintf("file_%03d.bin", i))
-	if err := file.ReadOnce(name); err != nil {
-		fmt.Printf("读取 %s 失败: %v\n", name, err)
+	if config.OpenReadFile {
+		name := filepath.Join(config.FilePath, fmt.Sprintf("file_%03d.bin", i))
+		if err := file.ReadOnce(name); err != nil {
+			fmt.Printf("读取 %s 失败: %v\n", name, err)
+		}
 	}
-
 	//log.Printf("✅ 交易 %s 执行完成 (type=%d)，耗时=%s", tx.ID, tx.Type, time.Since(start))
 }
 
