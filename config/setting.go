@@ -25,8 +25,8 @@ const (
 	ComputeTx              TransactionType = 1
 	IOTx                   TransactionType = 2
 	TotalKeys                              = 25 * 10000 * 10000 // LevelDB 总数据量
-	JanusDBPath                            = "./JanusDB"
-	Key2addrDBPath                         = "./key2addrDB"
+	JanusDBPath                            = "/root/alldb/JanusDB"
+	Key2addrDBPath                         = "/root/alldb/key2addrDB"
 	MonitorFilenameSep                     = "./cpu_disk_monitor/cpu_disk_Sep"
 	MonitorFilenameHybrid                  = "./cpu_disk_monitor/cpu_disk_Hybrid"
 	MonitorFilenameCompute                 = "./cpu_disk_monitor/cpu_disk_Compute"

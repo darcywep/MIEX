@@ -106,8 +106,6 @@ func (tg *TxGenerator) GenerateTransaction(tx *common.TPCCTransaction, isNest bo
 	// range of txid: [1, BLOCK_SIZE] => (x - 1) % BLOCK_SIZE + 1
 	txid := (tg.GetID()-1)%tg.blockSize + 1
 
-	fmt.Printf("txid: %d\n", txid)
-
 	hyperVertex := common.NewHyperVertex(txid, isNest)
 	rootVertex := common.NewVertex(hyperVertex, txid, fmt.Sprintf("%d", txid), 0, isNest)
 	//txidStr := fmt.Sprintf("%d", txid)
