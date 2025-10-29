@@ -18,7 +18,7 @@ const (
 	BlockSum     = 200   // 执行多少个区块
 	ChanLen      = 20000 // 每个区块有多少笔交易
 	TxSum        = 20000 // 每个区块有多少笔交易
-	OpenReadFile = true
+	OpenReadFile = false
 )
 
 const (
@@ -31,6 +31,7 @@ const (
 	MonitorFilenameHybrid                  = "./cpu_disk_monitor/cpu_disk_Hybrid"
 	MonitorFilenameCompute                 = "./cpu_disk_monitor/cpu_disk_Compute"
 	MonitorFilenameIO                      = "./cpu_disk_monitor/cpu_disk_IO"
+	MonitorFilenamePeep                    = "./cpu_disk_monitor/cpu_disk_Peep"
 )
 
 const (
