@@ -22,7 +22,7 @@ type Unit struct {
 	address        string
 	lock           sync.RWMutex
 	wrDependencies uint32
-	co_located     atomic.Bool //是否与其他Unit有冲突
+	co_located     atomic.Bool // 是否读写均有
 }
 
 func newUnit(tx *OptmeTransaction, unitType UnitType, address string, co_located atomic.Bool) *Unit {
@@ -48,11 +48,11 @@ func (u *Unit) addDependence() {
 }
 
 func (u *Unit) is_sorted() bool {
-	return u.tx.sequenceid > 0
+	return u.tx.Sequenceid > 0
 }
 
 func (u *Unit) abort_tx(txid string) {
-	u.tx.aborted.Store(true)
+	u.tx.Aborted.Store(true)
 }
 
 // ReadUnits 管理读操作单元的集合，支持排序和序列号分配
@@ -86,7 +86,7 @@ func (u *ReadUnits) sort() {
 		// 找到已排序单元中的最大序列号
 		maxSeq := uint32(0)
 		for _, unit := range sorted {
-			seq := unit.tx.sequenceid
+			seq := unit.tx.Sequenceid
 			if seq > maxSeq {
 				maxSeq = seq
 			}
@@ -101,7 +101,7 @@ func (u *ReadUnits) sort() {
 
 	// 为未排序单元设置序列号
 	for _, unit := range remaining {
-		unit.tx.sequenceid = u.max_seq
+		unit.tx.Sequenceid = u.max_seq
 	}
 
 	// 合并结果（已排序的在前，新设置的在后）
@@ -140,25 +140,25 @@ func (u *WriteUnits) sort(readunits *ReadUnits) {
 	for _, unit := range sorted {
 		tx := unit.tx
 
-		if !tx.aborted.Load() && unit.co_located.Load() {
-			if !u.first_update_flag {
-				tx.sequenceid = readunits.max_seq
+		if !tx.Aborted.Load() && unit.co_located.Load() { // 写集也在读集中
+			if !u.first_update_flag { // 第一次冲突
+				tx.Sequenceid = readunits.max_seq + 1
 				u.first_update_flag = true
 				fmt.Printf("DEBUG: Set sequence for first updater: %d", readunits.max_seq)
 			} else {
-				fmt.Printf("DEBUG: abort tx by unit: %v", unit.tx.tx)
-				unit.tx.aborted.Store(true)
+				fmt.Printf("DEBUG: abort tx by unit: %v", unit.tx.Tx)
+				unit.tx.Aborted.Store(true) // 剩下交易全部abort
 			}
 		}
 	}
 
-	// 再次检查已排序单元（不理解这步存在的意义，除非 co_located 有特殊意义，待确定）
+	// 再次检查已排序单元（有交易的sequenceid可能比readunits.max_seq小，来自上一个epoch）
 	for _, unit := range sorted {
 		tx := unit.tx
 		// 修正：使用 GetAborted() 返回的 bool 值
-		if !tx.aborted.Load() && tx.sequenceid < readunits.max_seq {
-			log.Printf("DEBUG: abort tx by unit: %d", tx.tx.Txid)
-			unit.tx.aborted.Store(true)
+		if !tx.Aborted.Load() && tx.Sequenceid < readunits.max_seq {
+			log.Printf("DEBUG: abort tx by unit: %d", tx.Tx.Txid)
+			unit.tx.Aborted.Store(true)
 		}
 	}
 
@@ -166,19 +166,19 @@ func (u *WriteUnits) sort(readunits *ReadUnits) {
 	writeSeqSet := make(map[uint32]bool)
 	for _, unit := range sorted {
 		tx := unit.tx
-		if !tx.aborted.Load() { // 使用 GetAborted() 返回的 bool 值
-			writeSeqSet[tx.sequenceid] = true
+		if !tx.Aborted.Load() { // 使用 GetAborted() 返回的 bool 值
+			writeSeqSet[tx.Sequenceid] = true
 		}
 	}
 
 	// 为未排序单元分配序列号
-	writeSeq := readunits.max_seq
+	writeSeq := readunits.max_seq + 1
 	for _, unit := range remaining {
 		// 找到可用的序列号
 		for writeSeqSet[writeSeq] {
 			writeSeq++
 		}
-		unit.tx.sequenceid = writeSeq
+		unit.tx.Sequenceid = writeSeq
 		writeSeqSet[writeSeq] = true
 	}
 
@@ -197,7 +197,7 @@ type Address struct {
 	readUnits          ReadUnits
 	writeUnits         WriteUnits
 	first_updater_flag bool
-}
+} // Address 表示一批对同一个Key的读和写操作集合，多线程并行构图需要将多个address合并
 
 func NewAddress(address string) *Address {
 	return &Address{address: address}
@@ -228,7 +228,7 @@ func (a *Address) Merge(other *Address) {
 	if a.first_updater_flag && other.first_updater_flag { // 两个子图中都有first_updater_flag
 		for _, unit := range other.readUnits.units { // 遍历右边子图的读操作
 			if unit.co_located.Load() == true { // 找到右边子图的first committer
-				unit.tx.aborted.Store(true) // 中止交易
+				unit.tx.Aborted.Store(true) // 中止交易
 				a.in_degree += other.in_degree - unit.getDegree()
 				break
 			}
@@ -236,8 +236,8 @@ func (a *Address) Merge(other *Address) {
 
 		for _, unit := range other.writeUnits.units {
 			if unit.co_located.Load() == true {
-				unit.tx.aborted.Store(true) // 中止交易
-				a.in_degree += other.in_degree - unit.getDegree()
+				unit.tx.Aborted.Store(true) // 中止交易
+				a.out_degree += other.out_degree - unit.getDegree()
 				break
 			}
 		}
@@ -258,8 +258,12 @@ type ThreadPool struct {
 	 */
 }
 
+func NewThreadPool(numThreads int) *ThreadPool {
+	return &ThreadPool{}
+}
+
 type AddressBasedConflictGraph struct {
-	addresses  map[string]*Address
+	addresses  map[string]*Address // 多个address
 	txList     []*OptmeTransaction
 	abortedTxs []*OptmeTransaction
 	pool       *ThreadPool
@@ -271,7 +275,7 @@ func NewAddressBasedConflictGraph(pool *ThreadPool) *AddressBasedConflictGraph {
 	}
 }
 
-// ConvertToUnits 将读写集合转换为读写单元（包含值的版本），readOrWriteSet指的是读集或者写集，不是读写集所有
+// ConvertToUnits 将交易的读写集合转换为读写单元unit（包含值的版本），readOrWriteSet指的是读集或者写集，不是读写集所有
 func (a *AddressBasedConflictGraph) ConvertToUnits(tx *OptmeTransaction, unitType UnitType, readOrWriteSet map[string]string, readSet map[string]string) []*Unit {
 	units := make([]*Unit, 0, len(readOrWriteSet))
 
@@ -325,7 +329,7 @@ func (a *AddressBasedConflictGraph) SetWRDependencies(readUnits []*Unit, writeUn
 	for _, writeUnit := range writeUnits {
 		address := writeUnit.address
 		for _, readUnit := range readUnits {
-			if readUnit.address != address {
+			if readUnit.address == address {
 				readUnit.addDependence()
 				writeUnit.addDependence()
 			}
@@ -350,17 +354,16 @@ func (a *AddressBasedConflictGraph) AddUnitsToAddress(units []*Unit) {
 
 func (a *AddressBasedConflictGraph) Initialize(batch []*OptmeTransaction) {
 	for _, tx := range batch {
-		//writeUnits := a.ConvertToUnits2(tx, UnitType(Write), tx.tx.vertex.writeKeys, tx.tx.vertex.readKeys)
 
-		writeUnits := a.ConvertToUnits2(tx, UnitType(Write), tx.tx.Vertex.WriteKeys, tx.tx.Vertex.ReadKeys)
+		writeUnits := a.ConvertToUnits2(tx, UnitType(Write), tx.Tx.Vertex.WriteKeys, tx.Tx.Vertex.ReadKeys)
 
 		if a.CheckUpdaterAlreadyExistInSameAddress(writeUnits) {
-			tx.aborted.Store(true)
+			tx.Aborted.Store(true)
 			a.abortedTxs = append(a.abortedTxs, tx)
 			continue
 		}
 
-		readUnits := a.ConvertToUnits2(tx, UnitType(Read), tx.tx.Vertex.ReadKeys, nil)
+		readUnits := a.ConvertToUnits2(tx, UnitType(Read), tx.Tx.Vertex.ReadKeys, nil)
 		a.SetWRDependencies(readUnits, writeUnits)
 
 		a.txList = append(a.txList, tx)
@@ -379,7 +382,7 @@ func (a *AddressBasedConflictGraph) NewAddressBasedConflictGraphWithBatch(pool *
 
 // Go语言中通常使用指针赋值或重新分配
 func (a *AddressBasedConflictGraph) AssignFrom(other *AddressBasedConflictGraph) {
-	if a != other { // 防止自赋值
+	if a != other { // 防止深拷贝
 		a.addresses = other.addresses // 切片/映射是引用类型，直接赋值
 		a.txList = other.txList
 		a.abortedTxs = other.abortedTxs
@@ -396,7 +399,7 @@ func (a *AddressBasedConflictGraph) Construct(simulationResult []*OptmeTransacti
 
 		// 检查同一地址是否已存在更新器
 		if a.CheckUpdaterAlreadyExistInSameAddress(writeUnits) {
-			tx.aborted.Store(true)
+			tx.Aborted.Store(true)
 			a.abortedTxs = append(a.abortedTxs, tx)
 			continue // 跳过已中止的事务
 		}
@@ -419,11 +422,11 @@ func (a *AddressBasedConflictGraph) Construct(simulationResult []*OptmeTransacti
 //   - simulationResult: 模拟结果，包含所有待处理的事务
 func (a *AddressBasedConflictGraph) ParallelConstruct(simulationResult []*OptmeTransaction) {
 	numOfTxn := len(simulationResult)
-	numCPU := runtime.NumCPU()
-	chunkSize := max(numOfTxn/numCPU, 1)
+	numCPU := runtime.NumCPU()           // 并行的线程数目
+	chunkSize := max(numOfTxn/numCPU, 1) // 每个线程处理的交易数目
 
 	var wg sync.WaitGroup
-	results := make(chan *AddressBasedConflictGraph, numCPU)
+	results := make(chan *AddressBasedConflictGraph, numCPU) // 存放生成的冲突图通道
 
 	// 第一阶段：并行处理子任务
 	for i := 0; i < numOfTxn; i += chunkSize {
@@ -446,10 +449,8 @@ func (a *AddressBasedConflictGraph) ParallelConstruct(simulationResult []*OptmeT
 	}
 
 	// 等待所有子任务完成
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
+	wg.Wait()
+	close(results)
 
 	// 收集子图结果
 	var subGraphs []*AddressBasedConflictGraph
