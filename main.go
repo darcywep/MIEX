@@ -8,10 +8,7 @@ import (
 	"Janus/mempool"
 	"Janus/persister"
 	"Janus/scheduler"
-	"flag"
 	"fmt"
-	"runtime"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -171,54 +168,54 @@ func main() {
 
 	/*
 
-		runtime.GOMAXPROCS(allThreadNum + 1)
-		file.WriteFiles(filePath, allThreadNum)
-		monitor_filename := "cpu_disk_monitor/cpu_disk_Sep.xlsx"
-		//monitor_filename := "cpu_disk_monitor/cpu_disk_Hybrid.xlsx"
-		//monitor_filename := "cpu_disk_monitor/cpu_disk_Compute.xlsx"
-		//monitor_filename := "cpu_disk_monitor/cpu_disk_IO.xlsx"
-	mode := flag.String("m", "h",
-		"mode: \n"+
-			"\th stands for hybrid\n"+
-			"\ts stands for Sep\n"+
-			"\ti stands for io\n"+
-			"\tc stands for compute\n")
-	ioThreadNum := flag.String("it", "4", "it: (io thread number)")
-	computingThreadNum := flag.String("ct", "4", "ct: (computing thread number)")
-	flag.Parse()
+			runtime.GOMAXPROCS(allThreadNum + 1)
+			file.WriteFiles(filePath, allThreadNum)
+			monitor_filename := "cpu_disk_monitor/cpu_disk_Sep.xlsx"
+			//monitor_filename := "cpu_disk_monitor/cpu_disk_Hybrid.xlsx"
+			//monitor_filename := "cpu_disk_monitor/cpu_disk_Compute.xlsx"
+			//monitor_filename := "cpu_disk_monitor/cpu_disk_IO.xlsx"
+		mode := flag.String("m", "h",
+			"mode: \n"+
+				"\th stands for hybrid\n"+
+				"\ts stands for Sep\n"+
+				"\ti stands for io\n"+
+				"\tc stands for compute\n")
+		ioThreadNum := flag.String("it", "4", "it: (io thread number)")
+		computingThreadNum := flag.String("ct", "4", "ct: (computing thread number)")
+		flag.Parse()
 
-	fmt.Println("mode: ", *mode, "ioThreadNum: ", *ioThreadNum, "computingThreadNum: ", *computingThreadNum)
-	config.IoThreadNum, _ = strconv.Atoi(*ioThreadNum)
-	config.ComputingThreadNum, _ = strconv.Atoi(*computingThreadNum)
-	runtime.GOMAXPROCS(config.AllThreadNum + 3)
-	file.WriteFiles(config.FilePath, config.AllThreadNum)
+		fmt.Println("mode: ", *mode, "ioThreadNum: ", *ioThreadNum, "computingThreadNum: ", *computingThreadNum)
+		config.IoThreadNum, _ = strconv.Atoi(*ioThreadNum)
+		config.ComputingThreadNum, _ = strconv.Atoi(*computingThreadNum)
+		runtime.GOMAXPROCS(config.AllThreadNum + 3)
+		file.WriteFiles(config.FilePath, config.AllThreadNum)
 
-		mp := mempool.NewMempool()
-		if mp.ComputeTxs == nil {
-			return
+			mp := mempool.NewMempool()
+			if mp.ComputeTxs == nil {
+				return
+			}
+
+		stateCache := persister.NewStateCache(config.JanusDBPath, config.Key2addrDBPath)
+		// 调度执行
+		s := scheduler.NewScheduler(stateCache)
+		signalChan := make(chan struct{})
+		signalWg := new(sync.WaitGroup)
+		signalWg.Add(1)
+		if *mode == "h" {
+			go monitor.MonitorMetrics(1*time.Second, config.MonitorFilenameHybrid, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+			runAll(stateCache, mp, s)
+		} else if *mode == "s" {
+			go monitor.MonitorMetrics(1*time.Second, config.MonitorFilenameSep, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+			runSep(stateCache, mp, s)
+		} else if *mode == "i" {
+			go monitor.MonitorMetrics(1*time.Second, config.MonitorFilenameIO, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+			runIO(stateCache, mp, s)
+		} else if *mode == "c" {
+			go monitor.MonitorMetrics(1*time.Second, config.MonitorFilenameCompute, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+			runComputing(stateCache, mp, s)
+		} else {
+			fmt.Println("mode is invalid")
 		}
-
-	stateCache := persister.NewStateCache(config.JanusDBPath, config.Key2addrDBPath)
-	// 调度执行
-	s := scheduler.NewScheduler(stateCache)
-	signalChan := make(chan struct{})
-	signalWg := new(sync.WaitGroup)
-	signalWg.Add(1)
-	if *mode == "h" {
-		go monitor.MonitorMetrics(1*time.Second, config.MonitorFilenameHybrid, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		runAll(stateCache, mp, s)
-	} else if *mode == "s" {
-		go monitor.MonitorMetrics(1*time.Second, config.MonitorFilenameSep, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		runSep(stateCache, mp, s)
-	} else if *mode == "i" {
-		go monitor.MonitorMetrics(1*time.Second, config.MonitorFilenameIO, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		runIO(stateCache, mp, s)
-	} else if *mode == "c" {
-		go monitor.MonitorMetrics(1*time.Second, config.MonitorFilenameCompute, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		runComputing(stateCache, mp, s)
-	} else {
-		fmt.Println("mode is invalid")
-	}
-	close(signalChan)
-	signalWg.Wait()
+		close(signalChan)
+		signalWg.Wait() */
 }
