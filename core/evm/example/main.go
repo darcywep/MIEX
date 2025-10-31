@@ -27,7 +27,7 @@ func testExample() {
 	}
 
 	// create new levm instance
-	lvm := levm.New(stateConfig, big.NewInt(0), fromAddr)
+	lvm := levm.New(stateConfig, big.NewInt(0), common.Hash{}, fromAddr)
 
 	// create a new account and set the balance
 	// (needs enough balance to cover gas cost)
@@ -58,7 +58,7 @@ func testFibonacci() {
 		Handles: 4096,
 	}
 	fromAddr := tools.GenerateAddress()
-	evm = levm.New(stateConfig, big.NewInt(0), fromAddr)
+	evm = levm.New(stateConfig, big.NewInt(0), common.Hash{}, fromAddr)
 	evm.NewAccount(fromAddr, new(uint256.Int).SetUint64(2e18))
 	_, addr, _, err := evm.DeployContract(fromAddr, binData)
 	tools.PanicError(err)
@@ -77,5 +77,6 @@ func testFibonacci() {
 func main() {
 	//testExample()
 	//testFibonacci()
-	init_smallbank_contract.TestSmallBank()
+	//init_smallbank_contract.TestSmallBank()
+	init_smallbank_contract.TestSmallBankWithExistDB()
 }

@@ -13,6 +13,8 @@ import (
 	"github.com/holiman/uint256"
 )
 
+const totalAccounts = 10_000_000 // 1千万
+
 func intToAddress(i int) common.Address {
 	var addrInt = new(big.Int).SetUint64(uint64(i))
 	return common.BytesToAddress(addrInt.Bytes())
@@ -37,7 +39,8 @@ func TestSmallBank() {
 
 	// 创建系统账户（合约部署者）
 	fromAddr := tools.GenerateAddress()
-	evm := levm.New(stateConfig, big.NewInt(0), fromAddr)
+	evm := levm.New(stateConfig, big.NewInt(0), common.Hash{}, fromAddr)
+	defer evm.AllDB().Close()
 	evm.NewAccount(fromAddr, new(uint256.Int).SetUint64(2e18)) // 给足够多的ETH
 
 	// ========= 部署合约 =========
@@ -46,7 +49,7 @@ func TestSmallBank() {
 	fmt.Println("✅ SmallBank deployed at:", cAddress.Hex())
 
 	// ========= 参数设置 =========
-	totalAccounts := 10_000_000 // 1千万
+
 	depositAmount := new(uint256.Int).SetUint64(10e18)
 
 	// ========= 主循环 =========
@@ -85,4 +88,38 @@ func TestSmallBank() {
 	err = os.WriteFile(resultFile, []byte(content), 0644)
 	tools.PanicError(err)
 	fmt.Println("✅ Done! Result saved to:", resultFile)
+}
+
+func TestSmallBankWithExistDB() {
+	// ========= 基础路径与文件 =========
+	basePath := "/root/Janus/contract_example/"
+	abiFile := path.Join(basePath, "smallbank.abi")
+	binFile := path.Join(basePath, "smallbank.bin")
+
+	// ========= 载入合约 =========
+	abiObject, _, err := tools.LoadContract(abiFile, binFile)
+	tools.PanicError(err)
+
+	// ========= 初始化状态数据库 =========
+	stateConfig := &database.StateDBConfig{
+		Path:    "/root/alldb/smallbank_database",
+		Cache:   65536, // 64GB
+		Handles: 32786,
+	}
+	evm := levm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
+	defer evm.AllDB().Close()
+	tools.CatStorageState = true
+	for i := 1; i <= totalAccounts; i++ {
+		user := intToAddress(i)
+		fmt.Println(user)
+		_, err = evm.CallContractABI(user, tools.ContractAddress, new(uint256.Int).SetUint64(0), abiObject,
+			"getBalance", user)
+		fmt.Println()
+		if err != nil {
+			fmt.Printf("Account #%d balance error: %v\n", i, err)
+		}
+		if i >= 10 {
+			return
+		}
+	}
 }

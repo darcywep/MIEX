@@ -34,12 +34,12 @@ type LEVM struct {
 }
 
 // New creates a new instace of the LEVM
-func New(stateDBConfig *database.StateDBConfig, blockNumber *big.Int, origin common.Address) *LEVM {
+func New(stateDBConfig *database.StateDBConfig, blockNumber *big.Int, stateRoot common.Hash, origin common.Address) *LEVM {
 	// create blank LEVM instance:
 	lvm := LEVM{}
 	var err error
 	// setup storage using dbpath
-	lvm.allDBForState, err = database.NewAllDBForState(stateDBConfig, blockNumber, common.Hash{}, false, false)
+	lvm.allDBForState, err = database.NewAllDBForState(stateDBConfig, blockNumber, stateRoot, false, false)
 	tools.PanicError(err)
 	// update the evm - creates new EVM
 	lvm.NewEVM(blockNumber, origin)
