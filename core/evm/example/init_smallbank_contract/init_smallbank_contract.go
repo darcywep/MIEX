@@ -20,7 +20,7 @@ func intToAddress(i int) common.Address {
 
 func TestSmallBank() {
 	// ========= 基础路径与文件 =========
-	basePath := "/Users/darcywep/GolandProjects/Janus/contract_example/"
+	basePath := "/root/Janus/contract_example/"
 	abiFile := path.Join(basePath, "smallbank.abi")
 	binFile := path.Join(basePath, "smallbank.bin")
 
@@ -30,9 +30,9 @@ func TestSmallBank() {
 
 	// ========= 初始化状态数据库 =========
 	stateConfig := &database.StateDBConfig{
-		Path:    basePath + "smallbank_database",
-		Cache:   4096,
-		Handles: 4096,
+		Path:    "/root/alldb/smallbank_database",
+		Cache:   65536, // 64GB
+		Handles: 32786,
 	}
 
 	// 创建系统账户（合约部署者）
@@ -53,7 +53,15 @@ func TestSmallBank() {
 	for i := 1; i <= totalAccounts; i++ {
 		user := intToAddress(i)
 		evm.NewAccount(user, depositAmount)
-		_, err = evm.CallContractABI(user, cAddress, new(uint256.Int).SetUint64(0), abiObject, "deposit", big.NewInt(10e18))
+		//fmt.Println(user)
+		//tools.CatStorageState = false
+		_, err = evm.CallContractABI(user, cAddress, new(uint256.Int).SetUint64(0), abiObject,
+			"deposit", big.NewInt(0).SetUint64(10e18))
+
+		//tools.CatStorageState = true
+		//_, err = evm.CallContractABI(user, cAddress, new(uint256.Int).SetUint64(0), abiObject,
+		//	"getBalance", user)
+
 		if err != nil {
 			fmt.Printf("Account #%d deposit error: %v\n", i, err)
 		}
@@ -67,10 +75,12 @@ func TestSmallBank() {
 	// ========= 导出状态根 =========
 	stateRoot, _, err := evm.AllDB().StateDB.CommitWithUpdate(uint64(0), true, true)
 	tools.PanicError(err)
+	err = evm.AllDB().StateDB.Database().TrieDB().Commit(stateRoot, false)
+	tools.PanicError(err)
 	fmt.Println("🌳 Final state root:", stateRoot.Hex())
 
 	// ========= 输出到txt =========
-	resultFile := path.Join(basePath, "smallbank_result.txt")
+	resultFile := path.Join("/root/alldb/", "smallbank_result.txt")
 	content := fmt.Sprintf("Contract Address: %s\nFinal State Root: %s\n", cAddress.Hex(), stateRoot.Hex())
 	err = os.WriteFile(resultFile, []byte(content), 0644)
 	tools.PanicError(err)

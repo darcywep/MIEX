@@ -19,6 +19,7 @@ package vm
 import (
 	"Janus/ethereum/core/tracing"
 	"Janus/ethereum/core/types"
+	"Janus/tools"
 	"fmt"
 	"math"
 	"math/big"
@@ -515,7 +516,9 @@ func opSload(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 	loc := scope.Stack.peek()
 	hash := common.Hash(loc.Bytes32())
 	val := evm.StateDB.GetState(scope.Contract.Address(), hash)
-	fmt.Println(new(big.Int).SetBytes(val.Bytes()))
+	if tools.CatStorageState {
+		fmt.Println(new(big.Int).SetBytes(val.Bytes()))
+	}
 	loc.SetBytes(val.Bytes())
 	return nil, nil
 }
