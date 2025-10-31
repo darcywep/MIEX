@@ -2,6 +2,7 @@ package main
 
 import (
 	levm "Janus/core/evm"
+	"Janus/core/evm/example/init_smallbank_contract"
 	"Janus/ethereum/database"
 	"Janus/tools"
 	"fmt"
@@ -64,7 +65,7 @@ func testFibonacci() {
 
 	cAddress = addr
 	_, err = evm.CallContractABI(fromAddr, cAddress, new(uint256.Int).SetUint64(0),
-		abiObject, "calculate", big.NewInt(10))
+		abiObject, "calculate", big.NewInt(20))
 	tools.PanicError(err)
 
 	_, err = evm.CallContractABI(fromAddr, cAddress, new(uint256.Int).SetUint64(0),
@@ -75,5 +76,6 @@ func testFibonacci() {
 
 func main() {
 	//testExample()
-	testFibonacci()
+	//testFibonacci()
+	init_smallbank_contract.TestSmallBank()
 }

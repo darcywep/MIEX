@@ -46,6 +46,10 @@ func New(stateDBConfig *database.StateDBConfig, blockNumber *big.Int, origin com
 
 	return &lvm
 }
+
+func (lvm *LEVM) AllDB() *database.AllDBForState {
+	return lvm.allDBForState
+}
 func newUint64(val uint64) *uint64 { return &val }
 
 // NewEVM creates a fresh evm instance with
