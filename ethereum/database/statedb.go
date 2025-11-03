@@ -19,7 +19,7 @@ type AllDBForState struct {
 	TrieDB            *triedb.Database
 	BlockChainStateDB *state.CachingDB
 	StateDB           *state.StateDB
-	stateRoot         common.Hash
+	StateRoot         common.Hash
 }
 
 func NewAllDBForState(stateConfig *StateDBConfig, blockNumber *big.Int, stateRoot common.Hash, isVerkle, readonly bool) (*AllDBForState, error) {
@@ -42,12 +42,12 @@ func NewAllDBForState(stateConfig *StateDBConfig, blockNumber *big.Int, stateRoo
 		TrieDB:            triedb,
 		BlockChainStateDB: bcStateDB,
 		StateDB:           statedb,
-		stateRoot:         stateRoot,
+		StateRoot:         stateRoot,
 	}, nil
 }
 
 func (a *AllDBForState) UpdateStateDB(stateRoot common.Hash) error {
-	if stateRoot == a.stateRoot {
+	if stateRoot == a.StateRoot {
 		return nil
 	}
 	statedb, err := state.New(stateRoot, a.BlockChainStateDB)

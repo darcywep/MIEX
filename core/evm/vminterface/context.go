@@ -25,7 +25,7 @@ func NewChainContext(coinbase common.Address) *ChainContext {
 			Coinbase:   coinbase,
 			Difficulty: big.NewInt(1),
 			Number:     big.NewInt(0),
-			GasLimit:   uint64(1000000),
+			GasLimit:   uint64(1e19),
 			GasUsed:    uint64(0),
 			Time:       uint64(time.Now().Unix()),
 			Extra:      nil,

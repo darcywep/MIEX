@@ -4,10 +4,8 @@ import (
 	"Janus/config"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
-	"Janus/ethereum/core/state"
 	"Janus/ethereum/core/types"
 	"Janus/tools"
-	"math/big"
 	"runtime"
 	"sync"
 
@@ -33,7 +31,26 @@ type addressAccessSequence struct {
 	isWrite   bool // 当前是否授予了写锁
 }
 
-func GetRWSetByOCC(txs []*types.Transaction, statedb *state.StateDB) {
+func TestSerialExecution(txs []*types.Transaction, levm *lvm.LEVM) {
+	newLevm := levm.Copy()
+	tools.CatStorageState = true
+	for _, tx := range txs {
+		//fmt.Println(common.Bytes2Hex(tx.Data()))
+		//fmt.Println("newLevm.AllDB().StateDB.GetBalance(*tx.From())", *tx.From(), *tx.To(), newLevm.AllDB().StateDB.GetBalance(*tx.From()))
+		_, err := newLevm.CallContractUseStateDB(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0), levm.AllDB().StateDB)
+		tools.PanicError(err)
+		tx.WriteKeys = make([]string, 0)
+		tx.ReadKeys = make([]string, 0)
+		if tx.TxType == config.IOTx {
+			tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
+			tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
+		} else {
+			tx.WriteKeys = append(tx.ReadKeys, tx.SmallBankTo.String())
+		}
+	}
+}
+
+func GetRWSetByOCC(txs []*types.Transaction, levm *lvm.LEVM) {
 	txsChan := make(chan *types.Transaction, len(txs))
 	wg := &sync.WaitGroup{}
 	wg.Add(janusConfig.AllThreadNum + 1)
@@ -45,24 +62,27 @@ func GetRWSetByOCC(txs []*types.Transaction, statedb *state.StateDB) {
 		}
 		close(txsChan)
 	}()
+	//tools.CatStorageState = true
+	newLevms := make([]*lvm.LEVM, 0, janusConfig.AllThreadNum)
 	for i := 0; i < janusConfig.AllThreadNum; i++ {
-		newStateDB := statedb.Copy()
+		newLevms = append(newLevms, levm.Copy())
+	}
+	for i := 0; i < janusConfig.AllThreadNum; i++ {
+		newLevm := newLevms[i]
 		go func() {
 			runtime.LockOSThread()
 			defer wg.Done()
-			lvm := lvm.LEVM{}
-			blockNumber := new(big.Int).SetUint64(1)
-			lvm.NewEVM(blockNumber, tools.GenerateAddress())
 			for tx := range txsChan {
-				_, err := lvm.CallContractUseStateDB(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0), newStateDB)
+				//fmt.Println(common.Bytes2Hex(tx.Data()))
+				_, err := newLevm.CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
 				tools.PanicError(err)
 				tx.WriteKeys = make([]string, 0)
 				tx.ReadKeys = make([]string, 0)
 				if tx.TxType == config.IOTx {
 					tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
-					tx.WriteKeys = append(tx.WriteKeys, tx.To().String())
+					tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
 				} else {
-					tx.WriteKeys = append(tx.ReadKeys, tx.To().String())
+					tx.WriteKeys = append(tx.ReadKeys, tx.SmallBankTo.String())
 				}
 			}
 		}()
@@ -70,8 +90,9 @@ func GetRWSetByOCC(txs []*types.Transaction, statedb *state.StateDB) {
 	wg.Wait()
 }
 
-func SChain(txs []*types.Transaction, statedb *state.StateDB) {
+func SChain(txs []*types.Transaction, levm *lvm.LEVM) {
 	stateAccessSequence, inactivePeepTxs := constructStateAccessSequence(txs)
+
 	for {
 		newInactivePeepTxs := make([]*peepTx, 0)
 		activePeepTxs := make([]*peepTx, 0)
@@ -85,16 +106,21 @@ func SChain(txs []*types.Transaction, statedb *state.StateDB) {
 				newInactivePeepTxs = append(newInactivePeepTxs, inactiveTx)
 			}
 		}
-
 		close(activePeepTxsChan)
 		wg := new(sync.WaitGroup)
 		wg.Add(config.AllThreadNum)
+		newLevms := make([]*lvm.LEVM, 0, janusConfig.AllThreadNum)
+		for i := 0; i < janusConfig.AllThreadNum; i++ {
+			newLevms = append(newLevms, levm.Copy())
+		}
 		for k := 0; k < config.AllThreadNum; k++ {
-			newStateDB := statedb.Copy()
-			go runTx(wg, newStateDB, activePeepTxsChan)
-			newStateDB.FlushDirtyToNewStateDB(statedb)
+			go runTx(wg, newLevms[k], activePeepTxsChan, nil)
 		}
 		wg.Wait()
+		for i := 0; i < janusConfig.AllThreadNum; i++ {
+			newLevms[i].AllDB().StateDB.FlushDirtyToNewStateDB(levm.AllDB().StateDB)
+		}
+
 		for _, tx := range activePeepTxs {
 			releaseLock(stateAccessSequence, tx)
 		}
@@ -103,6 +129,70 @@ func SChain(txs []*types.Transaction, statedb *state.StateDB) {
 			break
 		}
 		inactivePeepTxs = newInactivePeepTxs
+	}
+
+}
+
+func SChainParallelUp(txs []*types.Transaction, levm *lvm.LEVM) {
+	stateAccessSequence, inactivePeepTxs := constructStateAccessSequence(txs)
+	activePeepTxsChan := make(chan *types.Transaction, len(txs))
+	finishExecutionSignalChan := make(chan struct{}, len(txs))
+	wg := new(sync.WaitGroup)
+	wg.Add(config.AllThreadNum)
+	go func() {
+		runtime.LockOSThread()
+		defer wg.Done()
+		txSum := len(txs)
+		finishTxSum := 0
+		for {
+			newInactivePeepTxs := make([]*peepTx, 0)
+			activePeepTxs := make([]*peepTx, 0)
+			for _, inactiveTx := range inactivePeepTxs {
+				notGetLocksNum := grantLock(stateAccessSequence, inactiveTx)
+				if notGetLocksNum == 0 {
+					activePeepTxs = append(activePeepTxs, inactiveTx)
+					activePeepTxsChan <- inactiveTx.tx
+				} else {
+					newInactivePeepTxs = append(newInactivePeepTxs, inactiveTx)
+				}
+			}
+			//fmt.Println("activePeepTxs:", len(activePeepTxs), "inactivePeepTxs:", len(inactivePeepTxs))
+			//fmt.Println("finishTxSum:", finishTxSum, "txSum:", txSum)
+			//time.Sleep(1 * time.Second)
+			finishTxNumber := 0
+			for _ = range finishExecutionSignalChan {
+				finishTxNumber++
+				finishTxSum++
+				if finishTxNumber == len(activePeepTxs) {
+					break
+				}
+			}
+			if finishTxSum == txSum {
+				close(activePeepTxsChan)
+				close(finishExecutionSignalChan)
+			}
+
+			for _, tx := range activePeepTxs {
+				releaseLock(stateAccessSequence, tx)
+			}
+
+			if len(newInactivePeepTxs) == 0 { // 没有待执行的交易了
+				break
+			}
+			inactivePeepTxs = newInactivePeepTxs
+		}
+	}()
+
+	newLevms := make([]*lvm.LEVM, 0, janusConfig.AllThreadNum-1)
+	for i := 0; i < janusConfig.AllThreadNum-1; i++ {
+		newLevms = append(newLevms, levm.Copy())
+	}
+	for k := 0; k < config.AllThreadNum-1; k++ {
+		go runTx(wg, newLevms[k], activePeepTxsChan, finishExecutionSignalChan)
+	}
+	wg.Wait()
+	for i := 0; i < janusConfig.AllThreadNum-1; i++ {
+		newLevms[i].AllDB().StateDB.FlushDirtyToNewStateDB(levm.AllDB().StateDB)
 	}
 }
 
@@ -164,6 +254,7 @@ func constructStateAccessSequence(txs []*types.Transaction) (stateAccessSequence
 func grantLock(stateAccessSequence map[string]*addressAccessSequence, tx *peepTx) int {
 	lockNumber := 0
 	var lock sync.Mutex
+	// 询问锁并授予锁
 	for key, _ := range tx.writeKeys {
 		sequence, ok := stateAccessSequence[key]
 		if !ok {
@@ -171,8 +262,8 @@ func grantLock(stateAccessSequence map[string]*addressAccessSequence, tx *peepTx
 		}
 		if !sequence.isWrite && sequence.sequence[sequence.lockIndex].tx.index == tx.index {
 			lockNumber++
-			sequence.isWrite = true
 			sequence.lockIndex++
+			sequence.isWrite = true
 			lock.Lock()
 			lock.Unlock()
 		}
@@ -182,9 +273,34 @@ func grantLock(stateAccessSequence map[string]*addressAccessSequence, tx *peepTx
 		if !ok {
 			panic("peep: key in the sequence is not found")
 		}
-		if !sequence.isWrite {
+		if !sequence.isWrite && sequence.sequence[sequence.lockIndex].tx.index == tx.index {
 			lockNumber++
 			sequence.lockIndex++
+		}
+	}
+
+	if tx.needLockNumber-lockNumber == 0 { // 拿到所有的锁
+		return tx.needLockNumber - lockNumber
+	}
+	// 未拿到所有的锁，返还
+
+	for key, _ := range tx.writeKeys {
+		sequence, ok := stateAccessSequence[key]
+		if !ok {
+			panic("peep: key in the sequence is not found")
+		}
+		if sequence.isWrite && sequence.sequence[sequence.lockIndex-1].tx.index == tx.index {
+			sequence.isWrite = false
+			sequence.lockIndex--
+		}
+	}
+	for key, _ := range tx.readKeys {
+		sequence, ok := stateAccessSequence[key]
+		if !ok {
+			panic("peep: key in the sequence is not found")
+		}
+		if !sequence.isWrite && sequence.sequence[sequence.lockIndex-1].tx.index == tx.index {
+			sequence.lockIndex--
 		}
 	}
 	return tx.needLockNumber - lockNumber
@@ -202,14 +318,11 @@ func releaseLock(stateAccessSequence map[string]*addressAccessSequence, tx *peep
 	}
 }
 
-func runTx(wg *sync.WaitGroup, statedb *state.StateDB, activePeepTxsChan chan *types.Transaction) {
-	runtime.LockOSThread()
+func runTx(wg *sync.WaitGroup, levm *lvm.LEVM, activePeepTxsChan chan *types.Transaction, finishExecutionSignal chan struct{}) {
 	defer wg.Done()
-	lvm := lvm.LEVM{}
-	blockNumber := new(big.Int).SetUint64(1)
-	lvm.NewEVM(blockNumber, tools.GenerateAddress())
+	runtime.LockOSThread()
 	for tx := range activePeepTxsChan {
-		_, err := lvm.CallContractUseStateDB(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0), statedb)
+		_, err := levm.CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
 		tools.PanicError(err)
 		tx.WriteKeys = make([]string, 0)
 		tx.ReadKeys = make([]string, 0)
@@ -218,6 +331,9 @@ func runTx(wg *sync.WaitGroup, statedb *state.StateDB, activePeepTxsChan chan *t
 			tx.WriteKeys = append(tx.WriteKeys, tx.To().String())
 		} else {
 			tx.WriteKeys = append(tx.ReadKeys, tx.To().String())
+		}
+		if finishExecutionSignal != nil {
+			finishExecutionSignal <- struct{}{}
 		}
 	}
 }

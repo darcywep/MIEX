@@ -32,12 +32,18 @@ import (
 type LEVM struct {
 	allDBForState *database.AllDBForState
 	evm           *vm.EVM
+
+	blockNumber   *big.Int
+	originAddress common.Address
 }
 
 // New creates a new instace of the LEVM
 func New(stateDBConfig *database.StateDBConfig, blockNumber *big.Int, stateRoot common.Hash, origin common.Address) *LEVM {
 	// create blank LEVM instance:
-	lvm := LEVM{}
+	lvm := LEVM{
+		blockNumber:   blockNumber,
+		originAddress: origin,
+	}
 	var err error
 	// setup storage using dbpath
 	lvm.allDBForState, err = database.NewAllDBForState(stateDBConfig, blockNumber, stateRoot, false, false)
@@ -93,6 +99,23 @@ func (lvm *LEVM) NewEVM(blockNumber *big.Int, origin common.Address) {
 		},
 	}
 	lvm.evm = vm.NewEVM(vmContext, lvm.allDBForState.StateDB, newChainConfig, config.DefaultVmConfig)
+}
+
+// Copy will return a new LEVM, and change the statedb and evm
+func (lvm *LEVM) Copy() *LEVM {
+	newLvm := LEVM{
+		allDBForState: &database.AllDBForState{
+			DiskDB:            lvm.allDBForState.DiskDB,
+			TrieDB:            lvm.allDBForState.TrieDB,
+			BlockChainStateDB: lvm.allDBForState.BlockChainStateDB,
+			StateDB:           lvm.allDBForState.StateDB.Copy(),
+			StateRoot:         lvm.allDBForState.StateRoot,
+		},
+		blockNumber:   lvm.blockNumber,
+		originAddress: lvm.originAddress,
+	}
+	newLvm.NewEVM(lvm.blockNumber, lvm.originAddress)
+	return &newLvm
 }
 
 // DeployContract will create and deploy a new

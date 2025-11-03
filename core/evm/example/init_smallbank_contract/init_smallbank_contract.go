@@ -9,11 +9,31 @@ import (
 	"os"
 	"path"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
 )
 
-const totalAccounts = 10_000_000 // 1千万
+const totalAccounts = 100_000_000 // 1亿
+
+var (
+	basePath = "/root/Janus/contract_example/"
+	abiFile  = path.Join(basePath, "smallbank_fibonacci.abi")
+	binFile  = path.Join(basePath, "smallbank_fibonacci.bin")
+
+	// ========= 初始化状态数据库 =========
+	stateConfig = &database.StateDBConfig{
+		Path:    "/root/alldb/smallbank_database",
+		Cache:   65536, // 64GB
+		Handles: 32786,
+	}
+)
+
+func loadContractInfo() (abi.ABI, []byte) {
+	abiObject, binData, err := tools.LoadContract(abiFile, binFile)
+	tools.PanicError(err)
+	return abiObject, binData
+}
 
 func intToAddress(i int) common.Address {
 	var addrInt = new(big.Int).SetUint64(uint64(i))
@@ -21,22 +41,8 @@ func intToAddress(i int) common.Address {
 }
 
 func TestSmallBank() {
-	// ========= 基础路径与文件 =========
-	basePath := "/root/Janus/contract_example/"
-	abiFile := path.Join(basePath, "smallbank_fibonacci.abi")
-	binFile := path.Join(basePath, "smallbank_fibonacci.bin")
-
 	// ========= 载入合约 =========
-	abiObject, binData, err := tools.LoadContract(abiFile, binFile)
-	tools.PanicError(err)
-
-	// ========= 初始化状态数据库 =========
-	stateConfig := &database.StateDBConfig{
-		Path:    "/root/alldb/smallbank_database",
-		Cache:   65536, // 64GB
-		Handles: 32786,
-	}
-
+	abiObject, binData := loadContractInfo()
 	// 创建系统账户（合约部署者）
 	fromAddr := tools.GenerateAddress()
 	evm := levm.New(stateConfig, big.NewInt(0), common.Hash{}, fromAddr)
@@ -91,28 +97,38 @@ func TestSmallBank() {
 }
 
 func TestSmallBankWithExistDB() {
-	// ========= 基础路径与文件 =========
-	basePath := "/root/Janus/contract_example/"
-	abiFile := path.Join(basePath, "smallbank_fibonacci.abi")
-	binFile := path.Join(basePath, "smallbank_fibonacci.bin")
-
 	// ========= 载入合约 =========
-	abiObject, _, err := tools.LoadContract(abiFile, binFile)
-	tools.PanicError(err)
+	abiObject, _ := loadContractInfo()
 
-	// ========= 初始化状态数据库 =========
-	stateConfig := &database.StateDBConfig{
-		Path:    "/root/alldb/smallbank_database",
-		Cache:   65536, // 64GB
-		Handles: 32786,
-	}
 	evm := levm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
 	defer evm.AllDB().Close()
 	tools.CatStorageState = true
 	for i := 1; i <= totalAccounts; i++ {
 		user := intToAddress(i)
 		fmt.Println(user)
-		_, err = evm.CallContractABI(user, tools.ContractAddress, new(uint256.Int).SetUint64(0), abiObject,
+		_, err := evm.CallContractABI(user, tools.ContractAddress, new(uint256.Int).SetUint64(0), abiObject,
+			"getBalance", user)
+		fmt.Println()
+		if err != nil {
+			fmt.Printf("Account #%d balance error: %v\n", i, err)
+		}
+		if i >= 10 {
+			return
+		}
+	}
+}
+
+func TestSmallBankTransferWithExistDB() {
+	// ========= 载入合约 =========
+	abiObject, _ := loadContractInfo()
+
+	evm := levm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
+	defer evm.AllDB().Close()
+	tools.CatStorageState = true
+	for i := 1; i <= totalAccounts; i++ {
+		user := intToAddress(i)
+		fmt.Println(user)
+		_, err := evm.CallContractABI(user, tools.ContractAddress, new(uint256.Int).SetUint64(0), abiObject,
 			"getBalance", user)
 		fmt.Println()
 		if err != nil {

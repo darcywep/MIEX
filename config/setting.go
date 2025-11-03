@@ -14,9 +14,10 @@ var (
 )
 
 const (
-	AddressNumber            = 1000 // 总共生成多少个地址, 这用于添加到交易中
+	AddressNumber            = 10000 // 总共生成多少个地址, 这用于添加到交易中
 	CompetingTxCountForBlock = 5000
 	IoTxCountForBlock        = 5000
+	Skew                     = 1.04
 )
 
 const (
