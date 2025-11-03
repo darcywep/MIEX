@@ -17,6 +17,7 @@
 package state
 
 import (
+	"Janus/tools"
 	"bytes"
 	"fmt"
 	"maps"
@@ -25,6 +26,7 @@ import (
 
 	"Janus/ethereum/core/types"
 	"Janus/ethereum/trie/trienode"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
@@ -562,7 +564,9 @@ func (s *stateObject) setCode(codeHash common.Hash, code []byte) {
 }
 
 func (s *stateObject) SetNonce(nonce uint64) {
-	s.db.journal.nonceChange(s.address, s.data.Nonce)
+	if tools.JournalNonce {
+		s.db.journal.nonceChange(s.address, s.data.Nonce)
+	}
 	s.setNonce(nonce)
 }
 

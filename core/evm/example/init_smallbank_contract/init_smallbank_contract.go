@@ -23,8 +23,8 @@ func intToAddress(i int) common.Address {
 func TestSmallBank() {
 	// ========= 基础路径与文件 =========
 	basePath := "/root/Janus/contract_example/"
-	abiFile := path.Join(basePath, "smallbank.abi")
-	binFile := path.Join(basePath, "smallbank.bin")
+	abiFile := path.Join(basePath, "smallbank_fibonacci.abi")
+	binFile := path.Join(basePath, "smallbank_fibonacci.bin")
 
 	// ========= 载入合约 =========
 	abiObject, binData, err := tools.LoadContract(abiFile, binFile)
@@ -93,8 +93,8 @@ func TestSmallBank() {
 func TestSmallBankWithExistDB() {
 	// ========= 基础路径与文件 =========
 	basePath := "/root/Janus/contract_example/"
-	abiFile := path.Join(basePath, "smallbank.abi")
-	binFile := path.Join(basePath, "smallbank.bin")
+	abiFile := path.Join(basePath, "smallbank_fibonacci.abi")
+	binFile := path.Join(basePath, "smallbank_fibonacci.bin")
 
 	// ========= 载入合约 =========
 	abiObject, _, err := tools.LoadContract(abiFile, binFile)

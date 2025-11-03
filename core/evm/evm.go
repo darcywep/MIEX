@@ -2,6 +2,7 @@ package evm
 
 import (
 	"Janus/ethereum/config"
+	"Janus/ethereum/core/state"
 	"Janus/ethereum/core/tracing"
 	"Janus/ethereum/database"
 	"Janus/tools"
@@ -139,5 +140,18 @@ func (lvm *LEVM) CallContractABI(callerAddr, contractAddr common.Address, value 
 		value,
 	)
 	lvm.allDBForState.StateDB.SetBalance(callerAddr, new(uint256.Int).SetUint64(gas), tracing.BalanceIncreaseGasReturn)
+	return output, err
+}
+
+func (lvm *LEVM) CallContractUseStateDB(callerAddr, contractAddr common.Address, inputs []byte, value *uint256.Int, statedb *state.StateDB) ([]byte, error) {
+	// Get reference to the transaction sender
+	output, gas, err := lvm.evm.Call(
+		callerAddr,
+		contractAddr,
+		inputs,
+		statedb.GetBalance(callerAddr).Uint64(),
+		value,
+	)
+	statedb.SetBalance(callerAddr, new(uint256.Int).SetUint64(gas), tracing.BalanceIncreaseGasReturn)
 	return output, err
 }

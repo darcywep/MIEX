@@ -1502,3 +1502,41 @@ func (s *StateDB) Witness() *stateless.Witness {
 func (s *StateDB) AccessEvents() *AccessEvents {
 	return s.accessEvents
 }
+
+func (s *StateDB) FlushDirtyToNewStateDB(target *StateDB) {
+	// 如果调用方希望自动确保 mutations 完整，则调用 Finalise
+	s.Finalise(false)
+
+	// 复制所有未提交的账户变化
+	for addr, op := range s.mutations {
+		if op.applied {
+			continue
+		}
+
+		if op.isDelete() {
+			target.deleteStateObject(addr)
+			continue
+		}
+
+		srcObj := s.stateObjects[addr]
+		if srcObj == nil {
+			continue
+		}
+
+		dstObj := target.getOrNewStateObject(addr)
+
+		// ---- 同步基础账户信息 ----
+		if dstObj.Balance().Cmp(srcObj.Balance()) != 0 {
+			dstObj.SetBalance(srcObj.Balance())
+		}
+
+		// ---- 同步未提交的 storage ----
+		for key, val := range srcObj.uncommittedStorage {
+			if (val == common.Hash{}) {
+				dstObj.SetState(key, common.Hash{}) // 删除 slot
+			} else {
+				dstObj.SetState(key, val)
+			}
+		}
+	}
+}

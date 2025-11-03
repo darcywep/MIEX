@@ -25,6 +25,7 @@ import (
 	"Janus/ethereum/core/tracing"
 	"Janus/ethereum/core/types"
 	"Janus/ethereum/core/vm"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/params"
@@ -198,7 +199,11 @@ func TransactionToMessage(tx *types.Transaction, s types.Signer, baseFee *big.In
 		}
 	}
 	var err error
-	msg.From, err = types.Sender(s, tx)
+	if tx.From() != nil {
+		msg.From = *tx.From()
+	} else {
+		msg.From, err = types.Sender(s, tx)
+	}
 	return msg, err
 }
 

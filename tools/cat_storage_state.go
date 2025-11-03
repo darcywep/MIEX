@@ -1,3 +1,6 @@
 package tools
 
-var CatStorageState = false
+var (
+	CatStorageState = false
+	JournalNonce    = false
+)

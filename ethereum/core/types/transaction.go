@@ -17,6 +17,7 @@
 package types
 
 import (
+	"Janus/config"
 	"bytes"
 	"errors"
 	"fmt"
@@ -57,6 +58,12 @@ const (
 type Transaction struct {
 	inner TxData    // Consensus contents of a transaction
 	time  time.Time // Time first seen locally (spam avoidance)
+
+	fromAddress *common.Address
+
+	TxType    config.TransactionType
+	WriteKeys []string
+	ReadKeys  []string
 
 	// caches
 	hash atomic.Pointer[common.Hash]
@@ -314,6 +321,15 @@ func (tx *Transaction) Nonce() uint64 { return tx.inner.nonce() }
 // For contract-creation transactions, To returns nil.
 func (tx *Transaction) To() *common.Address {
 	return copyAddressPtr(tx.inner.to())
+}
+
+func (tx *Transaction) SetFrom(addr common.Address) {
+	from := common.BytesToAddress(common.CopyBytes(addr.Bytes()))
+	tx.fromAddress = &from
+}
+
+func (tx *Transaction) From() *common.Address {
+	return tx.fromAddress
 }
 
 // Cost returns (gas * gasPrice) + (blobGas * blobGasPrice) + value.
