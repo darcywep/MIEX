@@ -14,11 +14,18 @@ var (
 )
 
 const (
+	AddressNumber            = 10000 // 总共生成多少个地址, 这用于添加到交易中
+	CompetingTxCountForBlock = 5000
+	IoTxCountForBlock        = 5000
+	Skew                     = 1.04
+)
+
+const (
 	AllThreadNum = 8
 	BlockSum     = 200   // 执行多少个区块
 	ChanLen      = 20000 // 每个区块有多少笔交易
 	TxSum        = 20000 // 每个区块有多少笔交易
-	OpenReadFile = true
+	OpenReadFile = false
 )
 
 const (
@@ -31,6 +38,7 @@ const (
 	MonitorFilenameHybrid                  = "./cpu_disk_monitor/cpu_disk_Hybrid"
 	MonitorFilenameCompute                 = "./cpu_disk_monitor/cpu_disk_Compute"
 	MonitorFilenameIO                      = "./cpu_disk_monitor/cpu_disk_IO"
+	MonitorFilenamePeep                    = "./cpu_disk_monitor/cpu_disk_Peep"
 )
 
 const (
