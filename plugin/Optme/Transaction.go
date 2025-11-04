@@ -2,7 +2,6 @@ package Optme
 
 import (
 	"Janus/plugin/Common"
-	"fmt"
 	"sync/atomic"
 	"time"
 )
@@ -22,15 +21,14 @@ type OptmeTransaction struct {
 }
 
 func NewOptmeTransaction(tx *Common.JanusTransaction, blockid uint32) *OptmeTransaction {
-	return &OptmeTransaction{Tx: tx, Blockid: blockid}
+	return &OptmeTransaction{Tx: tx, Blockid: blockid, LocalGet: make(map[string]string), LocalPut: make(map[string]string)}
 }
 
 // 即将换成EVM逻辑
 func (t *OptmeTransaction) Execute() {
-	fmt.Printf("正在执行交易%d", t.Tx.Txid)
-
+	//fmt.Printf("正在执行交易:%d \n", t.Tx.Txid)
 	num := 0
-	for i := 0; i < t.Tx.Cost; i++ {
+	for i := 0; i < int(t.Tx.Cost); i++ {
 		num++
 	}
 }

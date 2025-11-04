@@ -3,22 +3,22 @@ package Common
 import "fmt"
 
 type JanusTransaction struct {
-	Txid   string
-	Cost   int
+	Txid   uint32
+	Cost   uint32
 	Vertex *TransactionVertex
 }
 
 type TransactionVertex struct {
-	ReadKeys  map[string]bool
-	WriteKeys map[string]bool
+	ReadKeys  map[string]string
+	WriteKeys map[string]string
 	Children  map[*TransactionVertex]bool
 }
 
-func NewJanusTransaction(txid string, vertex *TransactionVertex, cost int) *JanusTransaction {
+func NewJanusTransaction(txid uint32, vertex *TransactionVertex, cost uint32) *JanusTransaction {
 	return &JanusTransaction{txid, cost, vertex}
 }
 
-func NewTransactionVertex(readKeys map[string]bool, writeKeys map[string]bool, children map[*TransactionVertex]bool) *TransactionVertex {
+func NewTransactionVertex(readKeys map[string]string, writeKeys map[string]string, children map[*TransactionVertex]bool) *TransactionVertex {
 	return &TransactionVertex{readKeys, writeKeys, children}
 }
 

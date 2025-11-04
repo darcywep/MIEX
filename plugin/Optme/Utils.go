@@ -1,11 +1,14 @@
 package Optme
 
 import (
+	"container/list"
 	"fmt"
 	"log"
 	"runtime"
+	"sort"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type UnitType int
@@ -250,17 +253,406 @@ func (a *Address) Merge(other *Address) {
 	}
 }
 
-// 假设的线程池
+type TaskPriority int
+
+const (
+	HIGH_PRIORITY TaskPriority = iota
+	LOW_PRIORITY
+)
+
+// Task 任务结构体
+type Task struct {
+	function func()
+	priority TaskPriority
+}
+
+// worker 工作线程结构体
+type worker struct {
+	id       int
+	pool     *ThreadPool
+	stopFlag bool
+}
+
+// ThreadPool 线程池结构体
 type ThreadPool struct {
-	// 线程池实现
-	/*
-
-	 */
+	workers           []*worker
+	highPriorityTasks *list.List
+	lowPriorityTasks  *list.List
+	Tasks             *list.List
+	queueMutex        sync.Mutex
+	condition         *sync.Cond
+	stop              bool
+	threadDurations   []time.Duration
+	taskCounts        []int64
+	threadNum         int
+	stopFlags         []bool
 }
 
-func NewThreadPool(numThreads int) *ThreadPool {
-	return &ThreadPool{}
+// NewThreadPool 创建线程池
+func NewThreadPool(threadNum int) *ThreadPool {
+	return NewThreadPoolWithOffset(threadNum, 0)
 }
+
+// NewThreadPoolWithOffset 创建带偏移的线程池
+func NewThreadPoolWithOffset(threadNum int, offset int) *ThreadPool {
+	pool := &ThreadPool{
+		highPriorityTasks: list.New(),
+		lowPriorityTasks:  list.New(),
+		stop:              false,
+		threadDurations:   make([]time.Duration, threadNum),
+		taskCounts:        make([]int64, threadNum),
+		threadNum:         threadNum,
+		stopFlags:         make([]bool, threadNum),
+		workers:           make([]*worker, threadNum),
+	}
+	pool.condition = sync.NewCond(&pool.queueMutex)
+
+	// 创建工作线程
+	for i := 0; i < threadNum; i++ {
+		worker := &worker{
+			id:       i,
+			pool:     pool,
+			stopFlag: false,
+		}
+		pool.workers[i] = worker
+
+		// 启动goroutine并设置CPU亲和性
+		go worker.start()
+
+		// 在Go中设置CPU亲和性比较复杂，通常使用runtime.LockOSThread()
+		// 这里简化处理，实际生产环境可能需要使用syscall包
+		fmt.Printf("Binding thread-%d to core %d\n", i, offset+i)
+		pinToCore(i, offset+i)
+	}
+
+	return pool
+}
+
+// pinToCore 设置CPU亲和性（简化版本）
+func pinToCore(threadID int, coreID int) {
+	// Go语言中设置CPU亲和性比较复杂
+	// 可以使用runtime.LockOSThread()将goroutine锁定到OS线程
+	// 然后使用syscall.SchedSetaffinity设置亲和性
+	// 这里简化实现
+	runtime.LockOSThread()
+
+	// 实际生产环境中可以使用以下方式：
+	// pid := syscall.Gettid()
+	// var mask unix.CPUSet
+	// mask.Set(coreID % runtime.NumCPU())
+	// unix.SchedSetaffinity(pid, &mask)
+}
+
+// Enqueue 添加任务到线程池
+func (tp *ThreadPool) Enqueue(taskFunc func()) {
+	tp.queueMutex.Lock()
+	defer tp.queueMutex.Unlock()
+
+	if tp.stop {
+		panic("enqueue on stopped ThreadPool")
+	}
+
+	task := Task{
+		function: taskFunc,
+		priority: HIGH_PRIORITY,
+	}
+
+	tp.highPriorityTasks.PushBack(task)
+
+	//if priority == HIGH_PRIORITY {
+	//	tp.highPriorityTasks.PushBack(task)
+	//} else {
+	//	tp.lowPriorityTasks.PushBack(task)
+	//}
+
+	tp.condition.Signal()
+}
+
+// EnqueueWithResult 添加带返回值的任务
+func (tp *ThreadPool) EnqueueWithResult(taskFunc func() interface{}, priority TaskPriority) <-chan interface{} {
+	resultChan := make(chan interface{}, 1)
+
+	wrappedFunc := func() {
+		result := taskFunc()
+		resultChan <- result
+		close(resultChan)
+	}
+
+	tp.Enqueue(wrappedFunc)
+	return resultChan
+}
+
+// EnqueueBatch 批量添加任务
+func (tp *ThreadPool) EnqueueBatch(taskFuncs []func(), priority TaskPriority) {
+	tp.queueMutex.Lock()
+	defer tp.queueMutex.Unlock()
+
+	if tp.stop {
+		panic("enqueue on stopped ThreadPool")
+	}
+
+	for _, taskFunc := range taskFuncs {
+		task := Task{
+			function: taskFunc,
+			priority: priority,
+		}
+
+		if priority == HIGH_PRIORITY {
+			tp.highPriorityTasks.PushBack(task)
+		} else {
+			tp.lowPriorityTasks.PushBack(task)
+		}
+	}
+
+	tp.condition.Broadcast()
+}
+
+// workerFunc 工作线程函数
+func (w *worker) start() {
+	for {
+		var task Task
+		var found bool
+
+		w.pool.queueMutex.Lock()
+
+		// 等待条件满足
+		for !w.pool.stop && !w.stopFlag &&
+			w.pool.highPriorityTasks.Len() == 0 &&
+			w.pool.lowPriorityTasks.Len() == 0 {
+			w.pool.condition.Wait()
+		}
+
+		// 检查停止条件
+		if w.pool.stop && w.pool.highPriorityTasks.Len() == 0 && w.pool.lowPriorityTasks.Len() == 0 {
+			w.pool.queueMutex.Unlock()
+			return
+		}
+
+		if w.stopFlag {
+			w.pool.queueMutex.Unlock()
+			return
+		}
+
+		// 获取任务（优先高优先级）
+		if w.pool.highPriorityTasks.Len() > 0 {
+			element := w.pool.highPriorityTasks.Front()
+			task = element.Value.(Task)
+			w.pool.highPriorityTasks.Remove(element)
+			found = true
+		} else if w.pool.lowPriorityTasks.Len() > 0 {
+			element := w.pool.lowPriorityTasks.Front()
+			task = element.Value.(Task)
+			w.pool.lowPriorityTasks.Remove(element)
+			found = true
+		}
+
+		w.pool.queueMutex.Unlock()
+
+		if found {
+			// 执行任务
+			start := time.Now()
+			task.function()
+			duration := time.Since(start)
+
+			// 更新统计信息
+			atomic.AddInt64(&w.pool.taskCounts[w.id], 1)
+			w.pool.threadDurations[w.id] += duration
+		}
+	}
+}
+
+// ResizePool 调整线程池大小
+func (tp *ThreadPool) ResizePool(newSize int) {
+	tp.queueMutex.Lock()
+	defer tp.queueMutex.Unlock()
+
+	currentSize := len(tp.workers)
+
+	if newSize > currentSize {
+		// 增加线程
+		for i := currentSize; i < newSize; i++ {
+			worker := &worker{
+				id:       i,
+				pool:     tp,
+				stopFlag: false,
+			}
+			tp.workers = append(tp.workers, worker)
+			tp.stopFlags = append(tp.stopFlags, false)
+			tp.threadDurations = append(tp.threadDurations, 0)
+			tp.taskCounts = append(tp.taskCounts, 0)
+
+			go worker.start()
+			fmt.Printf("Binding new thread-%d to core %d\n", i, i)
+			pinToCore(i, i)
+		}
+	} else if newSize < currentSize {
+		// 减少线程
+		for i := newSize; i < currentSize; i++ {
+			tp.stopFlags[i] = true
+		}
+
+		tp.condition.Broadcast()
+
+		// 等待线程退出
+		for i := newSize; i < currentSize; i++ {
+			// 在Go中，我们无法直接join goroutine
+			// 但可以通过channel或其他机制等待退出
+			// 这里依赖worker检测到stopFlag后自动退出
+		}
+
+		tp.workers = tp.workers[:newSize]
+		tp.stopFlags = tp.stopFlags[:newSize]
+		tp.threadDurations = tp.threadDurations[:newSize]
+		tp.taskCounts = tp.taskCounts[:newSize]
+	}
+
+	tp.threadNum = newSize
+	fmt.Printf("Resized thread pool to %d threads.\n", newSize)
+}
+
+// Shutdown 关闭线程池
+func (tp *ThreadPool) Shutdown() {
+	tp.queueMutex.Lock()
+	tp.stop = true
+	tp.queueMutex.Unlock()
+
+	tp.condition.Broadcast()
+
+	// 在Go中，goroutine会自动退出，不需要显式join
+	// 但我们可以等待所有任务完成
+}
+
+// GetThreadDurations 获取线程工作时间统计
+func (tp *ThreadPool) GetThreadDurations() []time.Duration {
+	return tp.threadDurations
+}
+
+// GetTaskCounts 获取任务计数
+func (tp *ThreadPool) GetTaskCounts() []int64 {
+	return tp.taskCounts
+}
+
+// GetThreadNum 获取线程数量
+func (tp *ThreadPool) GetThreadNum() int {
+	return tp.threadNum
+}
+
+// WaitForCompletion 等待所有任务完成（可选方法）
+func (tp *ThreadPool) WaitForCompletion() {
+	// 简单的实现：定期检查队列是否为空
+	for {
+		tp.queueMutex.Lock()
+		empty := tp.highPriorityTasks.Len() == 0 && tp.lowPriorityTasks.Len() == 0
+		tp.queueMutex.Unlock()
+
+		if empty {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// 假设的线程池
+//type ThreadPool struct {
+//	workers   int
+//	jobQueue  chan func()
+//	waitGroup sync.WaitGroup
+//	stopOnce  sync.Once
+//	stopChan  chan struct{}
+//}
+
+//func NewThreadPool(workers int) *ThreadPool {
+//	tp := &ThreadPool{
+//		workers:  workers,
+//		jobQueue: make(chan func(), 100),
+//		stopChan: make(chan struct{}),
+//	}
+//	tp.start()
+//	return tp
+//}
+//
+//func (tp *ThreadPool) start() {
+//	for i := 0; i < tp.workers; i++ {
+//		tp.waitGroup.Add(1)
+//		go tp.worker(i)
+//	}
+//}
+//
+//func (tp *ThreadPool) worker(id int) {
+//	defer tp.waitGroup.Done()
+//
+//	for {
+//		select {
+//		case job, ok := <-tp.jobQueue:
+//			if !ok {
+//				fmt.Printf("Worker %d: job queue closed, exiting\n", id)
+//				return
+//			}
+//			fmt.Printf("Worker %d executing job\n", id)
+//			job()
+//
+//		case <-tp.stopChan:
+//			fmt.Printf("Worker %d received stop signal, exiting\n", id)
+//			return
+//		}
+//	}
+//}
+//
+//func (tp *ThreadPool) Submit(job func()) {
+//	select {
+//	case tp.jobQueue <- job:
+//		// 任务成功提交
+//	case <-tp.stopChan:
+//		// 线程池已关闭，拒绝新任务
+//		fmt.Println("ThreadPool is shutdown, rejecting new job")
+//	}
+//}
+//
+//func (tp *ThreadPool) Shutdown() {
+//	tp.stopOnce.Do(func() {
+//		close(tp.stopChan)  // 通知所有worker停止
+//		close(tp.jobQueue)  // 关闭job队列
+//		tp.waitGroup.Wait() // 等待所有worker退出
+//		fmt.Println("ThreadPool shutdown completed")
+//	})
+//}
+
+//type ThreadPool struct {
+//	mu        sync.Mutex
+//	stop      bool
+//	condition sync.Cond // 条件变量
+//
+//	// 线程池实现
+//	/*
+//	 */
+//}
+//
+//func (p ThreadPool) submit(f func()) {
+//
+//}
+//
+//// Shutdown 关闭线程池
+//func (p *ThreadPool) Shutdown() {
+//
+//	// 设置停止标志
+//	p.mu.Lock()
+//	p.stop = true
+//	p.mu.Unlock()
+//
+//	// 通知所有等待的worker
+//	p.condition.Broadcast()
+//
+//	// 等待所有worker goroutine结束
+//	for _, worker := range p.workers {
+//		// 在Go中，goroutine没有直接的joinable概念
+//		// 我们假设worker都是可等待的
+//		// 这里需要根据具体的worker实现来等待
+//	}
+//}
+
+//func NewThreadPool(numThreads int) *ThreadPool {
+//	return &ThreadPool{}
+//}
 
 type AddressBasedConflictGraph struct {
 	addresses  map[string]*Address // 多个address
@@ -271,15 +663,18 @@ type AddressBasedConflictGraph struct {
 
 func NewAddressBasedConflictGraph(pool *ThreadPool) *AddressBasedConflictGraph {
 	return &AddressBasedConflictGraph{
-		pool: pool,
+		addresses: make(map[string]*Address),
+		pool:      pool,
 	}
 }
 
 // ConvertToUnits 将交易的读写集合转换为读写单元unit（包含值的版本），readOrWriteSet指的是读集或者写集，不是读写集所有
 func (a *AddressBasedConflictGraph) ConvertToUnits(tx *OptmeTransaction, unitType UnitType, readOrWriteSet map[string]string, readSet map[string]string) []*Unit {
-	units := make([]*Unit, 0, len(readOrWriteSet))
+	fmt.Printf("Ready to Run ConvertToUnits... \n")
+	fmt.Printf("readOrWriteSet size: %d \n", len(readOrWriteSet))
 
-	for key, _ := range readOrWriteSet {
+	units := make([]*Unit, 0, len(readOrWriteSet))
+	for key, _ := range readOrWriteSet { // 遍历写集
 		var coLocate atomic.Bool
 		coLocate.Store(false)
 		if len(readSet) > 0 {
@@ -288,13 +683,12 @@ func (a *AddressBasedConflictGraph) ConvertToUnits(tx *OptmeTransaction, unitTyp
 				coLocate.Store(true)
 			}
 		}
-		// 使用 key 和 value 创建 Unit
-		units = append(units, newUnit(tx, unitType, key, coLocate))
+		units = append(units, newUnit(tx, unitType, key, coLocate)) // 使用 key 和 value 创建 Unit
 	}
 	return units
 }
 
-func (a *AddressBasedConflictGraph) ConvertToUnits2(tx *OptmeTransaction, unitType UnitType, readOrWriteSet map[string]bool, readSet map[string]bool) []*Unit {
+func (a *AddressBasedConflictGraph) ConvertToUnits2(tx *OptmeTransaction, unitType UnitType, readOrWriteSet map[string]string, readSet map[string]string) []*Unit {
 	units := make([]*Unit, 0, len(readOrWriteSet))
 
 	for key := range readOrWriteSet {
@@ -317,8 +711,9 @@ func (a *AddressBasedConflictGraph) CheckUpdaterAlreadyExistInSameAddress(writeU
 
 			address := unit.address
 			if existingUnit, exists := a.addresses[address]; exists && existingUnit.first_updater_flag == true {
-				return true
+				return true // 即冲突
 			}
+
 		}
 	}
 	return false
@@ -393,19 +788,25 @@ func (a *AddressBasedConflictGraph) AssignFrom(other *AddressBasedConflictGraph)
 // 参数:
 //   - simulationResult: 模拟结果，包含所有待处理的事务
 func (a *AddressBasedConflictGraph) Construct(simulationResult []*OptmeTransaction) {
-	for _, tx := range simulationResult {
-		// 转换写单元
-		writeUnits := a.ConvertToUnits(tx, UnitType(Write), tx.LocalPut, tx.LocalGet)
 
-		// 检查同一地址是否已存在更新器
+	fmt.Print("Ready to Run Construct ConflictGraph... \n")
+	for _, tx := range simulationResult {
+
+		//	转换写单元
+		writeUnits := a.ConvertToUnits(tx, UnitType(Write), tx.Tx.Vertex.WriteKeys, tx.Tx.Vertex.ReadKeys)
+		//writeUnits := a.ConvertToUnits(tx, UnitType(Write), tx.LocalPut, tx.LocalGet)
+		fmt.Printf(string(len(writeUnits)))
+
+		//	检查同一地址是否已存在更新器
 		if a.CheckUpdaterAlreadyExistInSameAddress(writeUnits) {
 			tx.Aborted.Store(true)
 			a.abortedTxs = append(a.abortedTxs, tx)
+			fmt.Printf("跳过已中止的交易...")
 			continue // 跳过已中止的事务
 		}
 
 		// 转换读单元
-		readUnits := a.ConvertToUnits(tx, UnitType(Read), tx.LocalGet, nil)
+		readUnits := a.ConvertToUnits(tx, UnitType(Read), tx.Tx.Vertex.ReadKeys, nil)
 
 		// 设置读写依赖关系
 		a.SetWRDependencies(readUnits, writeUnits)
@@ -520,13 +921,23 @@ func (a *AddressBasedConflictGraph) Merge(other *AddressBasedConflictGraph) {
 }
 
 type Statistics struct {
-	ExecCount     atomic.Int64
-	CommitCount   atomic.Int64
-	RollbackCount atomic.Int64
+	ExecCount     atomic.Uint32
+	CommitCount   atomic.Uint32
+	RollbackCount atomic.Uint32
+	Latency       atomic.Uint32
+	countBlock    atomic.Uint32
+	countOverhead atomic.Uint32
+
+	beginTime time.Time // 开始时间
+	endTime   time.Time // 结束时间
 }
 
 func NewStatistics() *Statistics {
 	return &Statistics{}
+}
+
+func (s *Statistics) GetExecCount() uint32 {
+	return s.ExecCount.Load()
 }
 
 func (s *Statistics) AddExecCount() {
@@ -539,4 +950,165 @@ func (s *Statistics) AddCommitCount() {
 
 func (s *Statistics) AddRollbackCount() {
 	s.RollbackCount.Add(1)
+}
+
+// JournalCommit 记录提交统计信息（简化版）
+func (s *Statistics) JournalCommit(latency uint32) {
+	s.CommitCount.Add(1)
+	s.Latency.Add(latency)
+}
+
+func (s *Statistics) JournalExecute() {
+	if s.ExecCount.Load() == 0 {
+		s.beginTime = time.Now()
+	}
+	s.ExecCount.Add(1)
+}
+
+func (s *Statistics) JournalOverheads(cost uint32) {
+	s.countOverhead.Add(cost)
+}
+
+// JournalRollbackExecution 记录回滚执行统计
+func (s *Statistics) JournalRollbackExecution(latency uint32) {
+	s.Latency.Add(latency)
+}
+
+// StartTiming 开始计时
+func (s *Statistics) StartTiming() {
+	s.beginTime = time.Now()
+}
+
+// StopTiming 结束计时
+func (s *Statistics) StopTiming() {
+	s.endTime = time.Now()
+}
+
+// JournalBlock 记录区块统计
+func (s *Statistics) JournalBlock() {
+	s.countBlock.Add(1)
+}
+
+// addressRank 地址排名（确定处理顺序）
+func (a *AddressBasedConflictGraph) addressRank() []string {
+	// 创建地址列表
+	addressList := make([]*Address, 0, len(a.addresses))
+	for _, addr := range a.addresses {
+		addressList = append(addressList, addr)
+	}
+
+	// 排序：入度降序，出度升序，地址升序
+	sort.Slice(addressList, func(i, j int) bool {
+		addrI := addressList[i]
+		addrJ := addressList[j]
+
+		if addrI.in_degree != addrJ.in_degree {
+			return addrI.in_degree > addrJ.in_degree
+		}
+		if addrI.out_degree != addrJ.out_degree {
+			return addrI.out_degree < addrJ.out_degree
+		}
+		return addrI.address < addrJ.address
+	})
+
+	// 提取排序后的地址列表
+	rankedAddresses := make([]string, len(addressList))
+	for i, addr := range addressList {
+		rankedAddresses[i] = addr.address
+	}
+
+	return rankedAddresses
+}
+
+// HierarchicalSort 分层排序
+func (a *AddressBasedConflictGraph) HierarchicalSort() {
+	// 获取按优先级排序的地址列表
+	rankedAddresses := a.addressRank()
+
+	for _, key := range rankedAddresses {
+		// 排序读单元和写单元
+		address := a.addresses[key]
+		address.sort_read_unit()
+		address.sort_read_unit()
+	}
+}
+
+// Reorder 重排序中止的交易
+func (a *AddressBasedConflictGraph) Reorder() {
+	allAborted := a.extractAbortList()
+	var reorderTargets []*OptmeTransaction
+	var aborted []*OptmeTransaction
+
+	// 分区复制：满足条件的放入reorderTargets，其他的放入aborted
+	for _, tx := range allAborted {
+		if len(tx.LocalGet) == 0 && len(tx.LocalPut) > 1 {
+			reorderTargets = append(reorderTargets, tx)
+		} else {
+			aborted = append(aborted, tx)
+		}
+	}
+
+	// 将aborted交易加入到总的abortedTxs列表中
+	a.abortedTxs = append(a.abortedTxs, aborted...)
+
+	// 按交易ID排序abortedTxs
+	sort.Slice(a.abortedTxs, func(i, j int) bool {
+		return a.abortedTxs[i].Tx.Txid < a.abortedTxs[j].Tx.Txid
+	})
+
+	// 处理重排序目标交易
+	for _, tx := range reorderTargets {
+		var seq uint32
+		uniqueAddresses := make(map[string]struct{})
+
+		// 收集唯一的写入地址
+		for key := range tx.LocalPut {
+			uniqueAddresses[key] = struct{}{}
+		}
+
+		// 为每个地址计算最大序列号
+		for address := range uniqueAddresses {
+			if addr, exists := a.addresses[address]; exists {
+				writeSeq := addr.writeUnits.max_seq
+				readSeq := addr.readUnits.max_seq
+				// 取最大值
+				if writeSeq > seq {
+					seq = writeSeq
+				}
+				if readSeq > seq {
+					seq = readSeq
+				}
+			}
+		}
+
+		// 设置交易序列号并加入到交易列表
+		tx.Sequenceid = seq
+		a.txList = append(a.txList, tx)
+	}
+}
+
+func (a *AddressBasedConflictGraph) extractTxsList() []*OptmeTransaction {
+	return a.txList
+}
+
+// extractAbortList 提取中止交易列表（高效版本）
+func (a *AddressBasedConflictGraph) extractAbortList() []*OptmeTransaction {
+	var abortedList []*OptmeTransaction
+	var newTxList []*OptmeTransaction
+
+	//log.Debugf("tx_list size in extractAbortList: %d", len(a.txList))
+
+	// 单次遍历，同时构建新列表和提取中止交易
+	for _, tx := range a.txList {
+		if tx.Aborted.Load() {
+			abortedList = append(abortedList, tx)
+		} else {
+			newTxList = append(newTxList, tx)
+		}
+	}
+
+	// 更新交易列表（只包含未中止的交易）
+	a.txList = newTxList
+
+	return abortedList
 }

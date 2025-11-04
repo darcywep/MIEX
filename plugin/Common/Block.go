@@ -31,3 +31,4 @@ func (b *Block) GetTxs() []*JanusTransaction {
 
 var BLOCK_SIZE int = 1000
 var TX_NUM int = 2000
+var TX_COST int = 10
