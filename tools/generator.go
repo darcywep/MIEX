@@ -25,7 +25,7 @@ func GenerateAddresses(start, end int) []common.Address {
 }
 
 // GenerateSmallBankTxs 基于Zipf分布生成交易，用于控制冲突概率
-func GenerateSmallBankTxs(addresses []common.Address, ioTxCount, cpuTxCount, fibonacciN int, skew float64) []*types.Transaction {
+func GenerateSmallBankTxs(addresses []common.Address, ioTxCount, cpuTxCount, fibonacciN int, recursive bool, skew float64) []*types.Transaction {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	zipf := rand.NewZipf(r, skew, 1, uint64(len(addresses)-1))
 	txCount := ioTxCount + cpuTxCount
@@ -60,14 +60,14 @@ func GenerateSmallBankTxs(addresses []common.Address, ioTxCount, cpuTxCount, fib
 				tx.TxType = janusConfig.IOTx
 				ioTxNum += 1
 			} else {
-				inputs, err = abiObject.Pack("fibonacciCalculate", to, big.NewInt(0).SetUint64(uint64(fibonacciN)))
+				inputs, err = abiObject.Pack("fibonacciCalculate", to, big.NewInt(0).SetUint64(uint64(fibonacciN)), recursive)
 				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), uint64(1e19), gasPrice, inputs)
 				tx.TxType = janusConfig.ComputeTx
 				cpuTxNum += 1
 			}
 		} else { // CPU型交易
 			if cpuTxNum < cpuTxCount {
-				inputs, err = abiObject.Pack("fibonacciCalculate", to, big.NewInt(0).SetUint64(uint64(fibonacciN)))
+				inputs, err = abiObject.Pack("fibonacciCalculate", to, big.NewInt(0).SetUint64(uint64(fibonacciN)), recursive)
 				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), uint64(1e19), gasPrice, inputs)
 				tx.TxType = janusConfig.ComputeTx
 				cpuTxNum += 1

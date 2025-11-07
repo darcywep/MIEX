@@ -2,6 +2,7 @@ package init_smallbank_contract
 
 import (
 	levm "Janus/core/evm"
+	"Janus/ethereum/core/tracing"
 	"Janus/ethereum/database"
 	"Janus/tools"
 	"fmt"
@@ -138,4 +139,21 @@ func TestSmallBankTransferWithExistDB() {
 			return
 		}
 	}
+}
+
+func ChangeContractCode() {
+	// ========= 载入合约 =========
+	_, abiBin := loadContractInfo()
+
+	evm := levm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
+	defer evm.AllDB().Close()
+
+	evm.AllDB().StateDB.SetCode(tools.ContractAddress, abiBin, tracing.CodeChangeContractCreation)
+
+	// ========= 导出状态根 =========
+	stateRoot, _, err := evm.AllDB().StateDB.CommitWithUpdate(uint64(0), true, true)
+	tools.PanicError(err)
+	err = evm.AllDB().StateDB.Database().TrieDB().Commit(stateRoot, false)
+	tools.PanicError(err)
+	fmt.Println("🌳 Final state root:", stateRoot.Hex())
 }

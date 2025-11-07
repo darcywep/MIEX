@@ -13,11 +13,18 @@ var (
 	ComputingThreadNum int = 4
 )
 
+// 交易生成相关配置
 const (
-	AddressNumber            = 1000 // 总共生成多少个地址, 这用于添加到交易中
-	CompetingTxCountForBlock = 1000
-	IoTxCountForBlock        = 0
+	AddressNumber            = 10000 // 总共生成多少个地址, 这用于添加到交易中
+	CompetingTxCountForBlock = 5000
+	IoTxCountForBlock        = 5000
 	Skew                     = 1.01
+)
+
+// 斐波那契计算相关配置
+const (
+	FibonacciN                  = 30
+	RecursiveCalculateFibonacci = true // 是否使用递归计算斐波那契
 )
 
 const (
@@ -42,8 +49,8 @@ const (
 )
 
 const (
-	FilePath   = "./file"
-	FibonacciN = 350
+	FilePath = "./file"
+
 	//n := rand.Intn(30) + 10 // 随机计算 Fibonacci(10~40)
 	//n := rand.Intn(10) // 随机计算 Fibonacci(10~40)
 )

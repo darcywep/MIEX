@@ -94,8 +94,8 @@ func (optme *OptME) Start() {
 		fmt.Printf("生成地址数量: %d\n", len(addresses))
 
 		// Step 2: 生成交易（Zipf 控制冲突率）
-		ethTxs := tools.GenerateSmallBankTxs(addresses, janusConfig.IoTxCountForBlock,
-			janusConfig.CompetingTxCountForBlock, janusConfig.FibonacciN, janusConfig.Skew)
+		ethTxs := tools.GenerateSmallBankTxs(addresses, janusConfig.IoTxCountForBlock, janusConfig.CompetingTxCountForBlock,
+			janusConfig.FibonacciN, janusConfig.RecursiveCalculateFibonacci, janusConfig.Skew)
 		fmt.Printf("生成交易数量: %d\n", len(ethTxs)) // 以太坊交易
 
 		for i := 0; i < Common.BLOCK_SIZE; i++ {

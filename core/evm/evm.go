@@ -136,12 +136,14 @@ func (lvm *LEVM) CallContract(callerAddr, contractAddr common.Address, inputs []
 	// Get reference to the transaction sender
 	balance := new(uint256.Int).SetUint64(1e19)
 	balance.Mul(balance, new(uint256.Int).SetUint64(100))
+	lvm.evm.Context.GasLimit = uint64(1e19) // 每次执行都重置gas limit
+	gas := lvm.evm.Context.GasLimit
 	lvm.allDBForState.StateDB.SetBalance(callerAddr, balance, tracing.BalanceIncreaseGasReturn)
 	output, gas, err := lvm.evm.Call(
 		callerAddr,
 		contractAddr,
 		inputs,
-		lvm.allDBForState.StateDB.GetBalance(callerAddr).Uint64(),
+		gas,
 		value,
 	)
 	lvm.allDBForState.StateDB.SetBalance(callerAddr, new(uint256.Int).SetUint64(gas), tracing.BalanceIncreaseGasReturn)

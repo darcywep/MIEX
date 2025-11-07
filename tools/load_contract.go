@@ -11,7 +11,7 @@ import (
 
 var (
 	ContractAddress = common.HexToAddress("0x48c8980037806eD4284D3353e2D6fC9e4256AC0A")
-	StateRoot       = common.HexToHash("0x4f10002a4ef7977430d58019f93d35bb04585d97ef946d5ee634fceaab415a7c")
+	StateRoot       = common.HexToHash("0x3c4f0c089974d4c6aabda0370494c8a09be6990cbc875f9b9fa2b5a03cc4384a")
 )
 
 // LoadContract will open and decode a contracts

@@ -34,7 +34,7 @@ func NewVMContext(coinbase common.Address, blockNum *big.Int, chainContext *Chai
 		Difficulty:  new(big.Int).SetInt64(1),
 		BaseFee:     big.NewInt(1),
 		BlobBaseFee: big.NewInt(1),
-		GasLimit:    uint64(1000000),
+		GasLimit:    uint64(1e19),
 		Random:      &random,
 	}
 }

@@ -37,15 +37,14 @@ func main() {
 	fmt.Printf("生成地址数量: %d\n", len(addresses))
 
 	// Step 2: 生成交易（Zipf 控制冲突率）
-	txs := tools.GenerateSmallBankTxs(addresses, janusConfig.IoTxCountForBlock,
-		janusConfig.CompetingTxCountForBlock, janusConfig.FibonacciN, janusConfig.Skew)
+	txs := tools.GenerateSmallBankTxs(addresses, janusConfig.IoTxCountForBlock, janusConfig.CompetingTxCountForBlock,
+		janusConfig.FibonacciN, janusConfig.RecursiveCalculateFibonacci, janusConfig.Skew)
 	fmt.Printf("生成交易数量: %d\n", len(txs))
 
 	// Step 3: 模拟执行
 	levm := lvm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
 	defer levm.AllDB().Close()
 	//schain.TestSerialExecution(txs, levm)
-
 	start2 := time.Now()
 	schain.GetRWSetByOCC(txs, levm)
 	//fmt.Println("finished occ")
@@ -67,5 +66,5 @@ func main() {
 		fmt.Println("process error", err)
 		return
 	}
-	fmt.Println("SChain TPS: ", float64(len(txs))/end2.Seconds())
+	fmt.Println("TPS:", (janusConfig.CompetingTxCountForBlock+janusConfig.IoTxCountForBlock)/end2.Seconds())
 }
