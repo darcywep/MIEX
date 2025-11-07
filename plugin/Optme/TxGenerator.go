@@ -2,9 +2,6 @@ package Optme
 
 import (
 	"Janus/plugin/Common"
-	"math/rand"
-	"strconv"
-	"time"
 )
 
 type TxGenerator struct {
@@ -23,6 +20,7 @@ func (g *TxGenerator) GenerateTransaction(txid uint32, cost uint32, readKeys map
 }
 
 func (tg *TxGenerator) GenerateBlock(blockID int) *Common.Block {
+
 	txs := make([]*Common.JanusTransaction, 0)
 
 	for i := 0; i < tg.blockSize; i++ {
@@ -30,16 +28,6 @@ func (tg *TxGenerator) GenerateBlock(blockID int) *Common.Block {
 		txid := blockID*tg.blockSize + i + 1
 		readKeys := make(map[string]string)
 		writeKeys := make(map[string]string)
-
-		rand.Seed(time.Now().UnixNano())
-		randomNum := rand.Intn(1000)
-		readkey := "key" + strconv.Itoa(randomNum)
-
-		randomNum = rand.Intn(1000)
-		writekey := "key" + strconv.Itoa(randomNum)
-
-		readKeys[readkey] = ""
-		writeKeys[writekey] = ""
 
 		tx := tg.GenerateTransaction(uint32(txid), uint32(Common.TX_COST), readKeys, writeKeys)
 		txs = append(txs, tx)

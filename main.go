@@ -158,23 +158,27 @@ func runIO(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.S
 func main() {
 
 	txGenerator := Optme.NewTxGenerator(Common.TX_NUM, Common.BLOCK_SIZE) // TX_NUM = 2000, BLOCK_SIZE = 1000
-	blocks := txGenerator.GenerateWorkload()                              // 生成区块
+
+	blocks := txGenerator.GenerateWorkload() // 生成区块
 	fmt.Printf("Blocks num: %d\n", len(blocks))
 	fmt.Printf("Blocks size: %d\n", len(blocks[0].Txs))
 
 	static := Optme.NewStatistics()
-	optme := Optme.NewOptME(blocks, static, 2, 4, false)
+	optme := Optme.NewOptME(blocks, static, 2, 4, true)
 	optme.Start()
 
-	//monitor_filename := "cpu_disk_monitor/cpu_disk_Sep.xlsx"
-	////monitor_filename := "cpu_disk_monitor/cpu_disk_Hybrid.xlsx"
-	////monitor_filename := "cpu_disk_monitor/cpu_disk_Compute.xlsx"
-	////monitor_filename := "cpu_disk_monitor/cpu_disk_IO.xlsx"
+	defer optme.GetThreadPool().EvmClose()
+
+	//fmt.Printf("所有交易延迟总和 %d 微秒 \n", static.Latency.Load())
+	// monitor_filename := "cpu_disk_monitor/cpu_disk_Sep.xlsx"
+	// monitor_filename := "cpu_disk_monitor/cpu_disk_Hybrid.xlsx"
+	// monitor_filename := "cpu_disk_monitor/cpu_disk_Compute.xlsx"
+	// monitor_filename := "cpu_disk_monitor/cpu_disk_IO.xlsx"
+
+	// runtime.GOMAXPROCS(config.AllThreadNum + 1)
+	// file.WriteFiles(monitor_filename, config.AllThreadNum)
 	//
-	//runtime.GOMAXPROCS(config.AllThreadNum + 1)
-	//file.WriteFiles(monitor_filename, config.AllThreadNum)
-	//
-	//mode := flag.String("m", "h",
+	// mode := flag.String("m", "h",
 	//	"mode: \n"+
 	//		"\th stands for hybrid\n"+
 	//		"\ts stands for Sep\n"+

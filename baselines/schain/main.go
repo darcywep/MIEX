@@ -67,5 +67,5 @@ func main() {
 		fmt.Println("process error", err)
 		return
 	}
-	fmt.Println(end2)
+	fmt.Println("SChain TPS: ", float64(len(txs))/end2.Seconds())
 }

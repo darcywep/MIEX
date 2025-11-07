@@ -134,6 +134,9 @@ func (lvm *LEVM) DeployContract(fromAddr common.Address, contractCode []byte) ([
 // lvm.CallContractABI()
 func (lvm *LEVM) CallContract(callerAddr, contractAddr common.Address, inputs []byte, value *uint256.Int) ([]byte, error) {
 	// Get reference to the transaction sender
+	balance := new(uint256.Int).SetUint64(1e19)
+	balance.Mul(balance, new(uint256.Int).SetUint64(100))
+	lvm.allDBForState.StateDB.SetBalance(callerAddr, balance, tracing.BalanceIncreaseGasReturn)
 	output, gas, err := lvm.evm.Call(
 		callerAddr,
 		contractAddr,

@@ -56,24 +56,24 @@ func GenerateSmallBankTxs(addresses []common.Address, ioTxCount, cpuTxCount, fib
 		if janusConfig.TransactionType(txType) == janusConfig.IOTx { // IO型交易
 			if ioTxNum < ioTxCount {
 				inputs, err = abiObject.Pack("transfer", to, big.NewInt(0).SetUint64(10))
-				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), uint64(210000), gasPrice, inputs)
+				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), uint64(1e19), gasPrice, inputs)
 				tx.TxType = janusConfig.IOTx
 				ioTxNum += 1
 			} else {
 				inputs, err = abiObject.Pack("fibonacciCalculate", to, big.NewInt(0).SetUint64(uint64(fibonacciN)))
-				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), uint64(210000), gasPrice, inputs)
+				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), uint64(1e19), gasPrice, inputs)
 				tx.TxType = janusConfig.ComputeTx
 				cpuTxNum += 1
 			}
 		} else { // CPU型交易
 			if cpuTxNum < cpuTxCount {
 				inputs, err = abiObject.Pack("fibonacciCalculate", to, big.NewInt(0).SetUint64(uint64(fibonacciN)))
-				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), uint64(210000), gasPrice, inputs)
+				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), uint64(1e19), gasPrice, inputs)
 				tx.TxType = janusConfig.ComputeTx
 				cpuTxNum += 1
 			} else {
 				inputs, err = abiObject.Pack("transfer", to, big.NewInt(0).SetUint64(10))
-				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), uint64(210000), gasPrice, inputs)
+				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), uint64(1e19), gasPrice, inputs)
 				tx.TxType = janusConfig.IOTx
 				ioTxNum += 1
 			}

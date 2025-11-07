@@ -1,9 +1,13 @@
 package Optme
 
 import (
+	lvm "Janus/core/evm"
+	"Janus/ethereum/database"
+	"Janus/tools"
 	"container/list"
 	"fmt"
 	"log"
+	"math/big"
 	"runtime"
 	"sort"
 	"sync"
@@ -262,7 +266,7 @@ const (
 
 // Task 任务结构体
 type Task struct {
-	function func()
+	function func(levm *lvm.LEVM)
 	priority TaskPriority
 }
 
@@ -271,10 +275,12 @@ type worker struct {
 	id       int
 	pool     *ThreadPool
 	stopFlag bool
+	levm     *lvm.LEVM
 }
 
 // ThreadPool 线程池结构体
 type ThreadPool struct {
+	levm              *lvm.LEVM
 	workers           []*worker
 	highPriorityTasks *list.List
 	lowPriorityTasks  *list.List
@@ -288,6 +294,28 @@ type ThreadPool struct {
 	stopFlags         []bool
 }
 
+func (t *ThreadPool) resetEVM() {
+	root, err := t.levm.AllDB().StateDB.Commit(uint64(0), true, true)
+	if err != nil {
+		fmt.Println("StateDB.Commit", err)
+	}
+	err = t.levm.AllDB().StateDB.Database().TrieDB().Commit(root, false)
+	if err != nil {
+		fmt.Println("TrieDB().Commit(root, false)", err)
+	}
+	err = t.levm.AllDB().UpdateStateDB(root)
+	if err != nil {
+		fmt.Println("UpdateStateDB", err)
+	}
+	for _, w := range t.workers {
+		w.levm = t.levm.Copy()
+	}
+}
+
+func (t *ThreadPool) EvmClose() {
+	defer t.levm.AllDB().Close()
+}
+
 // NewThreadPool 创建线程池
 func NewThreadPool(threadNum int) *ThreadPool {
 	return NewThreadPoolWithOffset(threadNum, 0)
@@ -295,7 +323,12 @@ func NewThreadPool(threadNum int) *ThreadPool {
 
 // NewThreadPoolWithOffset 创建带偏移的线程池
 func NewThreadPoolWithOffset(threadNum int, offset int) *ThreadPool {
+
+	// Step 3: 模拟执行
+	levm := lvm.New(database.SmallBankStateDBConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
+
 	pool := &ThreadPool{
+		levm:              levm,
 		highPriorityTasks: list.New(),
 		lowPriorityTasks:  list.New(),
 		stop:              false,
@@ -313,6 +346,7 @@ func NewThreadPoolWithOffset(threadNum int, offset int) *ThreadPool {
 			id:       i,
 			pool:     pool,
 			stopFlag: false,
+			levm:     levm.Copy(),
 		}
 		pool.workers[i] = worker
 
@@ -344,7 +378,7 @@ func pinToCore(threadID int, coreID int) {
 }
 
 // Enqueue 添加任务到线程池
-func (tp *ThreadPool) Enqueue(taskFunc func()) {
+func (tp *ThreadPool) Enqueue(taskFunc func(levm *lvm.LEVM)) {
 	tp.queueMutex.Lock()
 	defer tp.queueMutex.Unlock()
 
@@ -369,11 +403,11 @@ func (tp *ThreadPool) Enqueue(taskFunc func()) {
 }
 
 // EnqueueWithResult 添加带返回值的任务
-func (tp *ThreadPool) EnqueueWithResult(taskFunc func() interface{}, priority TaskPriority) <-chan interface{} {
+func (tp *ThreadPool) EnqueueWithResult(taskFunc func(levm *lvm.LEVM) interface{}, priority TaskPriority) <-chan interface{} {
 	resultChan := make(chan interface{}, 1)
 
-	wrappedFunc := func() {
-		result := taskFunc()
+	wrappedFunc := func(levm *lvm.LEVM) {
+		result := taskFunc
 		resultChan <- result
 		close(resultChan)
 	}
@@ -383,7 +417,7 @@ func (tp *ThreadPool) EnqueueWithResult(taskFunc func() interface{}, priority Ta
 }
 
 // EnqueueBatch 批量添加任务
-func (tp *ThreadPool) EnqueueBatch(taskFuncs []func(), priority TaskPriority) {
+func (tp *ThreadPool) EnqueueBatch(taskFuncs []func(levm *lvm.LEVM), priority TaskPriority) {
 	tp.queueMutex.Lock()
 	defer tp.queueMutex.Unlock()
 
@@ -451,7 +485,7 @@ func (w *worker) start() {
 		if found {
 			// 执行任务
 			start := time.Now()
-			task.function()
+			task.function(w.levm)
 			duration := time.Since(start)
 
 			// 更新统计信息
@@ -670,8 +704,8 @@ func NewAddressBasedConflictGraph(pool *ThreadPool) *AddressBasedConflictGraph {
 
 // ConvertToUnits 将交易的读写集合转换为读写单元unit（包含值的版本），readOrWriteSet指的是读集或者写集，不是读写集所有
 func (a *AddressBasedConflictGraph) ConvertToUnits(tx *OptmeTransaction, unitType UnitType, readOrWriteSet map[string]string, readSet map[string]string) []*Unit {
-	fmt.Printf("Ready to Run ConvertToUnits... \n")
-	fmt.Printf("readOrWriteSet size: %d \n", len(readOrWriteSet))
+	//fmt.Printf("Ready to Run ConvertToUnits... \n")
+	//fmt.Printf("readOrWriteSet size: %d \n", len(readOrWriteSet))
 
 	units := make([]*Unit, 0, len(readOrWriteSet))
 	for key, _ := range readOrWriteSet { // 遍历写集
@@ -801,7 +835,7 @@ func (a *AddressBasedConflictGraph) Construct(simulationResult []*OptmeTransacti
 		if a.CheckUpdaterAlreadyExistInSameAddress(writeUnits) {
 			tx.Aborted.Store(true)
 			a.abortedTxs = append(a.abortedTxs, tx)
-			fmt.Printf("跳过已中止的交易...")
+			//fmt.Printf("跳过已中止的交易...")
 			continue // 跳过已中止的事务
 		}
 
@@ -1095,8 +1129,6 @@ func (a *AddressBasedConflictGraph) extractTxsList() []*OptmeTransaction {
 func (a *AddressBasedConflictGraph) extractAbortList() []*OptmeTransaction {
 	var abortedList []*OptmeTransaction
 	var newTxList []*OptmeTransaction
-
-	//log.Debugf("tx_list size in extractAbortList: %d", len(a.txList))
 
 	// 单次遍历，同时构建新列表和提取中止交易
 	for _, tx := range a.txList {

@@ -6,7 +6,7 @@
       <paths name="bcds74">
         <serverdata>
           <mappings>
-            <mapping deploy="/Janus_hb" local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/Janus" local="$PROJECT_DIR$" web="/" />
             <mapping local="" />
           </mappings>
         </serverdata>

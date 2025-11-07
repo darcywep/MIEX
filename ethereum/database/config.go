@@ -37,6 +37,7 @@ var path string
 var defaultPebbleConfig *pebbleConfig
 var defaultRawConfig *rawConfig
 var DefaultStateDBConfig *StateDBConfig
+var SmallBankStateDBConfig *StateDBConfig
 
 func init() {
 	if runtime.GOOS == "darwin" {
@@ -64,6 +65,11 @@ func init() {
 		Path:    "/data/ethereum/state_snapshot",
 		Cache:   32768,
 		Handles: 32768,
+	}
+	SmallBankStateDBConfig = &StateDBConfig{
+		Path:    "/root/alldb/smallbank_database",
+		Cache:   0,
+		Handles: 0,
 	}
 
 }

@@ -82,7 +82,7 @@ func GetRWSetByOCC(txs []*types.Transaction, levm *lvm.LEVM) {
 					tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
 					tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
 				} else {
-					tx.WriteKeys = append(tx.ReadKeys, tx.SmallBankTo.String())
+					tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
 				}
 			}
 		}()

@@ -1,7 +1,10 @@
 package Optme
 
 import (
+	janusConfig "Janus/config"
+	lvm "Janus/core/evm"
 	"Janus/plugin/Common"
+	"Janus/tools"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -68,6 +71,10 @@ func NewOptME(blocks []*Common.Block, statistics *Statistics, numThreads int, ta
 	return optme
 }
 
+func (optme *OptME) GetThreadPool() *ThreadPool {
+	return optme.pool
+}
+
 // Start 启动OptME协议
 func (optme *OptME) Start() {
 
@@ -82,10 +89,19 @@ func (optme *OptME) Start() {
 		txs := block.GetTxs()
 		batch := make([]*OptmeTransaction, 0, len(txs))
 
-		for _, tx := range txs {
+		// Step 1: 生成地址
+		addresses := tools.GenerateAddresses(1, janusConfig.AddressNumber)
+		fmt.Printf("生成地址数量: %d\n", len(addresses))
+
+		// Step 2: 生成交易（Zipf 控制冲突率）
+		ethTxs := tools.GenerateSmallBankTxs(addresses, janusConfig.IoTxCountForBlock,
+			janusConfig.CompetingTxCountForBlock, janusConfig.FibonacciN, janusConfig.Skew)
+		fmt.Printf("生成交易数量: %d\n", len(ethTxs)) // 以太坊交易
+
+		for i := 0; i < Common.BLOCK_SIZE; i++ {
 			txid++
-			tx.Txid = uint32(txid)
-			optmeTx := NewOptmeTransaction(tx, uint32(blockid))
+			txs[i].Txid = uint32(txid)
+			optmeTx := NewOptmeTransaction(txs[i], ethTxs[i], uint32(blockid))
 			batch = append(batch, optmeTx) // batch[][], 里面每个元素表示一个区块中的所有交易
 		}
 
@@ -95,7 +111,14 @@ func (optme *OptME) Start() {
 	}
 
 	fmt.Println("OptME Ready to Run ...")
+
+	startTime := time.Now()
 	optme.Run()
+	elapsed := time.Since(startTime)
+
+	fmt.Printf("被执行的交易数目 %d \n", optme.statistics.ExecCount.Load())
+	fmt.Printf("成功提交的交易数目 %d \n", optme.statistics.CommitCount.Load())
+	fmt.Printf("交易处理吞吐(TPS) %f \n", float64(optme.statistics.CommitCount.Load())/(elapsed.Seconds()))
 }
 
 // hasContain 检查map中的key是否在目标集合中存在
@@ -144,14 +167,19 @@ func (optme *OptME) IntraEpochReordering(simulationResult []*OptmeTransaction, a
 }
 
 // ReorderWithACG 使用ACG重排序交易
-func (o *OptME) ReorderWithACG(acg *AddressBasedConflictGraph, abortedTxs *[]*OptmeTransaction) {
-	//log.Infof("Reorder block %d", o.blockIdx)
+func (o *OptME) ReorderWithACG(acg *AddressBasedConflictGraph, simulationResult []*OptmeTransaction, abortedTxs *[]*OptmeTransaction) {
+
+	//acg.ParallelConstruct(simulationResult)
+	acg.Construct(simulationResult)
+
 	beginTime := time.Now()
 
 	var txList []*OptmeTransaction
 
 	// 时期内重排序
 	o.IntraEpochReorderingWithACG(acg, abortedTxs, &txList)
+
+	fmt.Printf("abortedTxs size = %d \n", len(*abortedTxs))
 
 	// 并发提交并统计延迟
 	for _, tx := range txList {
@@ -162,7 +190,6 @@ func (o *OptME) ReorderWithACG(acg *AddressBasedConflictGraph, abortedTxs *[]*Op
 	// 统计整个重排序阶段的执行时间
 	phaseTime := time.Since(beginTime).Microseconds()
 	o.statistics.JournalRollbackExecution(uint32(phaseTime))
-	//log.Infof("Reorder block %d done", o.blockIdx)
 }
 
 // Reorder 重排序交易
@@ -197,6 +224,7 @@ func (optme *OptME) Run() {
 	// 执行每个批次
 	fmt.Println("Go in OptME Run function ...")
 	for i, batch := range optme.batches {
+
 		acg := optme.acgs[i] // addressConflictGraph
 		blockid := batch[0].Blockid
 
@@ -210,13 +238,15 @@ func (optme *OptME) Run() {
 
 		if optme.enableParallel {
 			fmt.Printf("Parallelization: %t \n", optme.enableParallel)
-			//		//optme.Reorder(acg, &abortedTxs)
+			optme.ReorderWithACG(acg, batch, &abortedTxs)
 		} else {
 			fmt.Printf("Parallelization: %t \n", optme.enableParallel)
 			optme.Reorder(batch, &abortedTxs)
 		}
 		optme.ParallelExecute(&schedules, abortedTxs)
 		optme.statistics.JournalBlock()
+
+		optme.pool.resetEVM()
 	}
 }
 
@@ -248,8 +278,8 @@ func (o *OptME) InterEpochReordering(schedules *[][]*OptmeTransaction, abortedTx
 	}
 }
 
-func (optme *OptME) ReExecute(tx *OptmeTransaction) int {
-	tx.Execute()
+func (optme *OptME) ReExecute(tx *OptmeTransaction, levm *lvm.LEVM) int {
+	tx.Execute(levm)
 	return 1
 }
 
@@ -280,11 +310,11 @@ func (optme *OptME) ParallelExecute(schedules *[][]*OptmeTransaction, abortedTxs
 			resultChan := make(chan int, 1)
 			futures = append(futures, resultChan)
 
-			optme.pool.Enqueue(func() {
+			optme.pool.Enqueue(func(levm *lvm.LEVM) {
 				defer wg.Done()
 				defer close(resultChan)
 
-				err := optme.ReExecute(tx)
+				err := optme.ReExecute(tx, levm)
 				if err != 1 {
 					resultChan <- err
 					return
@@ -328,19 +358,12 @@ func (optme *OptME) ParallelExecute(schedules *[][]*OptmeTransaction, abortedTxs
 
 // IntraEpochReorderingWithACG 使用ACG进行时期内重排序
 func (o *OptME) IntraEpochReorderingWithACG(acg *AddressBasedConflictGraph, abortedTxs *[]*OptmeTransaction, txList *[]*OptmeTransaction) {
-	//beginTime := time.Now()
 
 	// 分层排序
 	acg.HierarchicalSort()
-	//sortTime := time.Now()
-	//sortDuration := sortTime.Sub(beginTime).Microseconds()
-	//log.Infof("Sort time: %.2fms", float64(sortDuration)/1000.0)
 
 	// 重排序
 	acg.Reorder()
-	//reorderTime := time.Now()
-	//reorderDuration := reorderTime.Sub(sortTime).Microseconds()
-	//log.Infof("Reorder time: %.2fms", float64(reorderDuration)/1000.0)
 
 	// 提取中止的交易和交易列表
 	*abortedTxs = acg.extractAbortList()
@@ -354,14 +377,15 @@ func (opt *OptMETable) ReserveGet(tx *OptmeTransaction, key string) {
 		if entry.BlockIDPut == 0 || entry.BlockIDPut == tx.Blockid { // 读和写属一个区块
 			entry.BlockIDGet = max(entry.BlockIDGet, tx.Blockid) //
 		} else {
-			tx.Aborted.Store(true)
+			fmt.Printf("中止交易.......\n")
+			tx.Aborted.Store(true) //
 		}
 	})
 }
 
 // ReservePut 保留放置操作
-func (optme *OptMETable) ReservePut(tx *OptmeTransaction, key string) {
-	optme.table.Put(key, func(entry *OptMEEntry) {
+func (opt *OptMETable) ReservePut(tx *OptmeTransaction, key string) {
+	opt.table.Put(key, func(entry *OptMEEntry) {
 
 		if entry.BlockIDPut == 0 { // 第一次写入
 			entry.BlockIDPut = tx.Blockid
@@ -383,25 +407,32 @@ func (optme *OptME) Simulate(batch []*OptmeTransaction, blockid uint32) {
 	for _, tx := range batch {
 		wg.Add(1)
 
-		optme.pool.Enqueue(func() {
+		optme.pool.Enqueue(func(levm *lvm.LEVM) {
 			defer wg.Done()
 			tx.StartTime = time.Now() // 开始计时
 
-			tx.Execute() // 执行交易
+			tx.Execute(levm) // 执行交易
+
+			//fmt.Printf("tx type = %d \n", tx.EthTx.TxType)
 
 			// 实施读写操作，从本地存储读取 LocalGet
 			var keys []string
-
 			for key, value := range tx.Tx.Vertex.ReadKeys {
 				keys = append(keys, key)
+
+				//fmt.Printf("readKey = %s \n", key)
+
 				optme.table.ReserveGet(tx, key) // 检查所有的读，是否有写后读冲突
 				tx.LocalGet[key] = value
 			}
 
 			for key, value := range tx.Tx.Vertex.WriteKeys {
+
+				//fmt.Printf("writeKey = %s \n", key)
+
 				keys = append(keys, key)
 				optme.table.ReservePut(tx, key) // 登记所有的写
-				tx.LocalGet[key] = value
+				tx.LocalPut[key] = value
 			}
 
 			optme.statistics.JournalExecute()
