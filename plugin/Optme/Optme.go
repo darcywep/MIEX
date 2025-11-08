@@ -30,19 +30,19 @@ type OptMEEntry struct {
 // OptMETable 表示执行表
 type OptMETable struct {
 	partitions int
-	table      Table[OptMEEntry] // 每个key对应一个OptMEEntry
+	table      Common.Table[OptMEEntry] // 每个key对应一个OptMEEntry
 }
 
 // NewOptMETable 创建新的OptME表
 func NewOptMETable(partitions int) *OptMETable {
 	return &OptMETable{
 		partitions: partitions,
-		table:      *NewTable[OptMEEntry](partitions),
+		table:      *Common.NewTable[OptMEEntry](partitions),
 	}
 }
 
 type OptME struct {
-	statistics *Statistics
+	statistics *Common.Statistics
 	blocks     []*Common.Block
 	batches    [][]*OptmeTransaction
 	acgs       []*AddressBasedConflictGraph
@@ -51,27 +51,27 @@ type OptME struct {
 	table          *OptMETable
 	enableParallel bool
 	committedBlock atomic.Uint64
-	pool           *ThreadPool
+	pool           *Common.ThreadPool
 	blockIdx       uint64
 	mtx            sync.Mutex
 	cv             *sync.Cond
 }
 
 // NewOptME 创建新的OptME实例
-func NewOptME(blocks []*Common.Block, statistics *Statistics, numThreads int, tablePartitions int, enableParallel bool) *OptME {
+func NewOptME(blocks []*Common.Block, statistics *Common.Statistics, numThreads int, tablePartitions int, enableParallel bool) *OptME {
 	optme := &OptME{
 		statistics:     statistics,
 		blocks:         blocks,
 		numThreads:     numThreads,
 		table:          NewOptMETable(tablePartitions),
 		enableParallel: enableParallel,
-		pool:           NewThreadPool(numThreads),
+		pool:           Common.NewThreadPool(numThreads),
 	}
 	optme.cv = sync.NewCond(&optme.mtx)
 	return optme
 }
 
-func (optme *OptME) GetThreadPool() *ThreadPool {
+func (optme *OptME) GetThreadPool() *Common.ThreadPool {
 	return optme.pool
 }
 
@@ -138,7 +138,7 @@ func (optme *OptME) IntraEpochReordering(simulationResult []*OptmeTransaction, a
 
 	// 构建ACG和回滚
 	acg := NewAddressBasedConflictGraph(optme.pool) // 初始化acg
-	fmt.Printf("thread pool cuncurrency degree: %d \n", acg.pool.threadNum)
+	fmt.Printf("thread pool cuncurrency degree: %d \n", acg.pool.ThreadNum)
 
 	beginTime := time.Now()
 
@@ -246,7 +246,7 @@ func (optme *OptME) Run() {
 		optme.ParallelExecute(&schedules, abortedTxs)
 		optme.statistics.JournalBlock()
 
-		optme.pool.resetEVM()
+		optme.pool.ResetEVM()
 	}
 }
 

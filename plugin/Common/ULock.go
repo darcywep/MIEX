@@ -1,4 +1,4 @@
-package Optme
+package Common
 
 import (
 	"hash/fnv"
