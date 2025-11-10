@@ -38,7 +38,7 @@ func (t *OptmeTransaction) Execute(levm *lvm.LEVM) {
 
 	//tools.CatStorageState = true
 	_, err := levm.CallContract(*t.EthTx.From(), *t.EthTx.To(), t.EthTx.Data(), new(uint256.Int).SetUint64(0))
-	tools.PanicError(err)
+	tools.PanicError("OptmeTransaction Execute", err)
 
 	//tx.WriteKeys = make([]string, 0)
 	//tx.ReadKeys = make([]string, 0)

@@ -250,6 +250,7 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 		}
 
 		// execute the operation
+		//fmt.Println("OpCode:", op.String())
 		res, err = operation.execute(&pc, evm, callContext)
 		if err != nil {
 			break

@@ -61,16 +61,16 @@ func testFibonacci() {
 	evm = levm.New(stateConfig, big.NewInt(0), common.Hash{}, fromAddr)
 	evm.NewAccount(fromAddr, new(uint256.Int).SetUint64(2e18))
 	_, addr, _, err := evm.DeployContract(fromAddr, binData)
-	tools.PanicError(err)
+	tools.PanicError("testFibonacci DeployContract ", err)
 
 	cAddress = addr
 	_, err = evm.CallContractABI(fromAddr, cAddress, new(uint256.Int).SetUint64(0),
 		abiObject, "calculate", big.NewInt(20))
-	tools.PanicError(err)
+	tools.PanicError("testFibonacci CallContractABI calculate ", err)
 
 	_, err = evm.CallContractABI(fromAddr, cAddress, new(uint256.Int).SetUint64(0),
 		abiObject, "getUserLastResult", fromAddr)
-	tools.PanicError(err)
+	tools.PanicError("testFibonacci CallContractABI getUserLastResult ", err)
 
 }
 
@@ -78,6 +78,6 @@ func main() {
 	//testExample()
 	//testFibonacci()
 	//init_smallbank_contract.TestSmallBank()
-	//init_smallbank_contract.TestSmallBankWithExistDB()
-	init_smallbank_contract.ChangeContractCode()
+	init_smallbank_contract.TestSmallBankWithExistDB()
+	//init_smallbank_contract.ChangeContractCode()
 }

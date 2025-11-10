@@ -38,7 +38,7 @@ func TestSerialExecution(txs []*types.Transaction, levm *lvm.LEVM) {
 		//fmt.Println(common.Bytes2Hex(tx.Data()))
 		//fmt.Println("newLevm.AllDB().StateDB.GetBalance(*tx.From())", *tx.From(), *tx.To(), newLevm.AllDB().StateDB.GetBalance(*tx.From()))
 		_, err := newLevm.CallContractUseStateDB(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0), levm.AllDB().StateDB)
-		tools.PanicError(err)
+		tools.PanicError("SChain TestSerialExecution", err)
 		tx.WriteKeys = make([]string, 0)
 		tx.ReadKeys = make([]string, 0)
 		if tx.TxType == config.IOTx {
@@ -75,7 +75,7 @@ func GetRWSetByOCC(txs []*types.Transaction, levm *lvm.LEVM) {
 			for tx := range txsChan {
 				//fmt.Println(common.Bytes2Hex(tx.Data()))
 				_, err := newLevm.CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
-				tools.PanicError(err)
+				tools.PanicError("SChain GetRWSetByOCC Execute", err)
 				tx.WriteKeys = make([]string, 0)
 				tx.ReadKeys = make([]string, 0)
 				if tx.TxType == config.IOTx {
@@ -323,7 +323,7 @@ func runTx(wg *sync.WaitGroup, levm *lvm.LEVM, activePeepTxsChan chan *types.Tra
 	runtime.LockOSThread()
 	for tx := range activePeepTxsChan {
 		_, err := levm.CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
-		tools.PanicError(err)
+		tools.PanicError("SChain Tx Execute", err)
 		tx.WriteKeys = make([]string, 0)
 		tx.ReadKeys = make([]string, 0)
 		if tx.TxType == config.IOTx {

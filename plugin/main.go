@@ -163,7 +163,7 @@ func main() {
 	fmt.Printf("Blocks num: %d\n", len(blocks))
 	fmt.Printf("Blocks size: %d\n", len(blocks[0].Txs))
 
-	static := Optme.NewStatistics()
+	static := Common.NewStatistics()
 	optme := Optme.NewOptME(blocks, static, 2, 4, true)
 	optme.Start()
 

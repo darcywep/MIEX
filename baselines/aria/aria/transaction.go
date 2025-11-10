@@ -1,37 +1,62 @@
 package aria
 
 import (
+	lvm "Janus/core/evm"
+	"Janus/ethereum/core/types"
+	janusCommon "Janus/plugin/Common"
+	"Janus/tools"
 	"sync/atomic"
 	"time"
+
+	"github.com/holiman/uint256"
 )
 
-// -----------------------------
-// Transaction: 事务类型
-// -----------------------------
-type Transaction struct {
-	HyperId   uint64
-	ReadKeys  map[string]struct{}
-	WriteKeys map[string]struct{}
-}
-
 type AriaTransaction struct {
-	Transaction
-	id           uint64
-	batchID      uint64
-	flagConflict bool
-	committed    atomic.Bool
-	startTime    time.Time
-	localGet     map[string]string
-	localPut     map[string]string
+	Inner        janusCommon.JanusTransaction
+	EthTx        *types.Transaction
+	ID           uint64
+	BatchID      uint64
+	LocalGet     map[string]string
+	LocalPut     map[string]string
+	StartTime    time.Time
+	flagConflict atomic.Bool
+	committed    atomic.Uint32
 }
 
-func NewAriaTransaction(inner Transaction, id, batchID uint64) *AriaTransaction {
-	tx := &AriaTransaction{
-		Transaction: inner,
-		id:          id,
-		batchID:     batchID,
-		localGet:    make(map[string]string),
-		localPut:    make(map[string]string),
+func NewAriaTransaction(inner janusCommon.JanusTransaction, ethTx *types.Transaction, id, batch uint64) *AriaTransaction {
+	return &AriaTransaction{
+		Inner:    inner,
+		EthTx:    ethTx,
+		ID:       id,
+		BatchID:  batch,
+		LocalGet: make(map[string]string),
+		LocalPut: make(map[string]string),
 	}
-	return tx
+}
+
+func (tx *AriaTransaction) Execute(levm *lvm.LEVM) {
+	//fmt.Println("tx Execute:", tx.ID)
+	_, err := levm.CallContract(*tx.EthTx.From(), *tx.EthTx.To(), tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
+	tools.PanicError("AriaTransaction Execute", err)
+}
+func (tx *AriaTransaction) CountOverheads() uint32 { return tx.Inner.Cost }
+
+func (tx *AriaTransaction) SetConflict(v bool) {
+	if v {
+		tx.flagConflict.Store(true)
+	} else {
+		tx.flagConflict.Store(false)
+	}
+}
+func (tx *AriaTransaction) HasConflict() bool { return tx.flagConflict.Load() }
+
+func (tx *AriaTransaction) SetCommitted(v bool) {
+	if v {
+		tx.committed.Store(1)
+	} else {
+		tx.committed.Store(0)
+	}
+}
+func (tx *AriaTransaction) IsCommitted() bool {
+	return tx.committed.Load() != 0
 }

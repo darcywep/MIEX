@@ -15,7 +15,7 @@ import (
 	"github.com/holiman/uint256"
 )
 
-const totalAccounts = 100_000_000 // 1亿
+const totalAccounts = 10_000_000 // 2000W
 
 var (
 	basePath = "/root/Janus/contract_example/"
@@ -32,7 +32,7 @@ var (
 
 func loadContractInfo() (abi.ABI, []byte) {
 	abiObject, binData, err := tools.LoadContract(abiFile, binFile)
-	tools.PanicError(err)
+	tools.PanicError("loadContractInfo ", err)
 	return abiObject, binData
 }
 
@@ -47,17 +47,20 @@ func TestSmallBank() {
 	// 创建系统账户（合约部署者）
 	fromAddr := tools.GenerateAddress()
 	evm := levm.New(stateConfig, big.NewInt(0), common.Hash{}, fromAddr)
-	defer evm.AllDB().Close()
-	evm.NewAccount(fromAddr, new(uint256.Int).SetUint64(2e18)) // 给足够多的ETH
+	//defer evm.AllDB().Close()
+	balance := new(uint256.Int).SetUint64(1e18)
+	balance.Mul(balance, new(uint256.Int).SetUint64(1e6)) // 100万ETH
+	evm.NewAccount(fromAddr, balance)                     // 给足够多的ETH
 
 	// ========= 部署合约 =========
 	_, cAddress, _, err := evm.DeployContract(fromAddr, binData)
-	tools.PanicError(err)
+	tools.PanicError("TestSmallBank DeployContract", err)
 	fmt.Println("✅ SmallBank deployed at:", cAddress.Hex())
 
 	// ========= 参数设置 =========
 
 	depositAmount := new(uint256.Int).SetUint64(10e18)
+	//var parentRoot common.Hash = common.Hash{} // genesis block
 
 	// ========= 主循环 =========
 	for i := 1; i <= totalAccounts; i++ {
@@ -80,21 +83,41 @@ func TestSmallBank() {
 		if i%100000 == 0 {
 			fmt.Printf("Progress: %d / %d\n", i, totalAccounts)
 		}
+		//if i%10000000 == 0 {
+		//	// ========= 中间状态根输出 =========
+		//	stateRoot, _, err := evm.AllDB().StateDB.CommitWithUpdate(uint64(0), true, true)
+		//	tools.PanicError("StateDB.CommitWithUpdate ", err)
+		//	err = evm.AllDB().StateDB.Database().TrieDB().Commit(stateRoot, false)
+		//	tools.PanicError("StateDB.Database().TrieDB().Commit", err)
+		//	fmt.Println("🌳 Intermediate state root at account", i, ":", stateRoot.Hex())
+		//	err = evm.AllDB().UpdateStateDB(stateRoot)
+		//	tools.PanicError("evm.AllDB().UpdateStateDB", err)
+		//
+		//	err = evm.AllDB().StateDB.Database().TrieDB().Dereference(parentRoot)
+		//	tools.PanicError("evm.AllDB().StateDB.Database().TrieDB().Dereference", err)
+		//
+		//	err = evm.AllDB().StateDB.Database().TrieDB().Cap(0)
+		//	tools.PanicError("TestSmallBank evm.AllDB().StateDB.Database().TrieDB().Cap ", err)
+		//
+		//	evm.NewAllDB(stateConfig, big.NewInt(0), stateRoot)
+		//	parentRoot = stateRoot
+		//}
 	}
 
 	// ========= 导出状态根 =========
 	stateRoot, _, err := evm.AllDB().StateDB.CommitWithUpdate(uint64(0), true, true)
-	tools.PanicError(err)
+	tools.PanicError("TestSmallBank Finish all, evm.AllDB().StateDB.CommitWithUpdate", err)
 	err = evm.AllDB().StateDB.Database().TrieDB().Commit(stateRoot, false)
-	tools.PanicError(err)
+	tools.PanicError("TestSmallBank Finish all, evm.AllDB().StateDB.Database().TrieDB().Commit", err)
 	fmt.Println("🌳 Final state root:", stateRoot.Hex())
 
 	// ========= 输出到txt =========
 	resultFile := path.Join("/root/alldb/", "smallbank_result.txt")
 	content := fmt.Sprintf("Contract Address: %s\nFinal State Root: %s\n", cAddress.Hex(), stateRoot.Hex())
 	err = os.WriteFile(resultFile, []byte(content), 0644)
-	tools.PanicError(err)
+	tools.PanicError("TestSmallBank Finish all, os.WriteFile", err)
 	fmt.Println("✅ Done! Result saved to:", resultFile)
+	evm.AllDB().Close()
 }
 
 func TestSmallBankWithExistDB() {
@@ -103,10 +126,10 @@ func TestSmallBankWithExistDB() {
 
 	evm := levm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
 	defer evm.AllDB().Close()
-	tools.CatStorageState = true
+	//tools.CatStorageState = true
 	for i := 1; i <= totalAccounts; i++ {
 		user := intToAddress(i)
-		fmt.Println(user)
+		//fmt.Println(evm.AllDB().StateDB.GetBalance(user))
 		_, err := evm.CallContractABI(user, tools.ContractAddress, new(uint256.Int).SetUint64(0), abiObject,
 			"getBalance", user)
 		fmt.Println()
@@ -152,8 +175,8 @@ func ChangeContractCode() {
 
 	// ========= 导出状态根 =========
 	stateRoot, _, err := evm.AllDB().StateDB.CommitWithUpdate(uint64(0), true, true)
-	tools.PanicError(err)
+	tools.PanicError("ChangeContractCode evm.AllDB().StateDB.CommitWithUpdate", err)
 	err = evm.AllDB().StateDB.Database().TrieDB().Commit(stateRoot, false)
-	tools.PanicError(err)
+	tools.PanicError("ChangeContractCode evm.AllDB().StateDB.Database().TrieDB().Commit ", err)
 	fmt.Println("🌳 Final state root:", stateRoot.Hex())
 }

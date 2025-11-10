@@ -1,8 +1,8 @@
 package tools
 
 // PanicError panics if error is not nil
-func PanicError(err error) {
+func PanicError(info string, err error) {
 	if err != nil {
-		panic(err)
+		panic(info + err.Error())
 	}
 }

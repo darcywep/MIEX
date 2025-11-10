@@ -1,33 +1,29 @@
 package main
 
 import (
-	"aria-go/aria"
+	"Janus/baselines/aria/aria"
+	janusCommon "Janus/plugin/Common"
+	"Janus/plugin/Optme"
 	"fmt"
 	"time"
 )
 
 func main() {
-	// 创建示例的事务和区块
-	var blocks []*aria.Block
-	for b := 0; b < 2; b++ {
-		var txs []*aria.Transaction
-		for t := 0; t < 6; t++ {
-			tr := &aria.Transaction{
-				HyperId:   uint64(b*10 + t),
-				ReadKeys:  map[string]struct{}{"a": {}},
-				WriteKeys: map[string]struct{}{"x": {}},
-			}
-			txs = append(txs, tr)
-		}
-		blocks = append(blocks, &aria.Block{Txs: txs})
-	}
 
-	stats := &aria.Statistics{}
-	ariaInstance := aria.NewAria(blocks, stats, 3, 4, true)
-	ariaInstance.Start()
-	// 让 worker 稍作时间处理（实际生产环境要用等待）
-	time.Sleep(500 * time.Millisecond)
-	ariaInstance.Stop()
+	txGenerator := Optme.NewTxGenerator(janusCommon.TX_NUM, janusCommon.BLOCK_SIZE) // TX_NUM = 2000, BLOCK_SIZE = 1000
 
-	fmt.Println("Aria Protocol completed.")
+	blocks := txGenerator.GenerateWorkload() // 生成区块
+	fmt.Printf("Blocks num: %d\n", len(blocks))
+	fmt.Printf("Blocks size: %d\n", len(blocks[0].Txs))
+
+	static := janusCommon.NewStatistics()
+	aria := aria.NewAria(blocks, static, 2, 4, true)
+	start := time.Now()
+	//tools.CatStorageState = true
+	aria.Start()
+	aria.Stop()
+	fmt.Println("CommitCount=", aria.Statistics().CommitCount.Load())
+	fmt.Println("Aria TPS: ", float64(aria.Statistics().CommitCount.Load())/(time.Since(start).Seconds()))
+
+	defer aria.EvmClose()
 }

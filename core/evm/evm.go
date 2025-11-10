@@ -8,6 +8,9 @@ import (
 	"Janus/tools"
 	"fmt"
 	"math/big"
+	"runtime"
+	"runtime/debug"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/holiman/uint256"
@@ -47,11 +50,22 @@ func New(stateDBConfig *database.StateDBConfig, blockNumber *big.Int, stateRoot 
 	var err error
 	// setup storage using dbpath
 	lvm.allDBForState, err = database.NewAllDBForState(stateDBConfig, blockNumber, stateRoot, false, false)
-	tools.PanicError(err)
+	tools.PanicError("LVM NEW", err)
 	// update the evm - creates new EVM
 	lvm.NewEVM(blockNumber, origin)
 
 	return &lvm
+}
+func (lvm *LEVM) NewAllDB(stateDBConfig *database.StateDBConfig, blockNumber *big.Int, stateRoot common.Hash) {
+	var err error
+	lvm.allDBForState.Close()
+	lvm.allDBForState = nil
+	fmt.Println("GC before NewAllDB, Sleeping 10s")
+	runtime.GC()
+	debug.FreeOSMemory()
+	time.Sleep(10 * time.Second)
+	lvm.allDBForState, err = database.NewAllDBForState(stateDBConfig, blockNumber, stateRoot, false, false)
+	tools.PanicError("LVM NewAllDB", err)
 }
 
 func (lvm *LEVM) AllDB() *database.AllDBForState {
@@ -134,11 +148,9 @@ func (lvm *LEVM) DeployContract(fromAddr common.Address, contractCode []byte) ([
 // lvm.CallContractABI()
 func (lvm *LEVM) CallContract(callerAddr, contractAddr common.Address, inputs []byte, value *uint256.Int) ([]byte, error) {
 	// Get reference to the transaction sender
-	balance := new(uint256.Int).SetUint64(1e19)
-	balance.Mul(balance, new(uint256.Int).SetUint64(100))
 	lvm.evm.Context.GasLimit = uint64(1e19) // 每次执行都重置gas limit
 	gas := lvm.evm.Context.GasLimit
-	lvm.allDBForState.StateDB.SetBalance(callerAddr, balance, tracing.BalanceIncreaseGasReturn)
+
 	output, gas, err := lvm.evm.Call(
 		callerAddr,
 		contractAddr,
@@ -146,7 +158,10 @@ func (lvm *LEVM) CallContract(callerAddr, contractAddr common.Address, inputs []
 		gas,
 		value,
 	)
-	lvm.allDBForState.StateDB.SetBalance(callerAddr, new(uint256.Int).SetUint64(gas), tracing.BalanceIncreaseGasReturn)
+	balance := new(uint256.Int).SetUint64(1e18)
+	balance.Mul(balance, new(uint256.Int).SetUint64(1e6)) // 100万ETH
+	balance.Sub(balance, new(uint256.Int).SetUint64(21000))
+	lvm.allDBForState.StateDB.SetBalance(callerAddr, balance, tracing.BalanceIncreaseGasReturn)
 	return output, err
 }
 

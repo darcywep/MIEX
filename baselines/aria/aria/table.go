@@ -1,59 +1,69 @@
 package aria
 
 import (
-	"sync"
-	"sync/atomic"
+	optmeCommon "Janus/plugin/Common"
 )
 
-// -----------------------------
-// AriaTable: 存储事务的表
-// -----------------------------
-type shard struct {
-	mu sync.RWMutex
-	m  map[string]*AriaEntry
+type AriaEntry struct {
+	Value       string
+	BatchIDGet  uint64
+	BatchIDPut  uint64
+	ReservedGet *AriaTransaction
+	ReservedPut *AriaTransaction
 }
 
+// AriaTable 组合 Common.Table，用于第一轮执行阶段
 type AriaTable struct {
-	shards []*shard
-	n      int
+	*optmeCommon.Table[*AriaEntry]
 }
 
+// NewAriaTable 创建 Aria 表
 func NewAriaTable(partitions int) *AriaTable {
-	if partitions <= 0 {
-		partitions = 1
+	return &AriaTable{
+		Table: optmeCommon.NewTable[*AriaEntry](partitions),
 	}
-	shards := make([]*shard, partitions)
-	for i := 0; i < partitions; i++ {
-		shards[i] = &shard{m: make(map[string]*AriaEntry)}
-	}
-	return &AriaTable{shards: shards, n: partitions}
 }
 
-func (t *AriaTable) shardFor(key string) *shard {
-	idx := int((uint64(len(key)) + 0x9e3779b97f4a7c15) % uint64(t.n))
-	return t.shards[idx]
+// ReserveGet 记录当前事务对 key 的读保留
+func (t *AriaTable) ReserveGet(tx *AriaTransaction, key string) {
+	t.Table.PutWithDefault(key, &AriaEntry{}, func(e **AriaEntry) {
+		entry := *e
+		if entry.BatchIDGet != tx.BatchID || entry.ReservedGet == nil || entry.ReservedGet.ID > tx.ID {
+			entry.ReservedGet = tx
+			entry.BatchIDGet = tx.BatchID
+		}
+	})
 }
 
-func (t *AriaTable) Put(key string, mutator func(*AriaEntry)) {
-	s := t.shardFor(key)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	ent, ok := s.m[key]
-	if !ok {
-		ent = &AriaEntry{}
-		s.m[key] = ent
-	}
-	mutator(ent)
+// ReservePut 记录当前事务对 key 的写保留
+func (t *AriaTable) ReservePut(tx *AriaTransaction, key string) {
+	t.Table.PutWithDefault(key, &AriaEntry{}, func(e **AriaEntry) {
+		entry := *e
+		if entry.BatchIDPut != tx.BatchID || entry.ReservedPut == nil || entry.ReservedPut.ID > tx.ID {
+			entry.ReservedPut = tx
+			entry.BatchIDPut = tx.BatchID
+		}
+	})
 }
 
-func (t *AriaTable) Get(key string, reader func(AriaEntry)) {
-	s := t.shardFor(key)
-	s.mu.RLock()
-	ent, ok := s.m[key]
-	var copyEntry AriaEntry
-	if ok {
-		copyEntry = *ent
-	}
-	s.mu.RUnlock()
-	reader(copyEntry)
+// CompareReservedGet 检查读冲突（RAW）
+func (t *AriaTable) CompareReservedGet(tx *AriaTransaction, key string) bool {
+	ok := true
+	t.Table.Get(key, func(e *AriaEntry) {
+		if e.BatchIDGet == tx.BatchID && e.ReservedGet != nil && e.ReservedGet.ID != tx.ID {
+			ok = false
+		}
+	})
+	return ok
+}
+
+// CompareReservedPut 检查写冲突（WAW / WAR）
+func (t *AriaTable) CompareReservedPut(tx *AriaTransaction, key string) bool {
+	ok := true
+	t.Table.Get(key, func(e *AriaEntry) {
+		if e.BatchIDPut == tx.BatchID && e.ReservedPut != nil && e.ReservedPut.ID != tx.ID {
+			ok = false
+		}
+	})
+	return ok
 }

@@ -23,7 +23,7 @@ const (
 
 // 斐波那契计算相关配置
 const (
-	FibonacciN                  = 30
+	FibonacciN                  = 20
 	RecursiveCalculateFibonacci = true // 是否使用递归计算斐波那契
 )
 

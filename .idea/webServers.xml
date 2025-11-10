@@ -3,16 +3,16 @@
   <component name="WebServers">
     <option name="servers">
       <webServer id="7fea6cb3-ed2e-477b-bc56-22a6a7a0047b" name="bcds79">
-        <fileTransfer rootFolder="/data" accessType="SFTP" sshConfigId="5f96a4ff-2dff-4b86-82cb-05758396448d" sshConfig="bcds@10.1.101.79:22 agent">
+        <fileTransfer rootFolder="/data" accessType="SFTP" host="10.1.101.79" port="22" sshConfigId="948bdd02-8fc4-45ba-9f21-3d2c8c65b2da" sshConfig="bcds79_my">
           <advancedOptions>
             <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
           </advancedOptions>
         </fileTransfer>
       </webServer>
-      <webServer id="95ef6f56-f456-44e4-80ca-a259ebaa9255" name="bcds74">
-        <fileTransfer rootFolder="/root" accessType="SFTP" host="10.1.101.74" port="22" sshConfigId="c15b3507-51f5-498a-bce7-9db9d10bbebb" sshConfig="root@10.1.101.74:22 password">
+      <webServer id="95ef6f56-f456-44e4-80ca-a259ebaa9255" name="bcds73">
+        <fileTransfer rootFolder="/root" accessType="SFTP" host="10.1.101.73" port="22" sshConfigId="00703c0d-3f45-476e-9c98-97c71d819630" sshConfig="bcds73">
           <advancedOptions>
-            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
           </advancedOptions>
         </fileTransfer>
       </webServer>

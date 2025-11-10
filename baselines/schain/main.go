@@ -50,6 +50,7 @@ func main() {
 	//fmt.Println("finished occ")
 	//time.Sleep(1 * time.Second)
 
+	//tools.CatStorageState = true
 	//schain.SChain(txs, levm)
 	schain.SChainParallelUp(txs, levm)
 

@@ -1,66 +1,92 @@
 package aria
 
 import (
+	janusConfig "Janus/config"
+	lvm "Janus/core/evm"
+	"Janus/ethereum/database"
+	optmeCommon "Janus/plugin/Common"
+	"Janus/tools"
 	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
-	"time"
+
+	"math/big"
 )
 
-// -----------------------------
-// Aria: 主要协议
-// -----------------------------
 type Aria struct {
-	statistics    *Statistics
-	blocks        []*Block
+	levm          *lvm.LEVM
+	statistics    *optmeCommon.Statistics
+	blocks        []*optmeCommon.Block
 	table         *AriaTable
 	lockTable     *AriaLockTable
 	enableReorder bool
 	numThreads    int
-	confirmExit   int32
+	confirmExit   atomic.Int64
 	stopFlag      atomic.Bool
-	barrier       *CyclicBarrier
-	counter       int32
+	barrier       *Barrier
+	counter       atomic.Int64
 	hasConflict   atomic.Bool
-	workers       []sync.WaitGroup
+	workers       []*sync.WaitGroup
+	levms         []*lvm.LEVM
 }
 
-func NewAria(blocks []*Block, stats *Statistics, numThreads int, tablePartitions int, enableReorder bool) *Aria {
+func NewAria(blocks []*optmeCommon.Block, stats *optmeCommon.Statistics, numThreads int, tablePartitions int, enableReorder bool) *Aria {
+	// Step 3: 模拟执行
+	levm := lvm.New(database.SmallBankStateDBConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
 	aria := &Aria{
+		levm:          levm,
 		statistics:    stats,
 		blocks:        blocks,
 		table:         NewAriaTable(tablePartitions),
 		lockTable:     NewAriaLockTable(tablePartitions),
 		enableReorder: enableReorder,
 		numThreads:    numThreads,
+		levms:         make([]*lvm.LEVM, 0),
 	}
-	aria.barrier = NewCyclicBarrier(numThreads, func() {
-		log.Println("batch complete")
-	})
+	aria.barrier = NewBarrier(numThreads)
 	return aria
+}
+func (a *Aria) EvmClose() {
+	defer a.levm.AllDB().Close()
+}
+
+func (a *Aria) Statistics() *optmeCommon.Statistics {
+	return a.statistics
 }
 
 func (a *Aria) Start() {
-	log.Println("aria start")
+	log.Println("Aria start")
 	// 分割区块为批次
 	type threadBatch [][]*AriaTransaction
 	allThreadBatches := make([]threadBatch, a.numThreads)
 
 	for i := 0; i < len(a.blocks); i++ {
 		block := a.blocks[i]
-		txs := block.getTxs()
+		txs := block.GetTxs()
 		txPerThread := 1
 		index := 0
 		batchID := uint64(i + 1)
 		batch := make([][]*AriaTransaction, a.numThreads)
+		txLen := len(txs)
+
+		// Step 1: 生成地址
+		addresses := tools.GenerateAddresses(1, txLen)
+		fmt.Printf("生成地址数量: %d\n", len(addresses))
+
+		// Step 2: 生成交易（Zipf 控制冲突率）
+		ethTxs := tools.GenerateSmallBankTxs(addresses, txLen/2, txLen/2, janusConfig.FibonacciN, janusConfig.RecursiveCalculateFibonacci, janusConfig.Skew)
+		fmt.Printf("生成交易数量: %d\n", len(ethTxs)) // 以太坊交易
+		ethTxIndex := 0
+
 		for j := 0; j < len(txs); j += txPerThread {
 			batchIdx := index % a.numThreads
 			for k := 0; k < txPerThread && j+k < len(txs); k++ {
 				tx := txs[j+k]
-				txid := uint64(tx.HyperId)
+				txid := uint64(tx.Txid)
 				inner := *tx
-				atx := NewAriaTransaction(inner, txid, batchID)
+				atx := NewAriaTransaction(inner, ethTxs[ethTxIndex], txid, batchID)
+				ethTxIndex++ // 移动到下一个以太坊交易
 				batch[batchIdx] = append(batch[batchIdx], atx)
 			}
 			index++
@@ -75,22 +101,32 @@ func (a *Aria) Start() {
 	// 启动 worker 协程
 	for i := 0; i < a.numThreads; i++ {
 		threadBatches := allThreadBatches[i]
+		a.levms = append(a.levms, a.levm.Copy())
 		var wg sync.WaitGroup
 		wg.Add(1)
-		go func(workerID int, batches [][]*AriaTransaction, wg *sync.WaitGroup) {
+		go func(workerID int, batches [][]*AriaTransaction, wg *sync.WaitGroup, levm *lvm.LEVM) {
 			defer wg.Done()
-			ex := NewAriaExecutor(a, workerID, batches)
+			ex := NewAriaExecutor(a, levm, workerID, batches)
 			ex.Run()
-		}(i, threadBatches, &wg)
-		a.workers = append(a.workers, wg)
+		}(i, threadBatches, &wg, a.levms[len(a.levms)-1])
+		a.workers = append(a.workers, &wg)
 	}
 }
 
 func (a *Aria) Stop() {
-	a.stopFlag.Store(true)
+	//a.stopFlag.Store(true)
 	// 等待所有工作协程
 	for i := 0; i < len(a.workers); i++ {
 		a.workers[i].Wait()
+		a.levms[i].AllDB().StateDB.FlushDirtyToNewStateDB(a.levm.AllDB().StateDB)
+	}
+	root, err := a.levm.AllDB().StateDB.Commit(uint64(0), true, true)
+	if err != nil {
+		fmt.Println("StateDB.Commit", err)
+	}
+	err = a.levm.AllDB().StateDB.Database().TrieDB().Commit(root, false)
+	if err != nil {
+		fmt.Println("TrieDB().Commit(root, false)", err)
 	}
 	log.Println("aria stop")
 }

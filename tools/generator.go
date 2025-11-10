@@ -33,7 +33,7 @@ func GenerateSmallBankTxs(addresses []common.Address, ioTxCount, cpuTxCount, fib
 	gasPrice := big.NewInt(1)
 
 	abiObject, _, err := LoadContract(contractBasePath+"smallbank_fibonacci.abi", contractBasePath+"smallbank_fibonacci.bin")
-	PanicError(err)
+	PanicError("GenerateSmallBankTxs LoadContract ", err)
 
 	ioTxNum, cpuTxNum := 0, 0
 	rand.Seed(time.Now().UnixNano()) // 设置随机数种子（否则每次运行结果一样）
@@ -79,7 +79,7 @@ func GenerateSmallBankTxs(addresses []common.Address, ioTxCount, cpuTxCount, fib
 			}
 		}
 
-		PanicError(err)
+		PanicError("GenerateSmallBankTxs abiObject.Pack ", err)
 		// 注意交易的调用地址要用之前的合约地址
 		tx.SmallBankTo = to
 		tx.SetFrom(from)
