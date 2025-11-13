@@ -15,7 +15,4 @@ func main() {
 	static := common.NewStatistics()
 	harmonyInstance := harmony.NewHarmony(blocks, static, 4, 4, true)
 	harmonyInstance.Start()
-
-	//fmt.Printf("被执行的交易数目 %d \n", harmonyInstance.Statistics.ExecCount.Load())
-
 }

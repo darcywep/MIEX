@@ -16,7 +16,7 @@ var (
 // 交易生成相关配置
 const (
 	BlockSize                = 2000
-	TxNum                    = 2000
+	TxNum                    = 4000
 	AddressNumber            = 10000 // 总共生成多少个地址, 这用于添加到交易中
 	CompetingTxCountForBlock = 5000
 	IoTxCountForBlock        = 5000

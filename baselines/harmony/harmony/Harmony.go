@@ -92,27 +92,6 @@ func (b *HarmonyBarrier) ArriveAndWait() {
 	}
 }
 
-//type HarmonyBarrier struct {
-//	wg           sync.WaitGroup
-//	onCompletion func()
-//}
-//
-//func NewHarmonyBarrier(parties int, completion func()) *HarmonyBarrier {
-//	b := &HarmonyBarrier{onCompletion: completion}
-//	b.wg.Add(parties)
-//	return b
-//}
-//
-//func (b *HarmonyBarrier) ArriveAndWait() {
-//
-//	fmt.Println("Ready to ArriveAndWait...")
-//	b.wg.Done()
-//	//b.wg.Wait()
-//	//if b.onCompletion != nil {
-//	//	b.onCompletion()
-//	//}
-//}
-
 type HarmonyExecutor struct {
 	statistics       *common.Statistics
 	batchTxs         [][]*HarmonyTransaction
@@ -164,11 +143,11 @@ func (h *Harmony) Start() {
 		batchID := i + 1
 
 		// Step 1: 生成地址
-		addresses := tools.GenerateAddresses(1, janusConfig.AddressNumber)
+		addresses := tools.GenerateAddresses(1, len(txs))
 		fmt.Printf("生成地址数量: %d\n", len(addresses))
 
 		// Step 2: 生成交易（Zipf 控制冲突率）
-		ethTxs := tools.GenerateSmallBankTxs(addresses, janusConfig.IoTxCountForBlock, janusConfig.CompetingTxCountForBlock,
+		ethTxs := tools.GenerateSmallBankTxs(addresses, len(txs)/2, len(txs)/2,
 			janusConfig.FibonacciN, janusConfig.RecursiveCalculateFibonacci, janusConfig.Skew)
 		fmt.Printf("生成交易数量: %d\n", len(ethTxs)) // 生成以太坊交易
 
@@ -188,54 +167,57 @@ func (h *Harmony) Start() {
 		// store block batch
 		batches = append(batches, batch)
 		h.Statistics.JournalBlock()
-
-		var wg sync.WaitGroup
-
-		startTime := time.Now()
-
-		levm := lvm.New(database.SmallBankStateDBConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
-		h.levm = levm
-
-		for i := 0; i < h.numThreads; i++ {
-			// create thread batches for current worker
-			threadBatches := make([][]*HarmonyTransaction, 0, len(h.blocks))
-			for j := 0; j < len(h.blocks); j++ {
-				threadBatches = append(threadBatches, batches[j][i])
-			}
-
-			wg.Add(1)
-			worker := NewHarmonyExecutor(h, uint32(i), threadBatches, levm.Copy())
-			h.workers[i] = worker
-
-			runtime.LockOSThread()
-
-			go func(workerID int, executor *HarmonyExecutor) {
-				defer wg.Done()
-				executor.Run()
-			}(i, worker)
-
-			//	// Pin thread (equivalent to C++ ThreadPool::PinRoundRobin)
-			//	// Note: Go doesn't have direct thread pinning, but you can use runtime.LockOSThread()
-			// if needed, though it's usually not necessary in Go
-		}
-		wg.Wait()
-
-		for _, worker := range h.workers {
-			worker.levm.AllDB().StateDB.FlushDirtyToNewStateDB(levm.AllDB().StateDB)
-		}
-		root, err := levm.AllDB().StateDB.Commit(uint64(0), true, true)
-		if err != nil {
-			fmt.Println("StateDB.Commit", err)
-		}
-		err = levm.AllDB().StateDB.Database().TrieDB().Commit(root, false)
-		if err != nil {
-			fmt.Println("TrieDB().Commit(root, false)", err)
-		}
-
-		elapsed := time.Since(startTime)
-		fmt.Printf("交易处理吞吐(TPS) %f \n", float64(2000)/(elapsed.Seconds()))
-
 	}
+
+	var wg sync.WaitGroup
+
+	levm := lvm.New(database.SmallBankStateDBConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
+	h.levm = levm
+
+	startTime := time.Now()
+
+	for i := 0; i < h.numThreads; i++ {
+		// create thread batches for current worker
+		threadBatches := make([][]*HarmonyTransaction, 0, len(h.blocks))
+		for j := 0; j < len(h.blocks); j++ {
+			fmt.Printf("i = %d, j=%d \n", i, j)
+			threadBatches = append(threadBatches, batches[j][i])
+		}
+
+		wg.Add(1)
+		worker := NewHarmonyExecutor(h, uint32(i), threadBatches, levm.Copy())
+		h.workers[i] = worker
+
+		runtime.LockOSThread()
+
+		go func(workerID int, executor *HarmonyExecutor) {
+			defer wg.Done()
+			executor.Run()
+		}(i, worker)
+
+		//	// Pin thread (equivalent to C++ ThreadPool::PinRoundRobin)
+		//	// Note: Go doesn't have direct thread pinning, but you can use runtime.LockOSThread()
+		// if needed, though it's usually not necessary in Go
+	}
+	wg.Wait()
+
+	for _, worker := range h.workers {
+		worker.levm.AllDB().StateDB.FlushDirtyToNewStateDB(levm.AllDB().StateDB)
+	}
+	root, err := levm.AllDB().StateDB.Commit(uint64(0), true, true)
+	if err != nil {
+		fmt.Println("StateDB.Commit", err)
+	}
+	err = levm.AllDB().StateDB.Database().TrieDB().Commit(root, false)
+	if err != nil {
+		fmt.Println("TrieDB().Commit(root, false)", err)
+	}
+
+	elapsed := time.Since(startTime)
+
+	fmt.Printf("CommitCount= %d \n", h.Statistics.CommitCount.Load())
+	fmt.Printf("交易实际被执行总次数 %d \n", h.Statistics.ExecCount.Load())
+	fmt.Printf("交易处理吞吐(TPS)= %f \n", float64(h.Statistics.CommitCount.Load())/(elapsed.Seconds()))
 }
 
 // Run 执行交易
@@ -249,87 +231,93 @@ func (e *HarmonyExecutor) Run() {
 		e.barrier.ArriveAndWait()
 		e.InterBlockExecute(e.NextBatch())
 	} else {
-		// 逐个区块处理
-		//for _, batch := range e.batchTxs {
-		//	// stage 1: execute
-		//	_stop := e.confirmExit.Load() == int32(e.numThreads)
-		//	e.barrier.ArriveAndWait()
-		//	if _stop {
-		//		return
-		//	}
-		//	if e.stopFlag.Load() {
-		//		addr := e.confirmExit.Load()
-		//		atomic.CompareAndSwapInt32(&addr, int32(e.workerID), int32(e.workerID+1))
-		//	}
-		//	fmt.Printf("worker %d executing", e.workerID)
-		//
-		//	for i := range batch {
-		//		tx := &batch[i]
-		//		// 记录开始时间
-		//		(*tx).StartTime = time.Now()
-		//		// 执行交易并处理读写依赖
-		//		e.Execute(*tx)
-		//		e.statistics.JournalExecute()
-		//		//e.statistics.JournalOverheads(tx.CountOverheads())
-		//	}
-		//
-		//	// stage 2: verify + commit
-		//	e.barrier.ArriveAndWait()
-		//
-		//	fmt.Printf("worker %d verifying", e.workerID)
-		//	var beginTime time.Time
-		//	if e.workerID == 0 {
-		//		beginTime = time.Now()
-		//	}
-		//
-		//	for i := range batch {
-		//		tx := &batch[i]
-		//		e.Verify(*tx)
-		//		if (*tx).FlagConflict {
-		//			e.PrepareLockTable(*tx)
-		//		} else {
-		//			e.Commit(*tx)
-		//			latency := time.Since((*tx).StartTime).Microseconds()
-		//			e.statistics.JournalCommit(uint32(latency))
-		//		}
-		//	}
+		//逐个区块处理
+		for _, batch := range e.batchTxs {
+			// stage 1: execute
+			_stop := e.confirmExit.Load() == int32(e.numThreads)
+			e.barrier.ArriveAndWait()
+			if _stop {
+				return
+			}
+			if e.stopFlag.Load() {
+				addr := e.confirmExit.Load()
+				atomic.CompareAndSwapInt32(&addr, int32(e.workerID), int32(e.workerID+1))
+			}
+			fmt.Printf("worker %d executing", e.workerID)
 
-		//	//// stage 3: fallback
-		//	e.barrier.ArriveAndWait()
-		//	if e.workerID == 0 {
-		//		phaseTime := time.Since(beginTime).Microseconds()
-		//		e.statistics.JournalRollbackExecution(uint32(phaseTime))
-		//	}
-		//
-		//	fmt.Printf("worker %d fallbacking \n", e.workerID)
-		//
-		//	if e.workerID == 0 {
-		//		beginTime = time.Now()
-		//	}
-		//	for i := range batch {
-		//		tx := &batch[i]
-		//		if (*tx).FlagConflict {
-		//			e.Fallback(*tx)
-		//			e.statistics.JournalExecute()
-		//			latency := time.Since((*tx).StartTime).Microseconds()
-		//			e.statistics.JournalCommit(uint32(latency))
-		//			//e.statistics.JournalRollback(tx.CountOverheads())
-		//		}
-		//	}
-		//
-		//	// stage 4: clean up
-		//	e.barrier.ArriveAndWait()
-		//	if e.workerID == 0 {
-		//		//phaseTime := time.Since(beginTime).Microseconds()
-		//		//e.statistics.JournalReExecution(phaseTime)
-		//	}
-		//	fmt.Printf("worker %d cleaning up \n", e.workerID)
-		//
-		//	for i := range batch {
-		//		tx := &batch[i]
-		//		e.CleanLockTable(*tx)
-		//	}
-		//}
+			for i := range batch {
+				tx := &batch[i]
+				// 记录开始时间
+				(*tx).StartTime = time.Now()
+				// 执行交易并处理读写依赖
+				e.Execute(*tx)
+				e.statistics.JournalExecute()
+				//e.statistics.JournalOverheads(tx.CountOverheads())
+			}
+
+			// stage 2: verify + commit
+			e.barrier.ArriveAndWait()
+
+			fmt.Printf("worker %d verifying", e.workerID)
+			var beginTime time.Time
+			if e.workerID == 0 {
+				beginTime = time.Now()
+			}
+
+			for i := range batch {
+				tx := &batch[i]
+				e.Verify(*tx)
+				if (*tx).FlagConflict {
+					e.PrepareLockTable(*tx)
+				} else {
+					e.Commit(*tx)
+					latency := time.Since((*tx).StartTime).Microseconds()
+					e.statistics.JournalCommit(uint32(latency))
+				}
+			}
+
+			//// stage 3: fallback
+			e.barrier.ArriveAndWait()
+			//if e.workerID == 0 {
+			//	phaseTime := time.Since(beginTime).Microseconds()
+			//	e.statistics.JournalRollbackExecution(uint32(phaseTime))
+			//}
+
+			fmt.Printf("worker %d fallbacking \n", e.workerID)
+
+			//if e.workerID == 0 {
+			//	beginTime = time.Now()
+			//}
+			for i := range batch {
+				tx := &batch[i]
+				if (*tx).FlagConflict {
+					e.Fallback(*tx)
+					e.statistics.JournalExecute()
+					latency := time.Since((*tx).StartTime).Microseconds()
+					e.statistics.JournalCommit(uint32(latency))
+					//e.statistics.JournalRollback(tx.CountOverheads())
+				}
+			}
+
+			// stage 4: clean up
+			e.barrier.ArriveAndWait()
+			if e.workerID == 0 {
+				//phaseTime := time.Since(beginTime).Microseconds()
+				//e.statistics.JournalReExecution(phaseTime)
+			}
+			fmt.Printf("worker %d cleaning up \n", e.workerID)
+
+			for i := range batch {
+				tx := &batch[i]
+				e.CleanLockTable(*tx)
+			}
+
+			elapsed := time.Since(beginTime)
+
+			fmt.Printf("CommitCount= %d \n", e.statistics.CommitCount.Load())
+			fmt.Printf("交易实际被执行总次数 %d \n", e.statistics.ExecCount.Load())
+			fmt.Printf("交易处理吞吐(TPS)= %f \n", float64(e.statistics.CommitCount.Load())/(elapsed.Seconds()))
+		}
 	}
 }
 
@@ -372,17 +360,27 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 		//e.statistics.JournalOverheads(tx.CountOverheads())
 	}
 
+	fmt.Printf("至今被执行的交易数目 %d \n", e.statistics.ExecCount.Load())
+
 	//// stage 2: verify + commit
 	e.barrier.ArriveAndWait()
+
 	fmt.Printf("worker %d verifying batch %d \n", e.workerID, e.batchIdx)
-	var beginTime time.Time
-	if e.workerID == 0 {
-		beginTime = time.Now()
-	}
+	//var beginTime time.Time
+	//if e.workerID == 0 {
+	//	beginTime = time.Now()
+	//}
+
+	conflictNum := 0
 
 	for i := range batch {
 		tx := &batch[i]
 		e.Verify(*tx)
+
+		if (*tx).FlagConflict {
+			conflictNum++
+		}
+
 		if (*tx).FlagConflict {
 			e.PrepareLockTable(*tx)
 		} else {
@@ -391,33 +389,35 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 			e.statistics.JournalCommit(uint32(latency))
 		}
 	}
+	fmt.Printf("冲突的交易数目 %d \n", conflictNum)
 
 	// stage 3: fallback
 	e.barrier.ArriveAndWait()
-	if e.workerID == 0 {
-		phaseTime := time.Since(beginTime).Microseconds()
-		e.statistics.JournalRollbackExecution(uint32(phaseTime))
-	}
-	fmt.Printf("worker %d fallbacking batch %d \n", e.workerID, e.batchIdx)
+	//if e.workerID == 0 {
+	//	phaseTime := time.Since(beginTime).Microseconds()
+	//	e.statistics.JournalRollbackExecution(uint32(phaseTime))
+	//}
+	//fmt.Printf("worker %d fallbacking batch %d \n", e.workerID, e.batchIdx)
 
-	beginTime = time.Now()
+	//beginTime = time.Now()
 	for i := range batch {
 		tx := &batch[i]
 		if (*tx).FlagConflict {
 			e.Fallback(*tx)
 			e.statistics.JournalExecute()
-			//latency := time.Since((*tx).StartTime).Microseconds()
-			//e.statistics.JournalCommit(uint32(latency))
+			latency := time.Since((*tx).StartTime).Microseconds()
+			e.statistics.JournalCommit(uint32(latency))
 			//e.statistics.JournalRollback(tx.CountOverheads())
 		}
 	}
+
+	fmt.Printf("至今被执行的交易数目 %d \n", e.statistics.ExecCount.Load())
 
 	// stage 4: 流式执行下一个区块
 	if e.batchIdx < uint32(len(e.batchTxs)) {
 		e.counter.Add(1)
 
 		if e.counter.Load() == int32(e.numThreads) {
-
 			//phaseTime := time.Since(beginTime).Microseconds()
 			//e.statistics.JournalReExecution(phaseTime)
 			e.counter.Store(0)
@@ -498,8 +498,10 @@ func (executor *HarmonyExecutor) Verify(tx *HarmonyTransaction) {
 			tx.FlagConflict = true
 		}
 	}
-	if tx.FlagConflict {
-		//fmt.Printf("abort %d:%d", tx.BatchID, tx.ID)
+	if tx.FlagConflict == true {
+		//fmt.Printf("交易 %d 中止 \n", tx.ID)
+	} else {
+		//fmt.Printf("交易 %d 可以提交 \n", tx.ID)
 	}
 }
 
@@ -530,33 +532,6 @@ func (executor *HarmonyExecutor) PrepareLockTable(tx *HarmonyTransaction) {
 
 // / @brief fallback execution without constant
 func (executor *HarmonyExecutor) Fallback(tx *HarmonyTransaction) {
-
-	//// read from the public table
-	//tx.InstallGetStorageHandler(func(readSet map[string]bool) {
-	//	var keys strings.Builder
-	//	for key := range readSet {
-	//		keys.WriteString(key + " ")
-	//		var value string
-	//		executor.table.table.Get(key, func(entry *HarmonyEntry) {
-	//			value = entry.Value
-	//		})
-	//
-	//		tx.LocalGet[key] = value
-	//	}
-	//	fmt.Printf("tx %d fallbacking, read: %s", tx.ID, keys.String())
-	//})
-
-	//// write directly into the public table
-	//tx.InstallSetStorageHandler(func(writeSet map[string]bool, value string) {
-	//	var keys strings.Builder
-	//	for key := range writeSet {
-	//		keys.WriteString(key + " ")
-	//		executor.table.Put(key, func(entry *TableEntry) {
-	//			entry.value = value
-	//		})
-	//	}
-	//	DLOG.Info("tx %d fallbacking, write: %s", tx.id, keys.String())
-	//})
 
 	//// get the latest dependency and wait on it
 	var should_wait *HarmonyTransaction = nil

@@ -24,6 +24,7 @@ func main() {
 	aria.Stop()
 	fmt.Println("CommitCount=", aria.Statistics().CommitCount.Load())
 	fmt.Println("Aria TPS: ", float64(aria.Statistics().CommitCount.Load())/(time.Since(start).Seconds()))
+	fmt.Printf("交易实际被执行总次数 %d \n", aria.Statistics().ExecCount.Load())
 
 	defer aria.EvmClose()
 }

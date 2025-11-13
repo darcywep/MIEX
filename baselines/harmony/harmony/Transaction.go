@@ -28,13 +28,17 @@ type HarmonyTransaction struct {
 // NewHarmonyTransaction 构造函数
 func NewHarmonyTransaction(inner *common.JanusTransaction, ethTx *types.Transaction, id uint32, batchID uint32) *HarmonyTransaction {
 	return &HarmonyTransaction{
-		Tx:        inner,
-		EthTx:     ethTx,
-		ID:        id,
-		BatchID:   batchID,
-		StartTime: time.Now(), // 使用当前时间作为开始时间
-		LocalGet:  make(map[string]string),
-		LocalPut:  make(map[string]string),
+		Tx:         inner,
+		EthTx:      ethTx,
+		ID:         id,
+		BatchID:    batchID,
+		MinOut:     id + 1,
+		MaxIn:      0,
+		OutBatchID: batchID,
+		InBatchID:  batchID,
+		StartTime:  time.Now(), // 使用当前时间作为开始时间
+		LocalGet:   make(map[string]string),
+		LocalPut:   make(map[string]string),
 	}
 }
 
