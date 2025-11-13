@@ -1,7 +1,7 @@
 package aria
 
 import (
-	optmeCommon "Janus/plugin/Common"
+	optmeCommon "Janus/baselines/common"
 )
 
 // AriaLockEntry 表示在悲观回退阶段的锁依赖关系
@@ -10,7 +10,7 @@ type AriaLockEntry struct {
 	DepsPut []*AriaTransaction // 记录写依赖的事务
 }
 
-// AriaLockTable 封装 Common.Table，用于 fallback 阶段记录事务依赖
+// AriaLockTable 封装 common.Table，用于 fallback 阶段记录事务依赖
 type AriaLockTable struct {
 	*optmeCommon.Table[*AriaLockEntry]
 }

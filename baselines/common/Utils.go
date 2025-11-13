@@ -1,4 +1,4 @@
-package Common
+package common
 
 import (
 	lvm "Janus/core/evm"
@@ -20,9 +20,8 @@ type Statistics struct {
 	Latency       atomic.Uint32
 	countBlock    atomic.Uint32
 	countOverhead atomic.Uint32
-
-	beginTime time.Time // 开始时间
-	endTime   time.Time // 结束时间
+	beginTime     time.Time // 开始时间
+	endTime       time.Time // 结束时间
 }
 
 func NewStatistics() *Statistics {
@@ -56,6 +55,13 @@ func (s *Statistics) JournalExecute() {
 		s.beginTime = time.Now()
 	}
 	s.ExecCount.Add(1)
+}
+
+func (s *Statistics) JournalReExecute() {
+	//if s.ExecCount.Load() == 0 {
+	//	s.beginTime = time.Now()
+	//}
+	//s.ExecCount.Add(1)
 }
 
 func (s *Statistics) JournalOverheads(cost uint32) {

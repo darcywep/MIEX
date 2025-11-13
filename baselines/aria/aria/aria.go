@@ -1,10 +1,10 @@
 package aria
 
 import (
+	"Janus/baselines/common"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/ethereum/database"
-	optmeCommon "Janus/plugin/Common"
 	"Janus/tools"
 	"fmt"
 	"log"
@@ -16,8 +16,8 @@ import (
 
 type Aria struct {
 	levm          *lvm.LEVM
-	statistics    *optmeCommon.Statistics
-	blocks        []*optmeCommon.Block
+	statistics    *common.Statistics
+	blocks        []*common.Block
 	table         *AriaTable
 	lockTable     *AriaLockTable
 	enableReorder bool
@@ -31,7 +31,7 @@ type Aria struct {
 	levms         []*lvm.LEVM
 }
 
-func NewAria(blocks []*optmeCommon.Block, stats *optmeCommon.Statistics, numThreads int, tablePartitions int, enableReorder bool) *Aria {
+func NewAria(blocks []*common.Block, stats *common.Statistics, numThreads int, tablePartitions int, enableReorder bool) *Aria {
 	// Step 3: 模拟执行
 	levm := lvm.New(database.SmallBankStateDBConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
 	aria := &Aria{
@@ -51,7 +51,7 @@ func (a *Aria) EvmClose() {
 	defer a.levm.AllDB().Close()
 }
 
-func (a *Aria) Statistics() *optmeCommon.Statistics {
+func (a *Aria) Statistics() *common.Statistics {
 	return a.statistics
 }
 

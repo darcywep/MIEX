@@ -1,11 +1,11 @@
 package main
 
 import (
+	"Janus/baselines/common"
+	"Janus/baselines/optme/optme"
 	"Janus/config"
 	"Janus/mempool"
 	"Janus/persister"
-	"Janus/plugin/Common"
-	"Janus/plugin/Optme"
 	"Janus/scheduler"
 	"fmt"
 	"sync"
@@ -157,14 +157,14 @@ func runIO(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.S
 
 func main() {
 
-	txGenerator := Optme.NewTxGenerator(Common.TX_NUM, Common.BLOCK_SIZE) // TX_NUM = 2000, BLOCK_SIZE = 1000
+	txGenerator := common.NewTxGenerator(common.TX_NUM, common.BLOCK_SIZE) // TX_NUM = 2000, BLOCK_SIZE = 1000
 
 	blocks := txGenerator.GenerateWorkload() // 生成区块
 	fmt.Printf("Blocks num: %d\n", len(blocks))
 	fmt.Printf("Blocks size: %d\n", len(blocks[0].Txs))
 
-	static := Common.NewStatistics()
-	optme := Optme.NewOptME(blocks, static, 2, 4, true)
+	static := common.NewStatistics()
+	optme := optme.NewOptME(blocks, static, 2, 4, true)
 	optme.Start()
 
 	defer optme.GetThreadPool().EvmClose()

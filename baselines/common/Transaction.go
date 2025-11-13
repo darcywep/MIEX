@@ -1,10 +1,9 @@
-package Common
+package common
 
 import "fmt"
 
 type JanusTransaction struct {
 	Txid   uint32
-	Cost   uint32
 	Vertex *TransactionVertex
 }
 
@@ -14,8 +13,8 @@ type TransactionVertex struct {
 	Children  map[*TransactionVertex]bool
 }
 
-func NewJanusTransaction(txid uint32, vertex *TransactionVertex, cost uint32) *JanusTransaction {
-	return &JanusTransaction{txid, cost, vertex}
+func NewJanusTransaction(txid uint32, vertex *TransactionVertex) *JanusTransaction {
+	return &JanusTransaction{txid, vertex}
 }
 
 func NewTransactionVertex(readKeys map[string]string, writeKeys map[string]string, children map[*TransactionVertex]bool) *TransactionVertex {

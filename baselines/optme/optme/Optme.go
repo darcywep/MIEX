@@ -1,9 +1,9 @@
-package Optme
+package optme
 
 import (
+	"Janus/baselines/common"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
-	"Janus/plugin/Common"
 	"Janus/tools"
 	"fmt"
 	"sync"
@@ -30,20 +30,20 @@ type OptMEEntry struct {
 // OptMETable 表示执行表
 type OptMETable struct {
 	partitions int
-	table      Common.Table[OptMEEntry] // 每个key对应一个OptMEEntry
+	table      common.Table[OptMEEntry] // 每个key对应一个OptMEEntry
 }
 
 // NewOptMETable 创建新的OptME表
 func NewOptMETable(partitions int) *OptMETable {
 	return &OptMETable{
 		partitions: partitions,
-		table:      *Common.NewTable[OptMEEntry](partitions),
+		table:      *common.NewTable[OptMEEntry](partitions),
 	}
 }
 
 type OptME struct {
-	statistics *Common.Statistics
-	blocks     []*Common.Block
+	statistics *common.Statistics
+	blocks     []*common.Block
 	batches    [][]*OptmeTransaction
 	acgs       []*AddressBasedConflictGraph
 
@@ -51,27 +51,27 @@ type OptME struct {
 	table          *OptMETable
 	enableParallel bool
 	committedBlock atomic.Uint64
-	pool           *Common.ThreadPool
+	pool           *common.ThreadPool
 	blockIdx       uint64
 	mtx            sync.Mutex
 	cv             *sync.Cond
 }
 
 // NewOptME 创建新的OptME实例
-func NewOptME(blocks []*Common.Block, statistics *Common.Statistics, numThreads int, tablePartitions int, enableParallel bool) *OptME {
+func NewOptME(blocks []*common.Block, statistics *common.Statistics, numThreads int, tablePartitions int, enableParallel bool) *OptME {
 	optme := &OptME{
 		statistics:     statistics,
 		blocks:         blocks,
 		numThreads:     numThreads,
 		table:          NewOptMETable(tablePartitions),
 		enableParallel: enableParallel,
-		pool:           Common.NewThreadPool(numThreads),
+		pool:           common.NewThreadPool(numThreads),
 	}
 	optme.cv = sync.NewCond(&optme.mtx)
 	return optme
 }
 
-func (optme *OptME) GetThreadPool() *Common.ThreadPool {
+func (optme *OptME) GetThreadPool() *common.ThreadPool {
 	return optme.pool
 }
 
@@ -98,7 +98,7 @@ func (optme *OptME) Start() {
 			janusConfig.FibonacciN, janusConfig.RecursiveCalculateFibonacci, janusConfig.Skew)
 		fmt.Printf("生成交易数量: %d\n", len(ethTxs)) // 以太坊交易
 
-		for i := 0; i < Common.BLOCK_SIZE; i++ {
+		for i := 0; i < common.BLOCK_SIZE; i++ {
 			txid++
 			txs[i].Txid = uint32(txid)
 			optmeTx := NewOptmeTransaction(txs[i], ethTxs[i], uint32(blockid))
@@ -179,7 +179,7 @@ func (o *OptME) ReorderWithACG(acg *AddressBasedConflictGraph, simulationResult 
 	// 时期内重排序
 	o.IntraEpochReorderingWithACG(acg, abortedTxs, &txList)
 
-	fmt.Printf("abortedTxs size = %d \n", len(*abortedTxs))
+	//fmt.Printf("abortedTxs size = %d \n", len(*abortedTxs))
 
 	// 并发提交并统计延迟
 	for _, tx := range txList {

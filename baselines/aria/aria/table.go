@@ -1,7 +1,7 @@
 package aria
 
 import (
-	optmeCommon "Janus/plugin/Common"
+	optmeCommon "Janus/baselines/common"
 )
 
 type AriaEntry struct {
@@ -12,7 +12,7 @@ type AriaEntry struct {
 	ReservedPut *AriaTransaction
 }
 
-// AriaTable 组合 Common.Table，用于第一轮执行阶段
+// AriaTable 组合 common.Table，用于第一轮执行阶段
 type AriaTable struct {
 	*optmeCommon.Table[*AriaEntry]
 }

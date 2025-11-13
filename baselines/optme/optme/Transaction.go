@@ -1,10 +1,10 @@
-package Optme
+package optme
 
 import (
+	"Janus/baselines/common"
 	"Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/ethereum/core/types"
-	"Janus/plugin/Common"
 	"Janus/tools"
 
 	"github.com/holiman/uint256"
@@ -14,7 +14,7 @@ import (
 )
 
 type OptmeTransaction struct {
-	Tx         *Common.JanusTransaction
+	Tx         *common.JanusTransaction
 	Blockid    uint32
 	Sequenceid uint32
 	Committed  atomic.Bool
@@ -29,7 +29,7 @@ type OptmeTransaction struct {
 	EthTx *types.Transaction
 }
 
-func NewOptmeTransaction(tx *Common.JanusTransaction, EthTx *types.Transaction, blockid uint32) *OptmeTransaction {
+func NewOptmeTransaction(tx *common.JanusTransaction, EthTx *types.Transaction, blockid uint32) *OptmeTransaction {
 	return &OptmeTransaction{Tx: tx, Blockid: blockid, EthTx: EthTx, LocalGet: make(map[string]string), LocalPut: make(map[string]string)}
 }
 
@@ -58,8 +58,6 @@ func (t *OptmeTransaction) Execute(levm *lvm.LEVM) {
 		//tx.WriteKeys = append(tx.ReadKeys, tx.SmallBankTo.String())
 		key1 := t.EthTx.SmallBankTo.String()
 		t.Tx.Vertex.WriteKeys[key1] = "value"
-
 		t.Tx.Vertex.ReadKeys[key1] = "value"
-
 	}
 }

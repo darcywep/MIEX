@@ -1,4 +1,4 @@
-package Common
+package common
 
 import (
 	"sync"
@@ -28,7 +28,3 @@ func (b *Block) GetTxs() []*JanusTransaction {
 	defer b.mu.RUnlock()
 	return b.Txs
 }
-
-var BLOCK_SIZE int = 1000
-var TX_NUM int = 1000
-var TX_COST int = 10

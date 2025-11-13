@@ -1,8 +1,7 @@
-package Harmony
+package harmony
 
 import (
-	"Janus/plugin/Common"
-	"fmt"
+	"Janus/baselines/common"
 )
 
 // HarmonyEntry harmony table entry for first round execution
@@ -12,24 +11,24 @@ type HarmonyEntry struct {
 	ReservedPutTxs []*HarmonyTransaction
 }
 
-// NewHarmonyEntry 构造函数
-func NewHarmonyEntry() *HarmonyEntry {
-	return &HarmonyEntry{
-		Value:          "",
-		ReservedGetTxs: make([]*HarmonyTransaction, 0),
-		ReservedPutTxs: make([]*HarmonyTransaction, 0),
-	}
-}
+//// NewHarmonyEntry 构造函数
+//func NewHarmonyEntry() *HarmonyEntry {
+//	return &HarmonyEntry{
+//		Value:          "",
+//		ReservedGetTxs: make([]*HarmonyTransaction, 0),
+//		ReservedPutTxs: make([]*HarmonyTransaction, 0),
+//	}
+//}
 
 // HarmonyTable harmony table for first round execution
 // HarmonyTable harmony table for first round execution
 type HarmonyTable struct {
-	table *Common.Table[*HarmonyTransaction]
+	table *common.Table[HarmonyEntry]
 }
 
 func NewHarmonyTable(partitions int) *HarmonyTable {
 	return &HarmonyTable{
-		table: Common.NewTable[*HarmonyTransaction](partitions),
+		table: common.NewTable[HarmonyEntry](partitions),
 	}
 }
 
@@ -37,7 +36,7 @@ func NewHarmonyTable(partitions int) *HarmonyTable {
 // Ti the transaction write key
 // Tj the transaction read key
 func (ht *HarmonyTable) OnSeeingRWDependency(Ti *HarmonyTransaction, Tj *HarmonyTransaction) {
-	fmt.Printf("handle r-w dependency: %d:%d -> %d:%d", Tj.BatchID, Tj.ID, Ti.BatchID, Ti.ID)
+	//fmt.Printf("handle r-w dependency: %d:%d -> %d:%d", Tj.BatchID, Tj.ID, Ti.BatchID, Ti.ID)
 
 	if Ti.ID < Tj.MinOut {
 		Tj.MinOut = Ti.ID
@@ -64,11 +63,11 @@ func NewHarmonyLockEntry() *HarmonyLockEntry {
 }
 
 type HarmonyLockTable struct {
-	table *Common.Table[*HarmonyLockEntry]
+	table *common.Table[HarmonyLockEntry]
 }
 
 func NewHarmonyLockTable(partitions int) *HarmonyLockTable {
 	return &HarmonyLockTable{
-		Common.NewTable[*HarmonyLockEntry](partitions),
+		common.NewTable[HarmonyLockEntry](partitions),
 	}
 }

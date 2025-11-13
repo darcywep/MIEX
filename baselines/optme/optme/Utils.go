@@ -1,7 +1,7 @@
-package Optme
+package optme
 
 import (
-	"Janus/plugin/Common"
+	"Janus/baselines/common"
 	"fmt"
 	"log"
 	"runtime"
@@ -148,7 +148,7 @@ func (u *WriteUnits) sort(readunits *ReadUnits) {
 				u.first_update_flag = true
 				fmt.Printf("DEBUG: Set sequence for first updater: %d", readunits.max_seq)
 			} else {
-				fmt.Printf("DEBUG: abort tx by unit: %v", unit.tx.Tx)
+				//fmt.Printf("DEBUG: abort tx by unit: %v", unit.tx.Tx)
 				unit.tx.Aborted.Store(true) // 剩下交易全部abort
 			}
 		}
@@ -159,7 +159,7 @@ func (u *WriteUnits) sort(readunits *ReadUnits) {
 		tx := unit.tx
 		// 修正：使用 GetAborted() 返回的 bool 值
 		if !tx.Aborted.Load() && tx.Sequenceid < readunits.max_seq {
-			log.Printf("DEBUG: abort tx by unit: %d", tx.Tx.Txid)
+			//log.Printf("DEBUG: abort tx by unit: %d", tx.Tx.Txid)
 			unit.tx.Aborted.Store(true)
 		}
 	}
@@ -256,10 +256,10 @@ type AddressBasedConflictGraph struct {
 	addresses  map[string]*Address // 多个address
 	txList     []*OptmeTransaction
 	abortedTxs []*OptmeTransaction
-	pool       *Common.ThreadPool
+	pool       *common.ThreadPool
 }
 
-func NewAddressBasedConflictGraph(pool *Common.ThreadPool) *AddressBasedConflictGraph {
+func NewAddressBasedConflictGraph(pool *common.ThreadPool) *AddressBasedConflictGraph {
 	return &AddressBasedConflictGraph{
 		addresses: make(map[string]*Address),
 		pool:      pool,
@@ -365,7 +365,7 @@ func (a *AddressBasedConflictGraph) Initialize(batch []*OptmeTransaction) {
 	}
 }
 
-func (a *AddressBasedConflictGraph) NewAddressBasedConflictGraphWithBatch(pool *Common.ThreadPool, batch []*OptmeTransaction) *AddressBasedConflictGraph {
+func (a *AddressBasedConflictGraph) NewAddressBasedConflictGraphWithBatch(pool *common.ThreadPool, batch []*OptmeTransaction) *AddressBasedConflictGraph {
 	graph := &AddressBasedConflictGraph{
 		pool: pool,
 	}

@@ -1,4 +1,4 @@
-package Common
+package common
 
 import (
 	"hash/fnv"
@@ -199,8 +199,14 @@ func (t *Table[V]) Put(key string, vmap func(value *V)) {
 	guard := NewGuard(t.locks[partitionID])
 	defer guard.Release()
 
+	//fmt.Printf("t.partitions = %v\n", t.partitions)
+
 	partition := t.partitions[partitionID]
 	value := partition[key]
+
+	//fmt.Printf("11111111 \n")
+	//fmt.Printf("partitionID = %v\n", partitionID)
+	//fmt.Printf("value: %v\n", value)
 
 	// 使用临时变量，可以取地址
 	vmap(&value)

@@ -1,13 +1,14 @@
 package main
 
 import (
-	"Janus/baselines/aria/aria"
 	"Janus/baselines/common"
+	"Janus/baselines/optme/optme"
 	"fmt"
-	"time"
 )
 
 func main() {
+
+	fmt.Println("optme start")
 
 	txGenerator := common.NewTxGenerator(common.TX_NUM, common.BLOCK_SIZE) // TX_NUM = 2000, BLOCK_SIZE = 1000
 
@@ -16,13 +17,8 @@ func main() {
 	fmt.Printf("Blocks size: %d\n", len(blocks[0].Txs))
 
 	static := common.NewStatistics()
-	aria := aria.NewAria(blocks, static, 2, 4, true)
-	start := time.Now()
-	//tools.CatStorageState = true
-	aria.Start()
-	aria.Stop()
-	fmt.Println("CommitCount=", aria.Statistics().CommitCount.Load())
-	fmt.Println("Aria TPS: ", float64(aria.Statistics().CommitCount.Load())/(time.Since(start).Seconds()))
+	optme := optme.NewOptME(blocks, static, 2, 4, true)
+	optme.Start()
 
-	defer aria.EvmClose()
+	defer optme.GetThreadPool().EvmClose()
 }
