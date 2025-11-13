@@ -157,7 +157,7 @@ func runIO(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.S
 
 func main() {
 
-	txGenerator := common.NewTxGenerator(common.TX_NUM, common.BLOCK_SIZE) // TX_NUM = 2000, BLOCK_SIZE = 1000
+	txGenerator := common.NewTxGenerator(config.TxNum, config.BlockSize)
 
 	blocks := txGenerator.GenerateWorkload() // 生成区块
 	fmt.Printf("Blocks num: %d\n", len(blocks))

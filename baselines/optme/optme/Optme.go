@@ -4,7 +4,6 @@ import (
 	"Janus/baselines/common"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
-	"Janus/tools"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -42,7 +41,7 @@ func NewOptMETable(partitions int) *OptMETable {
 }
 
 type OptME struct {
-	statistics *common.Statistics
+	Statistics *common.Statistics
 	blocks     []*common.Block
 	batches    [][]*OptmeTransaction
 	acgs       []*AddressBasedConflictGraph
@@ -60,7 +59,7 @@ type OptME struct {
 // NewOptME 创建新的OptME实例
 func NewOptME(blocks []*common.Block, statistics *common.Statistics, numThreads int, tablePartitions int, enableParallel bool) *OptME {
 	optme := &OptME{
-		statistics:     statistics,
+		Statistics:     statistics,
 		blocks:         blocks,
 		numThreads:     numThreads,
 		table:          NewOptMETable(tablePartitions),
@@ -85,23 +84,14 @@ func (optme *OptME) Start() {
 	// 将块拆分为批次
 	for _, block := range optme.blocks {
 
-		blockid++
+		//blockid++
 		txs := block.GetTxs()
-		batch := make([]*OptmeTransaction, 0, len(txs))
-
-		// Step 1: 生成地址
-		addresses := tools.GenerateAddresses(1, janusConfig.AddressNumber)
-		fmt.Printf("生成地址数量: %d\n", len(addresses))
-
-		// Step 2: 生成交易（Zipf 控制冲突率）
-		ethTxs := tools.GenerateSmallBankTxs(addresses, janusConfig.IoTxCountForBlock, janusConfig.CompetingTxCountForBlock,
-			janusConfig.FibonacciN, janusConfig.RecursiveCalculateFibonacci, janusConfig.Skew)
-		fmt.Printf("生成交易数量: %d\n", len(ethTxs)) // 以太坊交易
+		batch := make([]*OptmeTransaction, 0, janusConfig.BlockSize)
 
 		for i := 0; i < janusConfig.BlockSize; i++ {
 			txid++
 			txs[i].Txid = uint32(txid)
-			optmeTx := NewOptmeTransaction(txs[i], ethTxs[i], uint32(blockid))
+			optmeTx := NewOptmeTransaction(txs[i], uint32(blockid))
 			batch = append(batch, optmeTx) // batch[][], 里面每个元素表示一个区块中的所有交易
 		}
 
@@ -111,14 +101,7 @@ func (optme *OptME) Start() {
 	}
 
 	fmt.Println("OptME Ready to Run ...")
-
-	startTime := time.Now()
 	optme.Run()
-	elapsed := time.Since(startTime)
-
-	fmt.Printf("被执行的交易数目 %d \n", optme.statistics.ExecCount.Load())
-	fmt.Printf("成功提交的交易数目 %d \n", optme.statistics.CommitCount.Load())
-	fmt.Printf("交易处理吞吐(TPS) %f \n", float64(optme.statistics.CommitCount.Load())/(elapsed.Seconds()))
 }
 
 // hasContain 检查map中的key是否在目标集合中存在
@@ -143,8 +126,8 @@ func (optme *OptME) IntraEpochReordering(simulationResult []*OptmeTransaction, a
 	beginTime := time.Now()
 
 	// 构建ACG
-	// acg.ParallelConstruct(simulationResult)
-	acg.Construct(simulationResult)
+	acg.ParallelConstruct(simulationResult)
+	//acg.Construct(simulationResult)
 	constructTime := time.Now()
 	constructDuration := constructTime.Sub(beginTime).Microseconds()
 	fmt.Printf("Construct ACG time: %.2f ms \n", float64(constructDuration)/1000.0)
@@ -184,12 +167,12 @@ func (o *OptME) ReorderWithACG(acg *AddressBasedConflictGraph, simulationResult 
 	// 并发提交并统计延迟
 	for _, tx := range txList {
 		latency := time.Since(tx.StartTime).Microseconds()
-		o.statistics.JournalCommit(uint32(latency))
+		o.Statistics.JournalCommit(uint32(latency))
 	}
 
 	// 统计整个重排序阶段的执行时间
 	phaseTime := time.Since(beginTime).Microseconds()
-	o.statistics.JournalRollbackExecution(uint32(phaseTime))
+	o.Statistics.JournalRollbackExecution(uint32(phaseTime))
 }
 
 // Reorder 重排序交易
@@ -215,7 +198,7 @@ func (optme *OptME) Reorder(simulationResult []*OptmeTransaction, abortedTxs *[]
 	//}
 	//
 	phaseTime := time.Since(beginTime).Microseconds()
-	optme.statistics.JournalRollbackExecution(uint32(phaseTime)) // 该阶段耗时
+	optme.Statistics.JournalRollbackExecution(uint32(phaseTime)) // 该阶段耗时
 	//fmt.Printf("phaseTime = %v\n", uint32(phaseTime))
 }
 
@@ -244,7 +227,7 @@ func (optme *OptME) Run() {
 			optme.Reorder(batch, &abortedTxs)
 		}
 		optme.ParallelExecute(&schedules, abortedTxs)
-		optme.statistics.JournalBlock()
+		optme.Statistics.JournalBlock()
 
 		optme.pool.ResetEVM()
 	}
@@ -435,14 +418,14 @@ func (optme *OptME) Simulate(batch []*OptmeTransaction, blockid uint32) {
 				tx.LocalPut[key] = value
 			}
 
-			optme.statistics.JournalExecute()
+			optme.Statistics.JournalExecute()
 			//optme.statistics.JournalOverheads(tx.Tx.Cost)
 		})
 	}
 
 	// 等待所有goroutine完成
 	wg.Wait()
-	fmt.Printf("模拟执行区块：%d 完毕, 执行次数：%d \n", blockid, optme.statistics.ExecCount.Load())
+	fmt.Printf("模拟执行区块：%d 完毕, 执行次数：%d \n", blockid, optme.Statistics.ExecCount.Load())
 }
 
 // Stop 停止OptME协议

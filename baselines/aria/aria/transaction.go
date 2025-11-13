@@ -12,7 +12,7 @@ import (
 )
 
 type AriaTransaction struct {
-	Inner        janusCommon.JanusTransaction
+	Inner        janusCommon.BasicTransaction
 	EthTx        *types.Transaction
 	ID           uint64
 	BatchID      uint64
@@ -23,7 +23,7 @@ type AriaTransaction struct {
 	committed    atomic.Uint32
 }
 
-func NewAriaTransaction(inner janusCommon.JanusTransaction, ethTx *types.Transaction, id, batch uint64) *AriaTransaction {
+func NewAriaTransaction(inner janusCommon.BasicTransaction, ethTx *types.Transaction, id, batch uint64) *AriaTransaction {
 	return &AriaTransaction{
 		Inner:    inner,
 		EthTx:    ethTx,

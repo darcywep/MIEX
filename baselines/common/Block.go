@@ -7,10 +7,10 @@ import (
 type Block struct {
 	mu      sync.RWMutex
 	BlockId int
-	Txs     []*JanusTransaction
+	Txs     []*BasicTransaction
 }
 
-func NewBlock(blockId int, txs []*JanusTransaction) *Block {
+func NewBlock(blockId int, txs []*BasicTransaction) *Block {
 	return &Block{
 		BlockId: blockId,
 		Txs:     txs,
@@ -23,7 +23,7 @@ func (b *Block) GetBlockId() int {
 	return b.BlockId
 }
 
-func (b *Block) GetTxs() []*JanusTransaction {
+func (b *Block) GetTxs() []*BasicTransaction {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.Txs

@@ -142,14 +142,14 @@ func (h *Harmony) Start() {
 		batch := make([][]*HarmonyTransaction, h.numThreads)
 		batchID := i + 1
 
-		// Step 1: 生成地址
-		addresses := tools.GenerateAddresses(1, len(txs))
-		fmt.Printf("生成地址数量: %d\n", len(addresses))
-
-		// Step 2: 生成交易（Zipf 控制冲突率）
-		ethTxs := tools.GenerateSmallBankTxs(addresses, len(txs)/2, len(txs)/2,
-			janusConfig.FibonacciN, janusConfig.RecursiveCalculateFibonacci, janusConfig.Skew)
-		fmt.Printf("生成交易数量: %d\n", len(ethTxs)) // 生成以太坊交易
+		//// Step 1: 生成地址
+		//addresses := tools.GenerateAddresses(1, len(txs))
+		//fmt.Printf("生成地址数量: %d\n", len(addresses))
+		//
+		//// Step 2: 生成交易（Zipf 控制冲突率）
+		//ethTxs := tools.GenerateSmallBankTxs(addresses, len(txs)/2, len(txs)/2,
+		//	janusConfig.FibonacciN, janusConfig.RecursiveCalculateFibonacci, janusConfig.Skew)
+		//fmt.Printf("生成交易数量: %d\n", len(ethTxs)) // 生成以太坊交易
 
 		// get all batches of one block
 		for j := 0; j < len(txs); j += txPerThread {
@@ -159,7 +159,7 @@ func (h *Harmony) Start() {
 				tx := txs[j+k]
 				txID := tx.Txid
 				txInner := tx
-				batch[batchIdx] = append(batch[batchIdx], NewHarmonyTransaction(txInner, ethTxs[j], txID, uint32(batchID)))
+				batch[batchIdx] = append(batch[batchIdx], NewHarmonyTransaction(txInner, txID, uint32(batchID)))
 			}
 			index++
 		}
@@ -173,8 +173,6 @@ func (h *Harmony) Start() {
 
 	levm := lvm.New(database.SmallBankStateDBConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
 	h.levm = levm
-
-	startTime := time.Now()
 
 	for i := 0; i < h.numThreads; i++ {
 		// create thread batches for current worker
@@ -212,12 +210,6 @@ func (h *Harmony) Start() {
 	if err != nil {
 		fmt.Println("TrieDB().Commit(root, false)", err)
 	}
-
-	elapsed := time.Since(startTime)
-
-	fmt.Printf("CommitCount= %d \n", h.Statistics.CommitCount.Load())
-	fmt.Printf("交易实际被执行总次数 %d \n", h.Statistics.ExecCount.Load())
-	fmt.Printf("交易处理吞吐(TPS)= %f \n", float64(h.Statistics.CommitCount.Load())/(elapsed.Seconds()))
 }
 
 // Run 执行交易
@@ -442,13 +434,14 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 // / @brief execute a transaction and journal write operations locally
 func (executor *HarmonyExecutor) Execute(tx *HarmonyTransaction) {
 	//tools.CatStorageState = true
-	_, err := executor.levm.CallContract(*tx.EthTx.From(), *tx.EthTx.To(), tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
+
+	_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
 	tools.PanicError("Transaction Execute", err)
 
-	if tx.EthTx.TxType == janusConfig.IOTx {
+	if tx.Tx.EthTx.TxType == janusConfig.IOTx {
 
-		key1 := tx.EthTx.From().String()
-		key2 := tx.EthTx.SmallBankTo.String()
+		key1 := tx.Tx.EthTx.From().String()
+		key2 := tx.Tx.EthTx.SmallBankTo.String()
 		tx.Tx.Vertex.WriteKeys[key1] = "value"
 		tx.Tx.Vertex.WriteKeys[key2] = "value"
 
@@ -459,7 +452,7 @@ func (executor *HarmonyExecutor) Execute(tx *HarmonyTransaction) {
 		//tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
 	} else {
 		//tx.WriteKeys = append(tx.ReadKeys, tx.SmallBankTo.String())
-		key1 := tx.EthTx.SmallBankTo.String()
+		key1 := tx.Tx.EthTx.SmallBankTo.String()
 		tx.Tx.Vertex.WriteKeys[key1] = "value"
 		tx.Tx.Vertex.ReadKeys[key1] = "value"
 	}
@@ -585,7 +578,7 @@ func (executor *HarmonyExecutor) Fallback(tx *HarmonyTransaction) {
 	executor.ExecutorGetStorage2(tx, readSet)
 	executor.ExecutorSetStorage2(tx, writeSet, "value")
 
-	_, err := executor.levm.CallContract(*tx.EthTx.From(), *tx.EthTx.To(), tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
+	_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
 	tools.PanicError("Transaction Execute", err)
 
 	//executor.Execute(tx)

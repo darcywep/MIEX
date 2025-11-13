@@ -1,10 +1,13 @@
 package common
 
-import "fmt"
+import (
+	"Janus/ethereum/core/types"
+)
 
-type JanusTransaction struct {
+type BasicTransaction struct {
 	Txid   uint32
 	Vertex *TransactionVertex
+	EthTx  *types.Transaction
 }
 
 type TransactionVertex struct {
@@ -13,14 +16,6 @@ type TransactionVertex struct {
 	Children  map[*TransactionVertex]bool
 }
 
-func NewJanusTransaction(txid uint32, vertex *TransactionVertex) *JanusTransaction {
-	return &JanusTransaction{txid, vertex}
-}
-
-func NewTransactionVertex(readKeys map[string]string, writeKeys map[string]string, children map[*TransactionVertex]bool) *TransactionVertex {
-	return &TransactionVertex{readKeys, writeKeys, children}
-}
-
-func (t *JanusTransaction) Execute() {
-	fmt.Printf("模拟执行交易 %d", t.Txid)
+func NewBasicTransaction(txid uint32, vertex *TransactionVertex, ethTx *types.Transaction) *BasicTransaction {
+	return &BasicTransaction{Txid: txid, Vertex: vertex, EthTx: ethTx}
 }
