@@ -66,7 +66,7 @@ func (e *AriaExecutor) Run() {
 			e.Execute(tx)
 			e.Reserve(tx)
 			e.statistics.JournalExecute()
-			e.statistics.JournalOverheads(tx.CountOverheads())
+			//e.statistics.JournalOverheads(tx.CountOverheads())
 		}
 
 		// -------- Stage 2: Verify + Commit/Fallback prepare --------
@@ -143,6 +143,7 @@ func (e *AriaExecutor) Execute(tx *AriaTransaction) {
 		tx.LocalPut[key1] = "value"
 		tx.LocalGet[key1] = "value"
 	}
+
 	//for key, _ := range tx.LocalGet {
 	//	e.table.Table.Get(key, func(entry *AriaEntry) {
 	//		_ = entry.Value

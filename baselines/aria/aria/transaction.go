@@ -39,7 +39,8 @@ func (tx *AriaTransaction) Execute(levm *lvm.LEVM) {
 	_, err := levm.CallContract(*tx.EthTx.From(), *tx.EthTx.To(), tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
 	tools.PanicError("AriaTransaction Execute", err)
 }
-func (tx *AriaTransaction) CountOverheads() uint32 { return tx.Inner.Cost }
+
+//func (tx *AriaTransaction) CountOverheads() uint32 { return tx.Inner.Cost }
 
 func (tx *AriaTransaction) SetConflict(v bool) {
 	if v {

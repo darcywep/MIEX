@@ -5,7 +5,6 @@ import (
 	"Janus/baselines/harmony/harmony"
 	"Janus/config"
 	"fmt"
-	"time"
 )
 
 func main() {
@@ -17,10 +16,6 @@ func main() {
 	harmonyInstance := harmony.NewHarmony(blocks, static, 4, 4, true)
 	harmonyInstance.Start()
 
-	startTime := time.Now()
-	elapsed := time.Since(startTime)
+	//fmt.Printf("被执行的交易数目 %d \n", harmonyInstance.Statistics.ExecCount.Load())
 
-	fmt.Printf("被执行的交易数目 %d \n", harmonyInstance.Statistics.ExecCount.Load())
-	fmt.Printf("成功提交的交易数目 %d \n", harmonyInstance.Statistics.CommitCount.Load())
-	fmt.Printf("交易处理吞吐(TPS) %f \n", float64(harmonyInstance.Statistics.CommitCount.Load())/(elapsed.Seconds()))
 }

@@ -98,7 +98,7 @@ func (optme *OptME) Start() {
 			janusConfig.FibonacciN, janusConfig.RecursiveCalculateFibonacci, janusConfig.Skew)
 		fmt.Printf("生成交易数量: %d\n", len(ethTxs)) // 以太坊交易
 
-		for i := 0; i < common.BLOCK_SIZE; i++ {
+		for i := 0; i < janusConfig.BlockSize; i++ {
 			txid++
 			txs[i].Txid = uint32(txid)
 			optmeTx := NewOptmeTransaction(txs[i], ethTxs[i], uint32(blockid))
@@ -436,7 +436,7 @@ func (optme *OptME) Simulate(batch []*OptmeTransaction, blockid uint32) {
 			}
 
 			optme.statistics.JournalExecute()
-			optme.statistics.JournalOverheads(tx.Tx.Cost)
+			//optme.statistics.JournalOverheads(tx.Tx.Cost)
 		})
 	}
 

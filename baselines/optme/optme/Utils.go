@@ -3,7 +3,6 @@ package optme
 import (
 	"Janus/baselines/common"
 	"fmt"
-	"log"
 	"runtime"
 	"sort"
 	"sync"

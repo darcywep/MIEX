@@ -191,6 +191,8 @@ func (h *Harmony) Start() {
 
 		var wg sync.WaitGroup
 
+		startTime := time.Now()
+
 		levm := lvm.New(database.SmallBankStateDBConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
 		h.levm = levm
 
@@ -217,6 +219,22 @@ func (h *Harmony) Start() {
 			// if needed, though it's usually not necessary in Go
 		}
 		wg.Wait()
+
+		for _, worker := range h.workers {
+			worker.levm.AllDB().StateDB.FlushDirtyToNewStateDB(levm.AllDB().StateDB)
+		}
+		root, err := levm.AllDB().StateDB.Commit(uint64(0), true, true)
+		if err != nil {
+			fmt.Println("StateDB.Commit", err)
+		}
+		err = levm.AllDB().StateDB.Database().TrieDB().Commit(root, false)
+		if err != nil {
+			fmt.Println("TrieDB().Commit(root, false)", err)
+		}
+
+		elapsed := time.Since(startTime)
+		fmt.Printf("交易处理吞吐(TPS) %f \n", float64(2000)/(elapsed.Seconds()))
+
 	}
 }
 
@@ -423,7 +441,7 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 
 // / @brief execute a transaction and journal write operations locally
 func (executor *HarmonyExecutor) Execute(tx *HarmonyTransaction) {
-
+	//tools.CatStorageState = true
 	_, err := executor.levm.CallContract(*tx.EthTx.From(), *tx.EthTx.To(), tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
 	tools.PanicError("Transaction Execute", err)
 

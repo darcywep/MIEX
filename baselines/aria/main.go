@@ -3,20 +3,21 @@ package main
 import (
 	"Janus/baselines/aria/aria"
 	"Janus/baselines/common"
+	"Janus/config"
 	"fmt"
 	"time"
 )
 
 func main() {
 
-	txGenerator := common.NewTxGenerator(common.TX_NUM, common.BLOCK_SIZE) // TX_NUM = 2000, BLOCK_SIZE = 1000
+	txGenerator := common.NewTxGenerator(config.TxNum, config.BlockSize) // TX_NUM = 2000, BLOCK_SIZE = 1000
 
 	blocks := txGenerator.GenerateWorkload() // 生成区块
 	fmt.Printf("Blocks num: %d\n", len(blocks))
 	fmt.Printf("Blocks size: %d\n", len(blocks[0].Txs))
 
 	static := common.NewStatistics()
-	aria := aria.NewAria(blocks, static, 2, 4, true)
+	aria := aria.NewAria(blocks, static, 4, 4, true)
 	start := time.Now()
 	//tools.CatStorageState = true
 	aria.Start()

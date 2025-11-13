@@ -15,8 +15,8 @@ var (
 
 // 交易生成相关配置
 const (
-	BlockSize                = 1000
-	TxNum                    = 1000
+	BlockSize                = 2000
+	TxNum                    = 2000
 	AddressNumber            = 10000 // 总共生成多少个地址, 这用于添加到交易中
 	CompetingTxCountForBlock = 5000
 	IoTxCountForBlock        = 5000
@@ -25,7 +25,7 @@ const (
 
 // 斐波那契计算相关配置
 const (
-	FibonacciN                  = 20
+	FibonacciN                  = 10
 	RecursiveCalculateFibonacci = true // 是否使用递归计算斐波那契
 )
 
