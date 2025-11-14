@@ -1,12 +1,10 @@
 package monitor
 
 import (
-	"Janus/config"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"sync"
 	"time"
 
@@ -16,14 +14,14 @@ import (
 )
 
 // MonitorMetrics 监控 CPU 和磁盘利用率
-func MonitorMetrics(interval time.Duration, monitorFilename string, signalChan chan struct{}, signalWg *sync.WaitGroup) {
+func MonitorMetrics(interval time.Duration, monitorFilePath string, signalChan chan struct{}, signalWg *sync.WaitGroup) {
 	defer signalWg.Done()
 	runtime.LockOSThread()
-	monitorFilename = monitorFilename + "_CT" + strconv.Itoa(config.ComputingThreadNum) + "_IT" + strconv.Itoa(config.IoThreadNum)
-	monitorFilename = monitorFilename + ".xlsx"
-	os.Remove(monitorFilename)
+	//monitorFilename = monitorFilename + "_CT" + strconv.Itoa(config.ComputingThreadNum) + "_IT" + strconv.Itoa(config.IoThreadNum)
+	//monitorFilename = monitorFilename + ".xlsx"
+	os.Remove(monitorFilePath)
 	// 1. 提取目录并创建（如果不存在）
-	dir := filepath.Dir(monitorFilename)
+	dir := filepath.Dir(monitorFilePath)
 	if dir != "." {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			fmt.Printf("创建目录失败: %v\n", err)
@@ -49,7 +47,7 @@ func MonitorMetrics(interval time.Duration, monitorFilename string, signalChan c
 	for {
 		select {
 		case <-signalChan:
-			if err := f.SaveAs(monitorFilename); err != nil {
+			if err := f.SaveAs(monitorFilePath); err != nil {
 				fmt.Println("保存 Excel 出错:", err)
 			}
 			return

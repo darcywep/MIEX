@@ -2,7 +2,6 @@ package common
 
 import (
 	"hash/fnv"
-	"log"
 	"runtime"
 	"sync/atomic"
 )
@@ -189,7 +188,7 @@ func (t *Table[V]) Get(key string, vmap func(value V)) {
 	if value, exists := partition[key]; exists {
 		vmap(value)
 	} else {
-		log.Printf("key not found")
+		//log.Printf("key not found")
 	}
 }
 

@@ -11,16 +11,19 @@ var Options = &opt.Options{
 var (
 	IoThreadNum        int = 4
 	ComputingThreadNum int = 4
+
+	AllThreadNum = 8
+	TxNum        = 4000
+	Skew         = 1.01
 )
 
 // 交易生成相关配置
 const (
-	BlockSize                = 2000
-	TxNum                    = 4000
-	AddressNumber            = 10000 // 总共生成多少个地址, 这用于添加到交易中
-	CompetingTxCountForBlock = 5000
-	IoTxCountForBlock        = 5000
-	Skew                     = 1.01
+	BlockSize = 2000
+
+	AddressNumberRate    = 1 // 总共生成多少个地址, 按单个区块交易数量的（比例）来生成
+	CompetingTxCountRate = 0.5
+	IoTxCountRate        = 0.5
 )
 
 // 斐波那契计算相关配置
@@ -30,7 +33,10 @@ const (
 )
 
 const (
-	AllThreadNum = 8
+	MonitorBasePath = "/root/cpu_disk_monitor/"
+)
+
+const (
 	BlockSum     = 200   // 执行多少个区块
 	ChanLen      = 20000 // 每个区块有多少笔交易
 	TxSum        = 20000 // 每个区块有多少笔交易

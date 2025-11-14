@@ -2,7 +2,6 @@ package aria
 
 import (
 	"Janus/baselines/common"
-	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/ethereum/database"
 	"Janus/tools"
@@ -68,15 +67,6 @@ func (a *Aria) Start() {
 		index := 0
 		batchID := uint64(i + 1)
 		batch := make([][]*AriaTransaction, a.numThreads)
-		txLen := len(txs)
-
-		// Step 1: 生成地址
-		addresses := tools.GenerateAddresses(1, txLen)
-		fmt.Printf("生成地址数量: %d\n", len(addresses))
-
-		// Step 2: 生成交易（Zipf 控制冲突率）
-		ethTxs := tools.GenerateSmallBankTxs(addresses, txLen/2, txLen/2, janusConfig.FibonacciN, janusConfig.RecursiveCalculateFibonacci, janusConfig.Skew)
-		fmt.Printf("生成交易数量: %d\n", len(ethTxs)) // 以太坊交易
 		ethTxIndex := 0
 
 		for j := 0; j < len(txs); j += txPerThread {
@@ -85,7 +75,7 @@ func (a *Aria) Start() {
 				tx := txs[j+k]
 				txid := uint64(tx.Txid)
 				inner := *tx
-				atx := NewAriaTransaction(inner, ethTxs[ethTxIndex], txid, batchID)
+				atx := NewAriaTransaction(inner, txid, batchID)
 				ethTxIndex++ // 移动到下一个以太坊交易
 				batch[batchIdx] = append(batch[batchIdx], atx)
 			}

@@ -23,17 +23,17 @@ func (g *TxGenerator) GenerateTransaction(txid uint32, readKeys map[string]strin
 }
 
 func (tg *TxGenerator) GenerateBlock(blockID int) *Block { // 生成的区块中包含EVM可执行交易
+	txs := make([]*BasicTransaction, 0)
 
+	txsLen := tg.blockSize
 	// Step 1: 生成地址
-	addresses := tools.GenerateAddresses(1, janusConfig.BlockSize)
+	addresses := tools.GenerateAddresses(1, int(float64(txsLen)*janusConfig.AddressNumberRate))
 	fmt.Printf("生成地址数量: %d\n", len(addresses))
 
 	// Step 2: 生成交易（Zipf 控制冲突率）
-	ethTxs := tools.GenerateSmallBankTxs(addresses, janusConfig.CompetingTxCountForBlock, janusConfig.IoTxCountForBlock,
+	ethTxs := tools.GenerateSmallBankTxs(addresses, int(float64(txsLen)*janusConfig.CompetingTxCountRate), int(float64(txsLen)*janusConfig.IoTxCountRate),
 		janusConfig.FibonacciN, janusConfig.RecursiveCalculateFibonacci, janusConfig.Skew)
 	fmt.Printf("生成交易数量: %d\n", len(ethTxs)) // 生成以太坊交易
-
-	txs := make([]*BasicTransaction, 0)
 
 	for i := 0; i < tg.blockSize; i++ {
 		txid := blockID*tg.blockSize + i + 1
@@ -43,6 +43,7 @@ func (tg *TxGenerator) GenerateBlock(blockID int) *Block { // 生成的区块中
 		tx := tg.GenerateTransaction(uint32(txid), readKeys, writeKeys, ethTxs[i])
 		txs = append(txs, tx)
 	}
+
 	return NewBlock(blockID, txs)
 }
 

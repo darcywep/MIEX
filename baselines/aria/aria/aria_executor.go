@@ -122,9 +122,9 @@ func (e *AriaExecutor) Execute(tx *AriaTransaction) {
 	// 模拟 snapshot read handler
 
 	// 需要记录读写
-	if tx.EthTx.TxType == config.IOTx {
-		key1 := tx.EthTx.From().String()
-		key2 := tx.EthTx.SmallBankTo.String()
+	if tx.Inner.EthTx.TxType == config.IOTx {
+		key1 := tx.Inner.EthTx.From().String()
+		key2 := tx.Inner.EthTx.SmallBankTo.String()
 		tx.Inner.Vertex.WriteKeys[key1] = "value"
 		tx.Inner.Vertex.WriteKeys[key2] = "value"
 		tx.Inner.Vertex.ReadKeys[key2] = "value"
@@ -136,19 +136,22 @@ func (e *AriaExecutor) Execute(tx *AriaTransaction) {
 		tx.LocalGet[key2] = "value"
 
 	} else {
-		key1 := tx.EthTx.SmallBankTo.String()
+		key1 := tx.Inner.EthTx.SmallBankTo.String()
 		tx.Inner.Vertex.WriteKeys[key1] = "value"
 		tx.Inner.Vertex.ReadKeys[key1] = "value"
 
 		tx.LocalPut[key1] = "value"
 		tx.LocalGet[key1] = "value"
 	}
-
-	//for key, _ := range tx.LocalGet {
-	//	e.table.Table.Get(key, func(entry *AriaEntry) {
-	//		_ = entry.Value
-	//	})
-	//}
+	//// 模拟 snapshot read handler
+	for key, _ := range tx.LocalGet {
+		e.table.Table.Get(key, func(entry AriaEntry) {
+			_ = entry.Value
+		})
+	}
+	for key, value := range tx.LocalPut {
+		tx.LocalPut[key] = value
+	}
 
 	tx.Execute(e.levm) // 执行用户逻辑
 }
@@ -189,7 +192,7 @@ func (e *AriaExecutor) Verify(tx *AriaTransaction) {
 // Commit 提交事务结果到表
 func (e *AriaExecutor) Commit(tx *AriaTransaction) {
 	for key, value := range tx.LocalPut {
-		e.table.Table.Put(key, func(entry **AriaEntry) {
+		e.table.Table.Put(key, func(entry *AriaEntry) {
 			(*entry).Value = value
 		})
 	}
@@ -209,13 +212,13 @@ func (e *AriaExecutor) PrepareLockTable(tx *AriaTransaction) {
 // Fallback 悲观回退执行（顺序保证）
 func (e *AriaExecutor) Fallback(tx *AriaTransaction) {
 	for key, _ := range tx.LocalGet {
-		e.table.Table.Get(key, func(entry *AriaEntry) {
+		e.table.Table.Get(key, func(entry AriaEntry) {
 			_ = entry.Value
 		})
 	}
 
 	for key, value := range tx.LocalPut {
-		e.table.Table.Put(key, func(entry **AriaEntry) {
+		e.table.Table.Put(key, func(entry *AriaEntry) {
 			(*entry).Value = value
 		})
 	}

@@ -3,7 +3,6 @@ package aria
 import (
 	janusCommon "Janus/baselines/common"
 	lvm "Janus/core/evm"
-	"Janus/ethereum/core/types"
 	"Janus/tools"
 	"sync/atomic"
 	"time"
@@ -13,7 +12,6 @@ import (
 
 type AriaTransaction struct {
 	Inner        janusCommon.BasicTransaction
-	EthTx        *types.Transaction
 	ID           uint64
 	BatchID      uint64
 	LocalGet     map[string]string
@@ -23,10 +21,9 @@ type AriaTransaction struct {
 	committed    atomic.Uint32
 }
 
-func NewAriaTransaction(inner janusCommon.BasicTransaction, ethTx *types.Transaction, id, batch uint64) *AriaTransaction {
+func NewAriaTransaction(inner janusCommon.BasicTransaction, id, batch uint64) *AriaTransaction {
 	return &AriaTransaction{
 		Inner:    inner,
-		EthTx:    ethTx,
 		ID:       id,
 		BatchID:  batch,
 		LocalGet: make(map[string]string),
@@ -36,7 +33,7 @@ func NewAriaTransaction(inner janusCommon.BasicTransaction, ethTx *types.Transac
 
 func (tx *AriaTransaction) Execute(levm *lvm.LEVM) {
 	//fmt.Println("tx Execute:", tx.ID)
-	_, err := levm.CallContract(*tx.EthTx.From(), *tx.EthTx.To(), tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
+	_, err := levm.CallContract(*tx.Inner.EthTx.From(), *tx.Inner.EthTx.To(), tx.Inner.EthTx.Data(), new(uint256.Int).SetUint64(0))
 	tools.PanicError("AriaTransaction Execute", err)
 }
 
