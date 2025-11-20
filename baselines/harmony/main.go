@@ -11,7 +11,7 @@ import (
 func main() {
 	txGenerator := common.NewTxGenerator(config.TxNum, config.BlockSize)
 	blocks := txGenerator.GenerateWorkload() // 生成区块
-	fmt.Printf("Blocks num: %d, Blocks size: %d\n", len(blocks), len(blocks[0].Txs))
+	//fmt.Printf("Blocks num: %d, Blocks size: %d\n", len(blocks), len(blocks[0].Txs))
 
 	static := common.NewStatistics()
 	harmonyInstance := harmony.NewHarmony(blocks, static, 4, 4, true)

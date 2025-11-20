@@ -3,19 +3,21 @@ package aria
 import (
 	"Janus/baselines/common"
 	janusConfig "Janus/config"
+	lvm "Janus/core/evm"
+	"Janus/ethereum/core/types"
 	"fmt"
 	"time"
 )
 
-func Run() float64 {
+func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 	txGenerator := common.NewTxGenerator(janusConfig.TxNum, janusConfig.BlockSize) // TX_NUM = 2000, BLOCK_SIZE = 1000
 
-	blocks := txGenerator.GenerateWorkload() // 生成区块
-	fmt.Printf("Blocks num: %d\n", len(blocks))
-	fmt.Printf("Blocks size: %d\n", len(blocks[0].Txs))
+	blocks := txGenerator.GenerateWorkload(blockTxs) // 生成区块
+	//fmt.Printf("Blocks num: %d\n", len(blocks))
+	//fmt.Printf("Blocks size: %d\n", len(blocks[0].Txs))
 
 	static := common.NewStatistics()
-	aria := NewAria(blocks, static, janusConfig.AllThreadNum, 4, true)
+	aria := NewAria(blocks, static, janusConfig.AllThreadNum, 4, true, levm)
 	start := time.Now()
 	//tools.CatStorageState = true
 	aria.Start()

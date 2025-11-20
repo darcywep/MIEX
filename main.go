@@ -5,50 +5,38 @@ import (
 	"Janus/baselines/harmony/harmony"
 	"Janus/baselines/optme/optme"
 	"Janus/baselines/schain/schain"
-	"Janus/config"
+	"Janus/baselines/serial"
+	janusConfig "Janus/config"
+	lvm "Janus/core/evm"
+	"Janus/ethereum/config"
+	"Janus/ethereum/core/types"
+	"Janus/ethereum/database"
 	"Janus/monitor"
+	"Janus/tools"
 	"flag"
 	"fmt"
-	"math"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"sync"
 	"time"
 
+	"math/big"
+
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/xuri/excelize/v2"
 )
 
-func skewFromBias(bias float64) float64 {
-	if bias < 0 {
-		bias = 0
-	}
-	if bias > 1 {
-		bias = 1
-	}
+var stateConfig *database.StateDBConfig
+var chainConfig *params.ChainConfig
 
-	const minSkew = 1.0
-	const maxSkew = 3.5
-
-	// 指数映射，低 bias 几乎均匀，高 bias 快速倾斜
-	return minSkew * math.Pow(maxSkew/minSkew, bias)
-}
-
-func run(baseline, baseFileName string, tpss *[]float64, signalChan chan struct{}, signalWg *sync.WaitGroup) {
-	monitorFilePath := filepath.Join(config.MonitorBasePath, baseline+"/"+baseFileName)
-	if baseline == "harmony" {
-		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		*tpss = append(*tpss, harmony.Run())
-	} else if baseline == "schain" {
-		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		*tpss = append(*tpss, schain.Run())
-	} else if baseline == "optme" {
-		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		*tpss = append(*tpss, optme.Run())
-	} else if baseline == "aria" {
-		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		*tpss = append(*tpss, aria.Run())
+func init() {
+	stateConfig = &database.StateDBConfig{
+		Path:    "/root/alldb/smallbank_database",
+		Cache:   16000,
+		Handles: 16000,
 	}
+	chainConfig = config.TestChainConfig
 }
 
 func writeTPSResultToExcel(filename string, baselines []string, tpss []float64) error {
@@ -91,39 +79,82 @@ func writeTPSResultToExcel(filename string, baselines []string, tpss []float64) 
 	return f.SaveAs(filename)
 }
 
-func main() {
-	runtime.GOMAXPROCS(config.AllThreadNum + 2)
+func run(baseline, baseFileName string, tpss *[]float64, signalChan chan struct{}, signalWg *sync.WaitGroup, blockTxs []types.Transactions, levm *lvm.LEVM) {
+	monitorFilePath := filepath.Join(janusConfig.MonitorBasePath, baseline+"/"+baseFileName)
+	if baseline == "harmony" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, harmony.Run(blockTxs, levm))
+	} else if baseline == "schain" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, schain.Run(blockTxs, levm))
+	} else if baseline == "optme" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, optme.Run(blockTxs, levm))
+	} else if baseline == "aria" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, aria.Run(blockTxs, levm))
+	} else if baseline == "serial" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, serial.Run(blockTxs, levm))
+	}
+}
 
-	baseline := flag.String("baseline", "janus",
-		"mode: (default janus)\n"+
+func main() {
+	baseline := flag.String("baseline", "all",
+		"baseline: (default all)\n"+
 			"\t\"all\" is run all baseline\n"+
 			"\t\"schain\" is run schain\n"+
 			"\t\"optme\" is run optme\n"+
 			"\t\"aria\" is run aria\n"+
-			"\t\"harmony\" is run harmony\n")
+			"\t\"harmony\" is run harmony\n"+
+			"\t\"serial\" is run serial\n")
 	threadNumber := flag.String("thread", "8", "thread number(default 8)")
 	skew := flag.String("skew", "0.5", "thread number(default 0.5)")
-	txNumber := flag.String("txNum", "6000", "thread number(default 6000)")
+	txNumber := flag.String("txNum", "100000", "thread number(default 6000)")
 	flag.Parse()
 
 	fmt.Println("baseline: ", *baseline, "\tthreadNumber: ", *threadNumber,
 		"\tskew: ", *skew, "\ttxNumber: ", *txNumber)
 
-	if *baseline != "all" && *baseline != "harmony" && *baseline != "schain" && *baseline != "optme" && *baseline != "aria" {
+	if *baseline != "all" && *baseline != "harmony" && *baseline != "schain" && *baseline != "optme" && *baseline != "aria" && *baseline != "serial" {
 		fmt.Println("baseline is invalid")
 		return
 	}
 
-	config.AllThreadNum, _ = strconv.Atoi(*threadNumber)
-	config.Skew, _ = strconv.ParseFloat(*skew, 64)
-	config.TxNum, _ = strconv.Atoi(*txNumber)
+	janusConfig.AllThreadNum, _ = strconv.Atoi(*threadNumber)
+	janusConfig.Skew, _ = strconv.ParseFloat(*skew, 64)
+	janusConfig.TxNum, _ = strconv.Atoi(*txNumber)
 
+	runtime.GOMAXPROCS(janusConfig.AllThreadNum + 2)
 	var (
-		baseFileName           = "thread(" + strconv.Itoa(config.AllThreadNum) + ")_skew(" + fmt.Sprintf("%f", config.Skew) + ").xlsx"
+		baseFileName           = "thread(" + strconv.Itoa(janusConfig.AllThreadNum) + ")_skew(" + fmt.Sprintf("%f", janusConfig.Skew) + ").xlsx"
 		tpss         []float64 = make([]float64, 0)
-		baselines              = []string{"harmony", "schain", "optme", "aria"}
+		baselines              = []string{"serial", "harmony", "schain", "optme", "aria"}
 	)
 
+	blockNum := janusConfig.TxNum / janusConfig.BlockSize
+	blockTxs := make([]types.Transactions, 0) // 每个block的交易集合
+	for i := 0; i < blockNum; i++ {
+		txsLen := janusConfig.BlockSize
+		// Step 1: 生成地址
+		addresses := tools.GenerateAddresses(1, int(float64(txsLen)*janusConfig.AddressNumberRate))
+		fmt.Printf("生成地址数量: %d\n", len(addresses))
+
+		// Step 2: 生成交易（Zipf 控制冲突率）
+		ethTxs := tools.GenerateSmallBankTxs(addresses, int(float64(txsLen)*janusConfig.CompetingTxCountRate), int(float64(txsLen)*janusConfig.IoTxCountRate),
+			janusConfig.FibonacciN, janusConfig.RecursiveCalculateFibonacci, janusConfig.Skew)
+		fmt.Printf("生成交易数量: %d\n", len(ethTxs)) // 生成以太坊交易
+		blockTxs = append(blockTxs, ethTxs)
+	}
+
+	fmt.Println("正在预读取状态...")
+	levm := lvm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
+	for _, txs := range blockTxs {
+		lvm.PreReadState(txs, levm)
+	}
+	defer levm.AllDB().Close()
+
+	//config.Skew = skewFromBias(config.Skew)
 	if *baseline != "all" {
 		baselines = []string{*baseline}
 	}
@@ -132,11 +163,13 @@ func main() {
 		signalChan := make(chan struct{})
 		signalWg := new(sync.WaitGroup)
 		signalWg.Add(1)
-		run(bl, baseFileName, &tpss, signalChan, signalWg)
+		run(bl, baseFileName, &tpss, signalChan, signalWg, blockTxs, levm)
+		signalChan <- struct{}{}
 		close(signalChan)
 		signalWg.Wait()
+		fmt.Println()
 	}
-	err := writeTPSResultToExcel(filepath.Join(config.MonitorBasePath, "tps"+"/"+baseFileName), baselines, tpss)
+	err := writeTPSResultToExcel(filepath.Join(janusConfig.MonitorBasePath, "tps"+"/"+baseFileName), baselines, tpss)
 	if err != nil {
 		fmt.Println(err)
 	}

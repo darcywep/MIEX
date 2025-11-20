@@ -4,7 +4,6 @@ import (
 	optmeCommon "Janus/baselines/common"
 	"Janus/config"
 	lvm "Janus/core/evm"
-	"fmt"
 	"sync/atomic"
 	"time"
 )
@@ -59,7 +58,7 @@ func (e *AriaExecutor) Run() {
 		}
 		e.hasConflict.Store(false)
 
-		fmt.Println("worker", e.workerID, "start batch with", len(batch), "txs")
+		//fmt.Println("worker", e.workerID, "start batch with", len(batch), "txs")
 		// -------- Stage 1: Execute + Reserve --------
 		for _, tx := range batch {
 			tx.StartTime = time.Now()
@@ -71,7 +70,7 @@ func (e *AriaExecutor) Run() {
 
 		// -------- Stage 2: Verify + Commit/Fallback prepare --------
 		e.barrier.Wait()
-		fmt.Println("worker", e.workerID, "verifying")
+		//fmt.Println("worker", e.workerID, "verifying")
 		beginTime := time.Time{}
 		if e.workerID == 0 {
 			beginTime = time.Now()
@@ -101,7 +100,7 @@ func (e *AriaExecutor) Run() {
 			if tx.flagConflict.Load() {
 				e.Fallback(tx)
 				e.statistics.JournalExecute()
-				e.statistics.JournalCommit(uint32(time.Since(tx.StartTime).Microseconds()))
+				//e.statistics.JournalCommit(uint32(time.Since(tx.StartTime).Microseconds()))
 				e.statistics.AddRollbackCount()
 			}
 		}
@@ -143,15 +142,15 @@ func (e *AriaExecutor) Execute(tx *AriaTransaction) {
 		tx.LocalPut[key1] = "value"
 		tx.LocalGet[key1] = "value"
 	}
-	//// 模拟 snapshot read handler
-	for key, _ := range tx.LocalGet {
-		e.table.Table.Get(key, func(entry AriaEntry) {
-			_ = entry.Value
-		})
-	}
-	for key, value := range tx.LocalPut {
-		tx.LocalPut[key] = value
-	}
+	////// 模拟 snapshot read handler
+	//for key, _ := range tx.LocalGet {
+	//	e.table.Table.Get(key, func(entry AriaEntry) {
+	//		_ = entry.Value
+	//	})
+	//}
+	//for key, value := range tx.LocalPut {
+	//	tx.LocalPut[key] = value
+	//}
 
 	tx.Execute(e.levm) // 执行用户逻辑
 }

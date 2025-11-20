@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/VictoriaMetrics/fastcache v1.13.0
+	github.com/chinuy/zipf v0.0.0-20180918155919-1ef58b781f9a
 	github.com/cockroachdb/pebble v1.1.5
 	github.com/consensys/gnark-crypto v0.18.0
 	github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a

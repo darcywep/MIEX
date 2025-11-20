@@ -1,8 +1,6 @@
 package main
 
 import (
-	"Janus/baselines/common"
-	"Janus/baselines/optme/optme"
 	"Janus/config"
 	"Janus/mempool"
 	"Janus/persister"
@@ -157,17 +155,17 @@ func runIO(stateCache *persister.StateCache, mp *mempool.Mempool, s *scheduler.S
 
 func main() {
 
-	txGenerator := common.NewTxGenerator(config.TxNum, config.BlockSize)
-
-	blocks := txGenerator.GenerateWorkload() // 生成区块
-	fmt.Printf("Blocks num: %d\n", len(blocks))
-	fmt.Printf("Blocks size: %d\n", len(blocks[0].Txs))
-
-	static := common.NewStatistics()
-	optme := optme.NewOptME(blocks, static, 2, 4, true)
-	optme.Start()
-
-	defer optme.GetThreadPool().EvmClose()
+	//txGenerator := common.NewTxGenerator(config.TxNum, config.BlockSize)
+	//
+	//blocks := txGenerator.GenerateWorkload() // 生成区块
+	//fmt.Printf("Blocks num: %d\n", len(blocks))
+	//fmt.Printf("Blocks size: %d\n", len(blocks[0].Txs))
+	//
+	//static := common.NewStatistics()
+	//optme := optme.NewOptME(blocks, static, 2, 4, true)
+	//optme.Start()
+	//
+	//defer optme.GetThreadPool().EvmClose()
 
 	//fmt.Printf("所有交易延迟总和 %d 微秒 \n", static.Latency.Load())
 	// monitor_filename := "cpu_disk_monitor/cpu_disk_Sep.xlsx"

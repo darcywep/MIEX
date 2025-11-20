@@ -57,14 +57,14 @@ type OptME struct {
 }
 
 // NewOptME 创建新的OptME实例
-func NewOptME(blocks []*common.Block, statistics *common.Statistics, numThreads int, tablePartitions int, enableParallel bool) *OptME {
+func NewOptME(blocks []*common.Block, statistics *common.Statistics, numThreads int, tablePartitions int, enableParallel bool, levm *lvm.LEVM) *OptME {
 	optme := &OptME{
 		Statistics:     statistics,
 		blocks:         blocks,
 		numThreads:     numThreads,
 		table:          NewOptMETable(tablePartitions),
 		enableParallel: enableParallel,
-		pool:           common.NewThreadPool(numThreads),
+		pool:           common.NewThreadPool(numThreads, levm),
 	}
 	optme.cv = sync.NewCond(&optme.mtx)
 	return optme
@@ -211,8 +211,8 @@ func (optme *OptME) Run() {
 		acg := optme.acgs[i] // addressConflictGraph
 		blockid := batch[0].Blockid
 
-		fmt.Printf("Batch size: %d \n", len(batch))
-		fmt.Printf("txList size: %d \n", len(acg.txList))
+		//fmt.Printf("Batch size: %d \n", len(batch))
+		//fmt.Printf("txList size: %d \n", len(acg.txList))
 
 		var schedules [][]*OptmeTransaction
 		var abortedTxs []*OptmeTransaction
@@ -220,10 +220,10 @@ func (optme *OptME) Run() {
 		optme.Simulate(batch, blockid) // 模拟(预)执行
 
 		if optme.enableParallel {
-			fmt.Printf("Parallelization: %t \n", optme.enableParallel)
+			//fmt.Printf("Parallelization: %t \n", optme.enableParallel)
 			optme.ReorderWithACG(acg, batch, &abortedTxs)
 		} else {
-			fmt.Printf("Parallelization: %t \n", optme.enableParallel)
+			//fmt.Printf("Parallelization: %t \n", optme.enableParallel)
 			optme.Reorder(batch, &abortedTxs)
 		}
 		optme.ParallelExecute(&schedules, abortedTxs)
@@ -384,7 +384,7 @@ func (opt *OptMETable) ReservePut(tx *OptmeTransaction, key string) {
 
 // Simulate 模拟交易执行
 func (optme *OptME) Simulate(batch []*OptmeTransaction, blockid uint32) {
-	fmt.Println("开始模拟执行区块 %d", blockid)
+	//fmt.Println("开始模拟执行区块 %d", blockid)
 
 	var wg sync.WaitGroup
 	for _, tx := range batch {
@@ -425,7 +425,7 @@ func (optme *OptME) Simulate(batch []*OptmeTransaction, blockid uint32) {
 
 	// 等待所有goroutine完成
 	wg.Wait()
-	fmt.Printf("模拟执行区块：%d 完毕, 执行次数：%d \n", blockid, optme.Statistics.ExecCount.Load())
+	//fmt.Printf("模拟执行区块：%d 完毕, 执行次数：%d \n", blockid, optme.Statistics.ExecCount.Load())
 }
 
 // Stop 停止OptME协议

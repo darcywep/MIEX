@@ -4,10 +4,8 @@ import (
 	"Janus/baselines/common"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
-	"Janus/ethereum/database"
 	"Janus/tools"
 	"fmt"
-	"math/big"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -39,7 +37,7 @@ func NewHarmony(
 	enableInterBlock bool,
 ) *Harmony {
 	barrier := NewHarmonyBarrier(numThreads, func() {
-		fmt.Println("batch complete")
+		//fmt.Println("batch complete")
 	})
 
 	harmony := &Harmony{
@@ -127,7 +125,7 @@ func NewHarmonyExecutor(harmony *Harmony, workerID uint32, batchTxs [][]*Harmony
 	}
 }
 
-func (h *Harmony) Start() {
+func (h *Harmony) Start(levm *lvm.LEVM) {
 	fmt.Println("harmony ready to start...")
 
 	// split blocks into batches
@@ -171,14 +169,13 @@ func (h *Harmony) Start() {
 
 	var wg sync.WaitGroup
 
-	levm := lvm.New(database.SmallBankStateDBConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
-	h.levm = levm
+	h.levm = levm.Copy()
 
 	for i := 0; i < h.numThreads; i++ {
 		// create thread batches for current worker
 		threadBatches := make([][]*HarmonyTransaction, 0, len(h.blocks))
 		for j := 0; j < len(h.blocks); j++ {
-			fmt.Printf("i = %d, j=%d \n", i, j)
+			//fmt.Printf("i = %d, j=%d \n", i, j)
 			threadBatches = append(threadBatches, batches[j][i])
 		}
 
@@ -202,20 +199,13 @@ func (h *Harmony) Start() {
 	for _, worker := range h.workers {
 		worker.levm.AllDB().StateDB.FlushDirtyToNewStateDB(levm.AllDB().StateDB)
 	}
-	root, err := levm.AllDB().StateDB.Commit(uint64(0), true, true)
-	if err != nil {
-		fmt.Println("StateDB.Commit", err)
-	}
-	err = levm.AllDB().StateDB.Database().TrieDB().Commit(root, false)
-	if err != nil {
-		fmt.Println("TrieDB().Commit(root, false)", err)
-	}
+	//h.levm.CommitStateChange()
 }
 
 // Run 执行交易
 func (e *HarmonyExecutor) Run() {
 
-	fmt.Println("harmony executor is running...")
+	//fmt.Println("harmony executor is running...")
 
 	if e.enableInterBlock {
 		fmt.Printf("worker %d size of batchTxs %d", e.workerID, len(e.batchTxs))
@@ -250,7 +240,7 @@ func (e *HarmonyExecutor) Run() {
 			// stage 2: verify + commit
 			e.barrier.ArriveAndWait()
 
-			fmt.Printf("worker %d verifying", e.workerID)
+			//fmt.Printf("worker %d verifying", e.workerID)
 			var beginTime time.Time
 			if e.workerID == 0 {
 				beginTime = time.Now()
@@ -341,7 +331,7 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 			}
 		}
 	}
-	fmt.Printf("worker %d executing batch %d size %d \n", e.workerID, e.batchIdx, len(batch))
+	//fmt.Printf("worker %d executing batch %d size %d \n", e.workerID, e.batchIdx, len(batch))
 
 	for i := range batch {
 		tx := &batch[i]
@@ -352,12 +342,12 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 		//e.statistics.JournalOverheads(tx.CountOverheads())
 	}
 
-	fmt.Printf("至今被执行的交易数目 %d \n", e.statistics.ExecCount.Load())
+	//fmt.Printf("至今被执行的交易数目 %d \n", e.statistics.ExecCount.Load())
 
 	//// stage 2: verify + commit
 	e.barrier.ArriveAndWait()
 
-	fmt.Printf("worker %d verifying batch %d \n", e.workerID, e.batchIdx)
+	//fmt.Printf("worker %d verifying batch %d \n", e.workerID, e.batchIdx)
 	//var beginTime time.Time
 	//if e.workerID == 0 {
 	//	beginTime = time.Now()
@@ -381,7 +371,7 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 			e.statistics.JournalCommit(uint32(latency))
 		}
 	}
-	fmt.Printf("冲突的交易数目 %d \n", conflictNum)
+	//fmt.Printf("冲突的交易数目 %d \n", conflictNum)
 
 	// stage 3: fallback
 	e.barrier.ArriveAndWait()
@@ -403,7 +393,7 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 		}
 	}
 
-	fmt.Printf("至今被执行的交易数目 %d \n", e.statistics.ExecCount.Load())
+	//fmt.Printf("至今被执行的交易数目 %d \n", e.statistics.ExecCount.Load())
 
 	// stage 4: 流式执行下一个区块
 	if e.batchIdx < uint32(len(e.batchTxs)) {
@@ -414,7 +404,7 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 			//e.statistics.JournalReExecution(phaseTime)
 			e.counter.Store(0)
 		}
-		fmt.Printf("worker %d streamly next block \n", e.workerID)
+		//fmt.Printf("worker %d streamly next block \n", e.workerID)
 		e.InterBlockExecute(e.NextBatch())
 	} else {
 		// stage 5: clean up

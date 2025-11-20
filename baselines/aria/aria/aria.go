@@ -3,14 +3,9 @@ package aria
 import (
 	"Janus/baselines/common"
 	lvm "Janus/core/evm"
-	"Janus/ethereum/database"
-	"Janus/tools"
-	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
-
-	"math/big"
 )
 
 type Aria struct {
@@ -30,11 +25,9 @@ type Aria struct {
 	levms         []*lvm.LEVM
 }
 
-func NewAria(blocks []*common.Block, stats *common.Statistics, numThreads int, tablePartitions int, enableReorder bool) *Aria {
-	// Step 3: 模拟执行
-	levm := lvm.New(database.SmallBankStateDBConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
+func NewAria(blocks []*common.Block, stats *common.Statistics, numThreads int, tablePartitions int, enableReorder bool, levm *lvm.LEVM) *Aria {
 	aria := &Aria{
-		levm:          levm,
+		levm:          levm.Copy(),
 		statistics:    stats,
 		blocks:        blocks,
 		table:         NewAriaTable(tablePartitions),
@@ -67,7 +60,6 @@ func (a *Aria) Start() {
 		index := 0
 		batchID := uint64(i + 1)
 		batch := make([][]*AriaTransaction, a.numThreads)
-		ethTxIndex := 0
 
 		for j := 0; j < len(txs); j += txPerThread {
 			batchIdx := index % a.numThreads
@@ -76,7 +68,6 @@ func (a *Aria) Start() {
 				txid := uint64(tx.Txid)
 				inner := *tx
 				atx := NewAriaTransaction(inner, txid, batchID)
-				ethTxIndex++ // 移动到下一个以太坊交易
 				batch[batchIdx] = append(batch[batchIdx], atx)
 			}
 			index++
@@ -110,13 +101,6 @@ func (a *Aria) Stop() {
 		a.workers[i].Wait()
 		a.levms[i].AllDB().StateDB.FlushDirtyToNewStateDB(a.levm.AllDB().StateDB)
 	}
-	root, err := a.levm.AllDB().StateDB.Commit(uint64(0), true, true)
-	if err != nil {
-		fmt.Println("StateDB.Commit", err)
-	}
-	err = a.levm.AllDB().StateDB.Database().TrieDB().Commit(root, false)
-	if err != nil {
-		fmt.Println("TrieDB().Commit(root, false)", err)
-	}
+	//a.levm.CommitStateChange()
 	log.Println("aria stop")
 }

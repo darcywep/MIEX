@@ -78,10 +78,17 @@ func GetRWSetByOCC(txs []*types.Transaction, levm *lvm.LEVM) {
 				tools.PanicError("SChain GetRWSetByOCC Execute", err)
 				tx.WriteKeys = make([]string, 0)
 				tx.ReadKeys = make([]string, 0)
+				//tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
+				//tx.ReadKeys = append(tx.ReadKeys, tx.From().String())
+				//tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
+				//tx.ReadKeys = append(tx.ReadKeys, tx.SmallBankTo.String())
 				if tx.TxType == config.IOTx {
 					tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
+					tx.ReadKeys = append(tx.ReadKeys, tx.From().String())
 					tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
+					tx.ReadKeys = append(tx.ReadKeys, tx.SmallBankTo.String())
 				} else {
+					tx.ReadKeys = append(tx.ReadKeys, tx.SmallBankTo.String())
 					tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
 				}
 			}

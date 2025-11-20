@@ -2,17 +2,19 @@ package tools
 
 import (
 	janusConfig "Janus/config"
-	"log"
+	"fmt"
 	"math/big"
 	"math/rand"
 	"time"
+
+	"github.com/chinuy/zipf"
 
 	"Janus/ethereum/core/types"
 
 	"github.com/ethereum/go-ethereum/common"
 )
 
-const contractBasePath = "/root/Janus/contract_example/"
+const ContractBasePath = "/root/Janus/contract_example/"
 
 // GenerateAddresses 生成指定范围的伪地址
 func GenerateAddresses(start, end int) []common.Address {
@@ -27,26 +29,30 @@ func GenerateAddresses(start, end int) []common.Address {
 // GenerateSmallBankTxs 基于Zipf分布生成交易，用于控制冲突概率
 func GenerateSmallBankTxs(addresses []common.Address, ioTxCount, cpuTxCount, fibonacciN int, recursive bool, skew float64) []*types.Transaction {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	zipf := rand.NewZipf(r, skew, 1, uint64(len(addresses)-1))
+	z := zipf.NewZipf(r, skew, uint64(len(addresses)-1))
+
 	txCount := ioTxCount + cpuTxCount
 	txs := make([]*types.Transaction, 0, txCount)
 	gasPrice := big.NewInt(1)
 
-	abiObject, _, err := LoadContract(contractBasePath+"smallbank_fibonacci.abi", contractBasePath+"smallbank_fibonacci.bin")
+	abiObject, _, err := LoadContract(ContractBasePath+"smallbank_fibonacci.abi", ContractBasePath+"smallbank_fibonacci.bin")
 	PanicError("GenerateSmallBankTxs LoadContract ", err)
 
 	ioTxNum, cpuTxNum := 0, 0
 	rand.Seed(time.Now().UnixNano()) // 设置随机数种子（否则每次运行结果一样）
 
 	for i := 1; i <= txCount; i++ {
-		fromIdx := int(zipf.Uint64())
-		toIdx := int(zipf.Uint64())
+		fromIdx := int(z.Uint64())
+		toIdx := int(z.Uint64())
+
 		if fromIdx == toIdx {
 			toIdx = (toIdx + 1) % len(addresses)
 		}
 
 		from := addresses[fromIdx]
 		to := addresses[toIdx]
+		//fmt.Println("fromIdx:", fromIdx, " toIdx:", toIdx)
+		//fmt.Println("from:", from, " to:", to)
 		var (
 			inputs []byte
 			tx     *types.Transaction
@@ -85,6 +91,6 @@ func GenerateSmallBankTxs(addresses []common.Address, ioTxCount, cpuTxCount, fib
 		tx.SetFrom(from)
 		txs = append(txs, tx)
 	}
-	log.Printf("Zipf 生成交易完成（skew=%.2f）", skew)
+	fmt.Printf("Zipf 生成交易完成（skew=%.2f）", skew)
 	return txs
 }

@@ -386,7 +386,7 @@ func (a *AddressBasedConflictGraph) AssignFrom(other *AddressBasedConflictGraph)
 //   - simulationResult: 模拟结果，包含所有待处理的事务
 func (a *AddressBasedConflictGraph) Construct(simulationResult []*OptmeTransaction) {
 
-	fmt.Print("Ready to Run Construct ConflictGraph... \n")
+	//fmt.Print("Ready to Run Construct ConflictGraph... \n")
 	for _, tx := range simulationResult {
 
 		//	转换写单元

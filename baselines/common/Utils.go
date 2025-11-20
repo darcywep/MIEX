@@ -2,11 +2,8 @@ package common
 
 import (
 	lvm "Janus/core/evm"
-	"Janus/ethereum/database"
-	"Janus/tools"
 	"container/list"
 	"fmt"
-	"math/big"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -126,18 +123,18 @@ type ThreadPool struct {
 }
 
 func (t *ThreadPool) ResetEVM() {
-	root, err := t.levm.AllDB().StateDB.Commit(uint64(0), true, true)
-	if err != nil {
-		fmt.Println("StateDB.Commit", err)
-	}
-	err = t.levm.AllDB().StateDB.Database().TrieDB().Commit(root, false)
-	if err != nil {
-		fmt.Println("TrieDB().Commit(root, false)", err)
-	}
-	err = t.levm.AllDB().UpdateStateDB(root)
-	if err != nil {
-		fmt.Println("UpdateStateDB", err)
-	}
+	//root, err := t.levm.AllDB().StateDB.Commit(uint64(0), true, true)
+	//if err != nil {
+	//	fmt.Println("StateDB.Commit", err)
+	//}
+	//err = t.levm.AllDB().StateDB.Database().TrieDB().Commit(root, false)
+	//if err != nil {
+	//	fmt.Println("TrieDB().Commit(root, false)", err)
+	//}
+	//err = t.levm.AllDB().UpdateStateDB(root)
+	//if err != nil {
+	//	fmt.Println("UpdateStateDB", err)
+	//}
 	for _, w := range t.workers {
 		w.levm = t.levm.Copy()
 	}
@@ -148,18 +145,14 @@ func (t *ThreadPool) EvmClose() {
 }
 
 // NewThreadPool 创建线程池
-func NewThreadPool(threadNum int) *ThreadPool {
-	return NewThreadPoolWithOffset(threadNum, 0)
+func NewThreadPool(threadNum int, levm *lvm.LEVM) *ThreadPool {
+	return NewThreadPoolWithOffset(threadNum, 0, levm)
 }
 
 // NewThreadPoolWithOffset 创建带偏移的线程池
-func NewThreadPoolWithOffset(threadNum int, offset int) *ThreadPool {
-
-	// Step 3: 模拟执行
-	levm := lvm.New(database.SmallBankStateDBConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
-
+func NewThreadPoolWithOffset(threadNum int, offset int, levm *lvm.LEVM) *ThreadPool {
 	pool := &ThreadPool{
-		levm:              levm,
+		levm:              levm.Copy(),
 		highPriorityTasks: list.New(),
 		lowPriorityTasks:  list.New(),
 		stop:              false,
@@ -186,7 +179,7 @@ func NewThreadPoolWithOffset(threadNum int, offset int) *ThreadPool {
 
 		// 在Go中设置CPU亲和性比较复杂，通常使用runtime.LockOSThread()
 		// 这里简化处理，实际生产环境可能需要使用syscall包
-		fmt.Printf("Binding thread-%d to core %d\n", i, offset+i)
+		//fmt.Printf("Binding thread-%d to core %d\n", i, offset+i)
 		pinToCore(i, offset+i)
 	}
 

@@ -63,7 +63,7 @@ func MonitorMetrics(interval time.Duration, monitorFilePath string, signalChan c
 				// 利用率 = IoTime变化 / 时间间隔（ms）
 				diskUtil := deltaIoTime / (float64(interval.Milliseconds())) * 100.0
 
-				if name == "sdb1" {
+				if name == "sda" {
 
 					t := time.Now().Format("15:04:05")
 

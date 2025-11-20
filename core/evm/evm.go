@@ -4,6 +4,7 @@ import (
 	"Janus/ethereum/config"
 	"Janus/ethereum/core/state"
 	"Janus/ethereum/core/tracing"
+	"Janus/ethereum/core/types"
 	"Janus/ethereum/database"
 	"Janus/tools"
 	"fmt"
@@ -70,6 +71,13 @@ func (lvm *LEVM) NewAllDB(stateDBConfig *database.StateDBConfig, blockNumber *bi
 
 func (lvm *LEVM) AllDB() *database.AllDBForState {
 	return lvm.allDBForState
+}
+
+func (lvm *LEVM) CommitStateChange() {
+	root, err := lvm.allDBForState.StateDB.Commit(uint64(0), true, true)
+	tools.PanicError("LVM CommitStateChange StateDB.Commit ", err)
+	err = lvm.allDBForState.StateDB.Database().TrieDB().Commit(root, false)
+	tools.PanicError("LVM CommitStateChange TrieDB().Commit(root, false) ", err)
 }
 func newUint64(val uint64) *uint64 { return &val }
 
@@ -175,26 +183,50 @@ func (lvm *LEVM) CallContractABI(callerAddr, contractAddr common.Address, value 
 		return nil, err
 	}
 
-	output, gas, err := lvm.evm.Call(
+	balance := lvm.allDBForState.StateDB.GetBalance(callerAddr)
+	output, _, err := lvm.evm.Call(
 		callerAddr,
 		contractAddr,
 		inputs,
-		lvm.allDBForState.StateDB.GetBalance(callerAddr).Uint64(),
+		balance.Uint64(),
 		value,
 	)
-	lvm.allDBForState.StateDB.SetBalance(callerAddr, new(uint256.Int).SetUint64(gas), tracing.BalanceIncreaseGasReturn)
+	lvm.allDBForState.StateDB.SetBalance(callerAddr, balance, tracing.BalanceIncreaseGasReturn)
 	return output, err
 }
 
 func (lvm *LEVM) CallContractUseStateDB(callerAddr, contractAddr common.Address, inputs []byte, value *uint256.Int, statedb *state.StateDB) ([]byte, error) {
 	// Get reference to the transaction sender
-	output, gas, err := lvm.evm.Call(
+	balance := lvm.allDBForState.StateDB.GetBalance(callerAddr)
+	output, _, err := lvm.evm.Call(
 		callerAddr,
 		contractAddr,
 		inputs,
-		statedb.GetBalance(callerAddr).Uint64(),
+		balance.Uint64(),
 		value,
 	)
-	statedb.SetBalance(callerAddr, new(uint256.Int).SetUint64(gas), tracing.BalanceIncreaseGasReturn)
+	statedb.SetBalance(callerAddr, balance, tracing.BalanceIncreaseGasReturn)
 	return output, err
+}
+
+func PreReadState(txs []*types.Transaction, levm *LEVM) {
+	abiObject, _, err := tools.LoadContract(tools.ContractBasePath+"smallbank_fibonacci.abi", tools.ContractBasePath+"smallbank_fibonacci.bin")
+	tools.PanicError("GenerateSmallBankTxs LoadContract ", err)
+	_ = levm.AllDB().StateDB.GetOrNewStateObject(tools.ContractAddress)
+	_ = levm.AllDB().StateDB.GetCode(tools.ContractAddress)
+	for _, tx := range txs {
+		from := tx.From()
+		to := tx.SmallBankTo
+
+		// 预读取账户状态
+		_ = levm.AllDB().StateDB.GetOrNewStateObject(*from)
+		_ = levm.AllDB().StateDB.GetOrNewStateObject(to)
+		_, err := levm.CallContractABI(*from, tools.ContractAddress, new(uint256.Int).SetUint64(0), abiObject,
+			"getBalance", *from)
+		tools.PanicError("PreReadState CallContractABI from", err)
+		_, err = levm.CallContractABI(to, tools.ContractAddress, new(uint256.Int).SetUint64(0), abiObject,
+			"getBalance", to)
+		tools.PanicError("PreReadState CallContractABI to", err)
+		// 预读取合约存储状态
+	}
 }
