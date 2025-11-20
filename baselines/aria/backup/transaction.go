@@ -1,4 +1,4 @@
-package aria
+package ariabackup
 
 import (
 	janusCommon "Janus/baselines/common"
@@ -32,12 +32,20 @@ func NewAriaTransaction(inner janusCommon.BasicTransaction, id, batch uint64) *A
 }
 
 func (tx *AriaTransaction) Execute(levm *lvm.LEVM) {
+	//fmt.Println("tx Execute:", tx.ID)
+	//tools.CatStorageState = true
 	_, err := levm.CallContract(*tx.Inner.EthTx.From(), *tx.Inner.EthTx.To(), tx.Inner.EthTx.Data(), new(uint256.Int).SetUint64(0))
 	tools.PanicError("AriaTransaction Execute", err)
 }
 
+//func (tx *AriaTransaction) CountOverheads() uint32 { return tx.Inner.Cost }
+
 func (tx *AriaTransaction) SetConflict(v bool) {
-	tx.flagConflict.Store(v)
+	if v {
+		tx.flagConflict.Store(true)
+	} else {
+		tx.flagConflict.Store(false)
+	}
 }
 func (tx *AriaTransaction) HasConflict() bool { return tx.flagConflict.Load() }
 

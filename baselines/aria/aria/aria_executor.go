@@ -4,136 +4,115 @@ import (
 	optmeCommon "Janus/baselines/common"
 	"Janus/config"
 	lvm "Janus/core/evm"
-	"sync/atomic"
 	"time"
 )
 
-// AriaExecutor 负责在不同阶段执行事务批次
+// AriaExecutor 的职责变成“处理单次收到的 tx”：
+// 1) Execute(tx)（如果 tx == nil 则跳过）
+// 2) Reserve(tx)（如果 tx == nil 则跳过）
+// 3) barrier.Wait() （等待所有 worker 完成本列 Execute+Reserve）
+// 4) Verify/Commit （或判断 abort）
+// 5) 将 abort（或 nil）发送回 controller（通过 controller 提供的 channels）
 type AriaExecutor struct {
+	aria          *Aria
 	levm          *lvm.LEVM
 	statistics    *optmeCommon.Statistics
-	batchTxs      [][]*AriaTransaction
 	table         *AriaTable
-	lockTable     *AriaLockTable
 	enableReorder bool
-	numThreads    int
-	confirmExit   *atomic.Int64
-	stopFlag      *atomic.Bool
-	barrier       *Barrier
-	counter       *atomic.Int64
-	hasConflict   *atomic.Bool
 	workerID      int
 }
 
-// NewAriaExecutor 创建执行器
-func NewAriaExecutor(aria *Aria, levm *lvm.LEVM, workerID int, batchTxs [][]*AriaTransaction) *AriaExecutor {
+// NewAriaExecutor 创建单个 worker 的 Executor
+func NewAriaExecutor(a *Aria, levm *lvm.LEVM, workerID int) *AriaExecutor {
 	return &AriaExecutor{
+		aria:          a,
 		levm:          levm,
-		statistics:    aria.statistics,
-		batchTxs:      batchTxs,
-		table:         aria.table,
-		lockTable:     aria.lockTable,
-		enableReorder: aria.enableReorder,
-		numThreads:    aria.numThreads,
-		confirmExit:   &aria.confirmExit,
-		stopFlag:      &aria.stopFlag,
-		barrier:       aria.barrier,
-		counter:       &aria.counter,
-		hasConflict:   &aria.hasConflict,
+		statistics:    a.statistics,
+		table:         a.table,
+		enableReorder: a.enableReorder,
 		workerID:      workerID,
 	}
 }
 
-// Run 执行完整的 Aria 协议阶段
-func (e *AriaExecutor) Run() {
-	for _, batch := range e.batchTxs {
+// ProcessOneTx 由 worker 的 goroutine 调用：处理 controller 发来的单笔交易（可能为 nil）
+// 它会在函数内执行 Execute/Reserve -> barrier.Wait() -> Verify/Commit，然后把结果写入 aria.resultChans[workerID]
+func (e *AriaExecutor) ProcessOneTx(tx *AriaTransaction) {
+	workerID := e.workerID
 
-		e.barrier.Wait()
-		if e.confirmExit.Load() == int64(e.numThreads) {
-			return
-		}
-		if e.stopFlag.Load() {
-			e.confirmExit.Add(1)
-			return
-		}
-		e.hasConflict.Store(false)
-
-		//fmt.Println("worker", e.workerID, "start batch with", len(batch), "txs")
-		// -------- Stage 1: Execute + Reserve --------
-		for _, tx := range batch {
-			tx.StartTime = time.Now()
-			e.Execute(tx)
-			e.Reserve(tx)
-			e.statistics.JournalExecute()
-			//e.statistics.JournalOverheads(tx.CountOverheads())
-		}
-
-		// -------- Stage 2: Verify + Commit/Fallback prepare --------
-		e.barrier.Wait()
-		//fmt.Println("worker", e.workerID, "verifying")
-		beginTime := time.Time{}
-		if e.workerID == 0 {
-			beginTime = time.Now()
-		}
-		for _, tx := range batch {
-			e.Verify(tx)
-			if tx.flagConflict.Load() {
-				e.hasConflict.Store(true)
-				e.PrepareLockTable(tx)
-			} else {
-				e.Commit(tx)
-				e.statistics.JournalCommit(uint32(time.Since(tx.StartTime).Microseconds()))
-			}
-		}
-
-		// -------- Stage 3: Fallback --------
-		e.barrier.Wait()
-		if e.workerID == 0 {
-			e.statistics.JournalRollbackExecution(uint32(time.Since(beginTime).Microseconds()))
-			beginTime = time.Now()
-		}
-		if !e.hasConflict.Load() {
-			continue
-		}
-		//fmt.Println("before fallback")
-		for _, tx := range batch {
-			if tx.flagConflict.Load() {
-				e.Fallback(tx)
-				e.statistics.JournalExecute()
-				//e.statistics.JournalCommit(uint32(time.Since(tx.StartTime).Microseconds()))
-				e.statistics.AddRollbackCount()
-			}
-		}
-
-		// -------- Stage 4: Cleanup --------
-		e.barrier.Wait()
-		if e.workerID == 0 {
-			e.statistics.JournalRollbackExecution(uint32(time.Since(beginTime).Microseconds()))
-		}
-		for _, tx := range batch {
-			e.CleanLockTable(tx)
-		}
+	// Stage A: Execute + Reserve (本地)
+	if tx != nil {
+		tx.StartTime = time.Now()
+		// 本地执行（基于 snapshot）；不要改写共享表
+		e.Execute(tx)
+		// 只为写集合做 reservation（论文语义）
+		e.Reserve(tx)
+		e.statistics.JournalExecute()
 	}
+
+	// Stage B: barrier 等待所有 worker 完成自己的 Execute+Reserve（这是“列同步”）
+	e.aria.barrier.Wait()
+
+	// Stage C: Verify + Commit （并发地在各 worker 上进行）
+	var war, waw, raw bool
+	if tx != nil {
+		// 检查依赖（RAW/WAW/WAR）
+		for key := range tx.LocalGet {
+			if !e.table.CompareReservedPut(tx, key) {
+				raw = true
+			}
+		}
+		for key := range tx.LocalPut {
+			if !e.table.CompareReservedPut(tx, key) {
+				waw = true
+			}
+			if !e.table.CompareReservedGet(tx, key) {
+				war = true
+			}
+		}
+		//fmt.Println("war:", war, "waw:", waw, "raw:", raw, "tx:", tx.ID, "worker:", workerID)
+
+		var conflict bool
+		if e.enableReorder {
+			conflict = waw || (raw && war)
+		} else {
+			conflict = waw || raw
+		}
+
+		if conflict {
+			// 标记中止并把 tx 返回给 controller，用于下一个 block 的重试（controller 会把它插到下一区块的开头）
+			//fmt.Println("transaction aborted:", tx.ID, "worker:", workerID, "war:", war, "waw:", waw, "raw:", raw)
+			tx.SetConflict(true)
+			// 通过 channel 返回 abort 给 controller
+			e.aria.resultChans[workerID] <- tx
+			e.statistics.AddRollbackCount()
+			return
+		}
+
+		// 否则提交
+		e.Commit(tx)
+		e.statistics.JournalCommit(uint32(time.Since(tx.StartTime).Microseconds()))
+		// 返回 nil 表示未 abort
+		e.aria.resultChans[workerID] <- nil
+		return
+	}
+
+	// tx == nil 的情况：没有事务，仍需在 resultChans 发送 nil（占位），以便 controller 收到每个 worker 的响应
+	e.aria.resultChans[workerID] <- nil
 }
 
-// Execute 执行事务逻辑并登记读写集
+// Execute: 填充 LocalGet/LocalPut 并调用 tx.Execute（不要写全局表）
 func (e *AriaExecutor) Execute(tx *AriaTransaction) {
-	// 模拟 snapshot read handler
-
-	// 需要记录读写
 	if tx.Inner.EthTx.TxType == config.IOTx {
 		key1 := tx.Inner.EthTx.From().String()
 		key2 := tx.Inner.EthTx.SmallBankTo.String()
 		tx.Inner.Vertex.WriteKeys[key1] = "value"
 		tx.Inner.Vertex.WriteKeys[key2] = "value"
 		tx.Inner.Vertex.ReadKeys[key2] = "value"
-		tx.Inner.Vertex.ReadKeys[key2] = "value"
 
 		tx.LocalPut[key1] = "value"
 		tx.LocalPut[key2] = "value"
 		tx.LocalGet[key1] = "value"
 		tx.LocalGet[key2] = "value"
-
 	} else {
 		key1 := tx.Inner.EthTx.SmallBankTo.String()
 		tx.Inner.Vertex.WriteKeys[key1] = "value"
@@ -142,123 +121,23 @@ func (e *AriaExecutor) Execute(tx *AriaTransaction) {
 		tx.LocalPut[key1] = "value"
 		tx.LocalGet[key1] = "value"
 	}
-	////// 模拟 snapshot read handler
-	//for key, _ := range tx.LocalGet {
-	//	e.table.Table.Get(key, func(entry AriaEntry) {
-	//		_ = entry.Value
-	//	})
-	//}
-	//for key, value := range tx.LocalPut {
-	//	tx.LocalPut[key] = value
-	//}
 
-	tx.Execute(e.levm) // 执行用户逻辑
+	tx.Execute(e.levm)
 }
 
-// Reserve 把事务的读写集登记进表
+// Reserve: 对写集合做预约（ReservePut）
 func (e *AriaExecutor) Reserve(tx *AriaTransaction) {
-	for key := range tx.LocalGet {
-		e.table.ReserveGet(tx, key)
-	}
 	for key := range tx.LocalPut {
 		e.table.ReservePut(tx, key)
 	}
 }
 
-// Verify 检查事务依赖冲突
-func (e *AriaExecutor) Verify(tx *AriaTransaction) {
-	var war, waw, raw bool
-
-	for key := range tx.LocalGet {
-		raw = raw || !e.table.CompareReservedPut(tx, key)
-	}
-	for key := range tx.LocalPut {
-		war = war || !e.table.CompareReservedGet(tx, key)
-		waw = waw || !e.table.CompareReservedPut(tx, key)
-	}
-
-	if e.enableReorder {
-		tx.flagConflict.Store(waw || (raw && war))
-	} else {
-		tx.flagConflict.Store(waw || raw)
-	}
-
-	if tx.flagConflict.Load() {
-		//log.Printf("Abort tx %d raw:%v war:%v waw:%v", tx.ID, raw, war, waw)
-	}
-}
-
-// Commit 提交事务结果到表
+// Commit: 把 tx.LocalPut 安装到全局表（Install）
 func (e *AriaExecutor) Commit(tx *AriaTransaction) {
 	for key, value := range tx.LocalPut {
 		e.table.Table.Put(key, func(entry *AriaEntry) {
 			(*entry).Value = value
 		})
 	}
-	tx.committed.Store(1)
-}
-
-// PrepareLockTable 填充悲观锁依赖表
-func (e *AriaExecutor) PrepareLockTable(tx *AriaTransaction) {
-	for key := range tx.LocalGet {
-		e.lockTable.AddGetDep(key, tx)
-	}
-	for key := range tx.LocalPut {
-		e.lockTable.AddPutDep(key, tx)
-	}
-}
-
-// Fallback 悲观回退执行（顺序保证）
-func (e *AriaExecutor) Fallback(tx *AriaTransaction) {
-	for key, _ := range tx.LocalGet {
-		e.table.Table.Get(key, func(entry AriaEntry) {
-			_ = entry.Value
-		})
-	}
-
-	for key, value := range tx.LocalPut {
-		e.table.Table.Put(key, func(entry *AriaEntry) {
-			(*entry).Value = value
-		})
-	}
-
-	var shouldWait *AriaTransaction
-	for key := range tx.LocalPut {
-		entry := e.lockTable.GetEntry(key)
-		for _, dep := range entry.DepsGet {
-			if dep.ID < tx.ID && (shouldWait == nil || dep.ID > shouldWait.ID) {
-				shouldWait = dep
-			}
-		}
-		for _, dep := range entry.DepsPut {
-			if dep.ID < tx.ID && (shouldWait == nil || dep.ID > shouldWait.ID) {
-				shouldWait = dep
-			}
-		}
-	}
-	for key := range tx.LocalGet {
-		entry := e.lockTable.GetEntry(key)
-		for _, dep := range entry.DepsPut {
-			if dep.ID < tx.ID && (shouldWait == nil || dep.ID > shouldWait.ID) {
-				shouldWait = dep
-			}
-		}
-	}
-
-	for shouldWait != nil && !shouldWait.IsCommitted() {
-		time.Sleep(50 * time.Microsecond)
-	}
-
-	tx.Execute(e.levm)
-	tx.committed.Store(1)
-}
-
-// CleanLockTable 清除事务的依赖
-func (e *AriaExecutor) CleanLockTable(tx *AriaTransaction) {
-	for key := range tx.LocalPut {
-		e.lockTable.ClearDeps(key)
-	}
-	for key := range tx.LocalGet {
-		e.lockTable.ClearDeps(key)
-	}
+	tx.SetCommitted(true)
 }

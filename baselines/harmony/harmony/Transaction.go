@@ -47,7 +47,7 @@ func (executor *HarmonyExecutor) GetStorage_From_Table(tx *HarmonyTransaction, r
 		keys.WriteString(key + " ")
 		var value string
 		executor.table.table.Get(key, func(entry HarmonyEntry) {
-			value = entry.Value
+			value = (entry).Value
 		})
 
 		tx.LocalGet[key] = value
