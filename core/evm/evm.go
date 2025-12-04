@@ -166,10 +166,10 @@ func (lvm *LEVM) CallContract(callerAddr, contractAddr common.Address, inputs []
 		gas,
 		value,
 	)
-	balance := new(uint256.Int).SetUint64(1e18)
-	balance.Mul(balance, new(uint256.Int).SetUint64(1e6)) // 100万ETH
-	balance.Sub(balance, new(uint256.Int).SetUint64(21000))
-	lvm.allDBForState.StateDB.SetBalance(callerAddr, balance, tracing.BalanceIncreaseGasReturn)
+	//balance := new(uint256.Int).SetUint64(1e18)
+	//balance.Mul(balance, new(uint256.Int).SetUint64(1e6)) // 100万ETH
+	//balance.Sub(balance, new(uint256.Int).SetUint64(21000))
+	//lvm.allDBForState.StateDB.SetBalance(callerAddr, balance, tracing.BalanceIncreaseGasReturn)
 	return output, err
 }
 
