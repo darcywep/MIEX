@@ -20,8 +20,10 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"time"
 
 	"Janus/ethereum/core/tracing"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
@@ -90,13 +92,16 @@ func enable1884(jt *JumpTable) {
 }
 
 func opSelfBalance(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	start := time.Now()
+	defer RecordTiming(SELFBALANCE, time.Since(start).Nanoseconds())
+
 	balance := evm.StateDB.GetBalance(scope.Contract.Address())
 	scope.Stack.push(balance)
 	return nil, nil
 }
 
 // enable1344 applies EIP-1344 (ChainID Opcode)
-// - Adds an opcode that returns the current chain’s EIP-155 unique identifier
+// - Adds an opcode that returns the current chain EIP-155 unique identifier
 func enable1344(jt *JumpTable) {
 	// New opcode
 	jt[CHAINID] = &operation{
@@ -109,6 +114,9 @@ func enable1344(jt *JumpTable) {
 
 // opChainID implements CHAINID opcode
 func opChainID(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	start := time.Now()
+	defer RecordTiming(CHAINID, time.Since(start).Nanoseconds())
+
 	chainId, _ := uint256.FromBig(evm.chainConfig.ChainID)
 	scope.Stack.push(chainId)
 	return nil, nil
@@ -200,6 +208,9 @@ func enable1153(jt *JumpTable) {
 
 // opTload implements TLOAD opcode
 func opTload(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	start := time.Now()
+	defer RecordTiming(TLOAD, time.Since(start).Nanoseconds())
+
 	loc := scope.Stack.peek()
 	hash := common.Hash(loc.Bytes32())
 	val := evm.StateDB.GetTransientState(scope.Contract.Address(), hash)
@@ -209,6 +220,9 @@ func opTload(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 
 // opTstore implements TSTORE opcode
 func opTstore(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	start := time.Now()
+	defer RecordTiming(TSTORE, time.Since(start).Nanoseconds())
+
 	if evm.readOnly {
 		return nil, ErrWriteProtection
 	}
@@ -220,6 +234,9 @@ func opTstore(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 
 // opBaseFee implements BASEFEE opcode
 func opBaseFee(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	start := time.Now()
+	defer RecordTiming(BASEFEE, time.Since(start).Nanoseconds())
+
 	baseFee, _ := uint256.FromBig(evm.Context.BaseFee)
 	scope.Stack.push(baseFee)
 	return nil, nil
@@ -238,6 +255,9 @@ func enable3855(jt *JumpTable) {
 
 // opPush0 implements the PUSH0 opcode
 func opPush0(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	start := time.Now()
+	defer RecordTiming(PUSH0, time.Since(start).Nanoseconds())
+
 	scope.Stack.push(new(uint256.Int))
 	return nil, nil
 }
@@ -264,6 +284,9 @@ func enable5656(jt *JumpTable) {
 
 // opMcopy implements the MCOPY opcode (https://eips.ethereum.org/EIPS/eip-5656)
 func opMcopy(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	start := time.Now()
+	defer RecordTiming(MCOPY, time.Since(start).Nanoseconds())
+
 	var (
 		dst    = scope.Stack.pop()
 		src    = scope.Stack.pop()
@@ -277,6 +300,9 @@ func opMcopy(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 
 // opBlobHash implements the BLOBHASH opcode
 func opBlobHash(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	start := time.Now()
+	defer RecordTiming(BLOBHASH, time.Since(start).Nanoseconds())
+
 	index := scope.Stack.peek()
 	if index.LtUint64(uint64(len(evm.TxContext.BlobHashes))) {
 		blobHash := evm.TxContext.BlobHashes[index.Uint64()]
@@ -289,6 +315,9 @@ func opBlobHash(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 
 // opBlobBaseFee implements BLOBBASEFEE opcode
 func opBlobBaseFee(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	start := time.Now()
+	defer RecordTiming(BLOBBASEFEE, time.Since(start).Nanoseconds())
+
 	blobBaseFee, _ := uint256.FromBig(evm.Context.BlobBaseFee)
 	scope.Stack.push(blobBaseFee)
 	return nil, nil
@@ -296,6 +325,9 @@ func opBlobBaseFee(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 
 // opCLZ implements the CLZ opcode (count leading zero bits)
 func opCLZ(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	start := time.Now()
+	defer RecordTiming(CLZ, time.Since(start).Nanoseconds())
+
 	x := scope.Stack.peek()
 	x.SetUint64(256 - uint64(x.BitLen()))
 	return nil, nil
@@ -343,6 +375,9 @@ func enable6780(jt *JumpTable) {
 }
 
 func opExtCodeCopyEIP4762(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	start := time.Now()
+	defer RecordTiming(EXTCODECOPY, time.Since(start).Nanoseconds())
+
 	var (
 		stack      = scope.Stack
 		a          = stack.pop()
@@ -371,6 +406,9 @@ func opExtCodeCopyEIP4762(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, er
 // need not worry about the adjusted bound logic when adding the PUSHDATA to
 // the list of access events.
 func opPush1EIP4762(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	start := time.Now()
+	defer RecordTiming(PUSH1, time.Since(start).Nanoseconds())
+
 	var (
 		codeLen = uint64(len(scope.Contract.Code))
 		integer = new(uint256.Int)
@@ -397,6 +435,9 @@ func opPush1EIP4762(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 
 func makePushEIP4762(size uint64, pushByteSize int) executionFunc {
 	return func(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+		startTime := time.Now()
+		defer RecordTiming(OpCode(PUSH1+OpCode(pushByteSize-1)), time.Since(startTime).Nanoseconds())
+
 		var (
 			codeLen = len(scope.Contract.Code)
 			start   = min(codeLen, int(*pc+1))

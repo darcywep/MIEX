@@ -22,6 +22,8 @@ import (
 	"Janus/tools"
 	"fmt"
 	"math"
+	"time"
+
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -30,66 +32,88 @@ import (
 )
 
 func opAdd(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(ADD, time.Since(startTime).Nanoseconds())
 	x, y := scope.Stack.pop(), scope.Stack.peek()
 	y.Add(&x, y)
 	return nil, nil
 }
 
 func opSub(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SUB, time.Since(startTime).Nanoseconds())
 	x, y := scope.Stack.pop(), scope.Stack.peek()
 	y.Sub(&x, y)
 	return nil, nil
 }
 
 func opMul(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(MUL, time.Since(startTime).Nanoseconds())
 	x, y := scope.Stack.pop(), scope.Stack.peek()
 	y.Mul(&x, y)
 	return nil, nil
 }
 
 func opDiv(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(DIV, time.Since(startTime).Nanoseconds())
 	x, y := scope.Stack.pop(), scope.Stack.peek()
 	y.Div(&x, y)
 	return nil, nil
 }
 
 func opSdiv(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SDIV, time.Since(startTime).Nanoseconds())
 	x, y := scope.Stack.pop(), scope.Stack.peek()
 	y.SDiv(&x, y)
 	return nil, nil
 }
 
 func opMod(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(MOD, time.Since(startTime).Nanoseconds())
 	x, y := scope.Stack.pop(), scope.Stack.peek()
 	y.Mod(&x, y)
 	return nil, nil
 }
 
 func opSmod(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SMOD, time.Since(startTime).Nanoseconds())
 	x, y := scope.Stack.pop(), scope.Stack.peek()
 	y.SMod(&x, y)
 	return nil, nil
 }
 
 func opExp(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(EXP, time.Since(startTime).Nanoseconds())
 	base, exponent := scope.Stack.pop(), scope.Stack.peek()
 	exponent.Exp(&base, exponent)
 	return nil, nil
 }
 
 func opSignExtend(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SIGNEXTEND, time.Since(startTime).Nanoseconds())
 	back, num := scope.Stack.pop(), scope.Stack.peek()
 	num.ExtendSign(num, &back)
 	return nil, nil
 }
 
 func opNot(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(NOT, time.Since(startTime).Nanoseconds())
 	x := scope.Stack.peek()
 	x.Not(x)
 	return nil, nil
 }
 
 func opLt(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(LT, time.Since(startTime).Nanoseconds())
 	x, y := scope.Stack.pop(), scope.Stack.peek()
 	if x.Lt(y) {
 		y.SetOne()
@@ -100,6 +124,8 @@ func opLt(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opGt(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(GT, time.Since(startTime).Nanoseconds())
 	x, y := scope.Stack.pop(), scope.Stack.peek()
 	if x.Gt(y) {
 		y.SetOne()
@@ -110,6 +136,8 @@ func opGt(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opSlt(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SLT, time.Since(startTime).Nanoseconds())
 	x, y := scope.Stack.pop(), scope.Stack.peek()
 	if x.Slt(y) {
 		y.SetOne()
@@ -120,6 +148,8 @@ func opSlt(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opSgt(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SGT, time.Since(startTime).Nanoseconds())
 	x, y := scope.Stack.pop(), scope.Stack.peek()
 	if x.Sgt(y) {
 		y.SetOne()
@@ -130,6 +160,8 @@ func opSgt(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opEq(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(EQ, time.Since(startTime).Nanoseconds())
 	x, y := scope.Stack.pop(), scope.Stack.peek()
 	if x.Eq(y) {
 		y.SetOne()
@@ -140,6 +172,8 @@ func opEq(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opIszero(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(ISZERO, time.Since(startTime).Nanoseconds())
 	x := scope.Stack.peek()
 	if x.IsZero() {
 		x.SetOne()
@@ -150,36 +184,48 @@ func opIszero(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opAnd(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(AND, time.Since(startTime).Nanoseconds())
 	x, y := scope.Stack.pop(), scope.Stack.peek()
 	y.And(&x, y)
 	return nil, nil
 }
 
 func opOr(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(OR, time.Since(startTime).Nanoseconds())
 	x, y := scope.Stack.pop(), scope.Stack.peek()
 	y.Or(&x, y)
 	return nil, nil
 }
 
 func opXor(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(XOR, time.Since(startTime).Nanoseconds())
 	x, y := scope.Stack.pop(), scope.Stack.peek()
 	y.Xor(&x, y)
 	return nil, nil
 }
 
 func opByte(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(BYTE, time.Since(startTime).Nanoseconds())
 	th, val := scope.Stack.pop(), scope.Stack.peek()
 	val.Byte(&th)
 	return nil, nil
 }
 
 func opAddmod(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(ADDMOD, time.Since(startTime).Nanoseconds())
 	x, y, z := scope.Stack.pop(), scope.Stack.pop(), scope.Stack.peek()
 	z.AddMod(&x, &y, z)
 	return nil, nil
 }
 
 func opMulmod(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(MULMOD, time.Since(startTime).Nanoseconds())
 	x, y, z := scope.Stack.pop(), scope.Stack.pop(), scope.Stack.peek()
 	z.MulMod(&x, &y, z)
 	return nil, nil
@@ -189,7 +235,8 @@ func opMulmod(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 // The SHL instruction (shift left) pops 2 values from the stack, first arg1 and then arg2,
 // and pushes on the stack arg2 shifted to the left by arg1 number of bits.
 func opSHL(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
-	// Note, second operand is left in the stack; accumulate result into it, and no need to push it afterwards
+	startTime := time.Now()
+	defer RecordTiming(SHL, time.Since(startTime).Nanoseconds())
 	shift, value := scope.Stack.pop(), scope.Stack.peek()
 	if shift.LtUint64(256) {
 		value.Lsh(value, uint(shift.Uint64()))
@@ -203,7 +250,8 @@ func opSHL(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 // The SHR instruction (logical shift right) pops 2 values from the stack, first arg1 and then arg2,
 // and pushes on the stack arg2 shifted to the right by arg1 number of bits with zero fill.
 func opSHR(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
-	// Note, second operand is left in the stack; accumulate result into it, and no need to push it afterwards
+	startTime := time.Now()
+	defer RecordTiming(SHR, time.Since(startTime).Nanoseconds())
 	shift, value := scope.Stack.pop(), scope.Stack.peek()
 	if shift.LtUint64(256) {
 		value.Rsh(value, uint(shift.Uint64()))
@@ -217,6 +265,8 @@ func opSHR(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 // The SAR instruction (arithmetic shift right) pops 2 values from the stack, first arg1 and then arg2,
 // and pushes on the stack arg2 shifted to the right by arg1 number of bits with sign extension.
 func opSAR(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SAR, time.Since(startTime).Nanoseconds())
 	shift, value := scope.Stack.pop(), scope.Stack.peek()
 	if shift.GtUint64(256) {
 		if value.Sign() >= 0 {
@@ -233,6 +283,8 @@ func opSAR(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opKeccak256(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(KECCAK256, time.Since(startTime).Nanoseconds())
 	offset, size := scope.Stack.pop(), scope.Stack.peek()
 	data := scope.Memory.GetPtr(offset.Uint64(), size.Uint64())
 
@@ -248,11 +300,15 @@ func opKeccak256(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opAddress(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(ADDRESS, time.Since(startTime).Nanoseconds())
 	scope.Stack.push(new(uint256.Int).SetBytes(scope.Contract.Address().Bytes()))
 	return nil, nil
 }
 
 func opBalance(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(BALANCE, time.Since(startTime).Nanoseconds())
 	slot := scope.Stack.peek()
 	address := common.Address(slot.Bytes20())
 	slot.Set(evm.StateDB.GetBalance(address))
@@ -260,21 +316,29 @@ func opBalance(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opOrigin(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(ORIGIN, time.Since(startTime).Nanoseconds())
 	scope.Stack.push(new(uint256.Int).SetBytes(evm.Origin.Bytes()))
 	return nil, nil
 }
 
 func opCaller(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(CALLER, time.Since(startTime).Nanoseconds())
 	scope.Stack.push(new(uint256.Int).SetBytes(scope.Contract.Caller().Bytes()))
 	return nil, nil
 }
 
 func opCallValue(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(CALLVALUE, time.Since(startTime).Nanoseconds())
 	scope.Stack.push(scope.Contract.value)
 	return nil, nil
 }
 
 func opCallDataLoad(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(CALLDATALOAD, time.Since(startTime).Nanoseconds())
 	x := scope.Stack.peek()
 	if offset, overflow := x.Uint64WithOverflow(); !overflow {
 		data := getData(scope.Contract.Input, offset, 32)
@@ -286,11 +350,15 @@ func opCallDataLoad(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opCallDataSize(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(CALLDATASIZE, time.Since(startTime).Nanoseconds())
 	scope.Stack.push(new(uint256.Int).SetUint64(uint64(len(scope.Contract.Input))))
 	return nil, nil
 }
 
 func opCallDataCopy(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(CALLDATACOPY, time.Since(startTime).Nanoseconds())
 	var (
 		memOffset  = scope.Stack.pop()
 		dataOffset = scope.Stack.pop()
@@ -309,11 +377,15 @@ func opCallDataCopy(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opReturnDataSize(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(RETURNDATASIZE, time.Since(startTime).Nanoseconds())
 	scope.Stack.push(new(uint256.Int).SetUint64(uint64(len(evm.returnData))))
 	return nil, nil
 }
 
 func opReturnDataCopy(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(RETURNDATACOPY, time.Since(startTime).Nanoseconds())
 	var (
 		memOffset  = scope.Stack.pop()
 		dataOffset = scope.Stack.pop()
@@ -336,17 +408,23 @@ func opReturnDataCopy(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error)
 }
 
 func opExtCodeSize(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(EXTCODESIZE, time.Since(startTime).Nanoseconds())
 	slot := scope.Stack.peek()
 	slot.SetUint64(uint64(evm.StateDB.GetCodeSize(slot.Bytes20())))
 	return nil, nil
 }
 
 func opCodeSize(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(CODESIZE, time.Since(startTime).Nanoseconds())
 	scope.Stack.push(new(uint256.Int).SetUint64(uint64(len(scope.Contract.Code))))
 	return nil, nil
 }
 
 func opCodeCopy(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(CODECOPY, time.Since(startTime).Nanoseconds())
 	var (
 		memOffset  = scope.Stack.pop()
 		codeOffset = scope.Stack.pop()
@@ -363,6 +441,8 @@ func opCodeCopy(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opExtCodeCopy(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(EXTCODECOPY, time.Since(startTime).Nanoseconds())
 	var (
 		stack      = scope.Stack
 		a          = stack.pop()
@@ -409,6 +489,8 @@ func opExtCodeCopy(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 //  6. Caller tries to get the code hash for an account which is marked as deleted, this
 //     account should be regarded as a non-existent account and zero should be returned.
 func opExtCodeHash(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(EXTCODEHASH, time.Since(startTime).Nanoseconds())
 	slot := scope.Stack.peek()
 	address := common.Address(slot.Bytes20())
 	if evm.StateDB.Empty(address) {
@@ -420,12 +502,16 @@ func opExtCodeHash(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opGasprice(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(GASPRICE, time.Since(startTime).Nanoseconds())
 	v, _ := uint256.FromBig(evm.GasPrice)
 	scope.Stack.push(v)
 	return nil, nil
 }
 
 func opBlockhash(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(BLOCKHASH, time.Since(startTime).Nanoseconds())
 	num := scope.Stack.peek()
 	num64, overflow := num.Uint64WithOverflow()
 	if overflow {
@@ -456,44 +542,60 @@ func opBlockhash(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opCoinbase(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(COINBASE, time.Since(startTime).Nanoseconds())
 	scope.Stack.push(new(uint256.Int).SetBytes(evm.Context.Coinbase.Bytes()))
 	return nil, nil
 }
 
 func opTimestamp(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(TIMESTAMP, time.Since(startTime).Nanoseconds())
 	scope.Stack.push(new(uint256.Int).SetUint64(evm.Context.Time))
 	return nil, nil
 }
 
 func opNumber(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(NUMBER, time.Since(startTime).Nanoseconds())
 	v, _ := uint256.FromBig(evm.Context.BlockNumber)
 	scope.Stack.push(v)
 	return nil, nil
 }
 
 func opDifficulty(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(DIFFICULTY, time.Since(startTime).Nanoseconds())
 	v, _ := uint256.FromBig(evm.Context.Difficulty)
 	scope.Stack.push(v)
 	return nil, nil
 }
 
 func opRandom(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(RANDOM, time.Since(startTime).Nanoseconds())
 	v := new(uint256.Int).SetBytes(evm.Context.Random.Bytes())
 	scope.Stack.push(v)
 	return nil, nil
 }
 
 func opGasLimit(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(GASLIMIT, time.Since(startTime).Nanoseconds())
 	scope.Stack.push(new(uint256.Int).SetUint64(evm.Context.GasLimit))
 	return nil, nil
 }
 
 func opPop(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(POP, time.Since(startTime).Nanoseconds())
 	scope.Stack.pop()
 	return nil, nil
 }
 
 func opMload(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(MLOAD, time.Since(startTime).Nanoseconds())
 	v := scope.Stack.peek()
 	offset := v.Uint64()
 	v.SetBytes(scope.Memory.GetPtr(offset, 32))
@@ -501,18 +603,24 @@ func opMload(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opMstore(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(MSTORE, time.Since(startTime).Nanoseconds())
 	mStart, val := scope.Stack.pop(), scope.Stack.pop()
 	scope.Memory.Set32(mStart.Uint64(), &val)
 	return nil, nil
 }
 
 func opMstore8(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(MSTORE8, time.Since(startTime).Nanoseconds())
 	off, val := scope.Stack.pop(), scope.Stack.pop()
 	scope.Memory.store[off.Uint64()] = byte(val.Uint64())
 	return nil, nil
 }
 
 func opSload(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SLOAD, time.Since(startTime).Nanoseconds())
 	loc := scope.Stack.peek()
 	hash := common.Hash(loc.Bytes32())
 	val := evm.StateDB.GetState(scope.Contract.Address(), hash)
@@ -524,6 +632,8 @@ func opSload(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opSstore(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SSTORE, time.Since(startTime).Nanoseconds())
 	if evm.readOnly {
 		return nil, ErrWriteProtection
 	}
@@ -534,6 +644,8 @@ func opSstore(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opJump(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(JUMP, time.Since(startTime).Nanoseconds())
 	if evm.abort.Load() {
 		return nil, errStopToken
 	}
@@ -541,11 +653,13 @@ func opJump(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 	if !scope.Contract.validJumpdest(&pos) {
 		return nil, ErrInvalidJump
 	}
-	*pc = pos.Uint64() - 1 // pc will be increased by the interpreter loop
+	*pc = pos.Uint64() - 1
 	return nil, nil
 }
 
 func opJumpi(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(JUMPI, time.Since(startTime).Nanoseconds())
 	if evm.abort.Load() {
 		return nil, errStopToken
 	}
@@ -560,105 +674,154 @@ func opJumpi(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opJumpdest(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(JUMPDEST, time.Since(startTime).Nanoseconds())
 	return nil, nil
 }
 
 func opPc(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(PC, time.Since(startTime).Nanoseconds())
 	scope.Stack.push(new(uint256.Int).SetUint64(*pc))
 	return nil, nil
 }
 
 func opMsize(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(MSIZE, time.Since(startTime).Nanoseconds())
 	scope.Stack.push(new(uint256.Int).SetUint64(uint64(scope.Memory.Len())))
 	return nil, nil
 }
 
 func opGas(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(GAS, time.Since(startTime).Nanoseconds())
 	scope.Stack.push(new(uint256.Int).SetUint64(scope.Contract.Gas))
 	return nil, nil
 }
 
 func opSwap1(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SWAP1, time.Since(startTime).Nanoseconds())
 	scope.Stack.swap1()
 	return nil, nil
 }
 
 func opSwap2(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SWAP2, time.Since(startTime).Nanoseconds())
 	scope.Stack.swap2()
 	return nil, nil
 }
 
 func opSwap3(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SWAP3, time.Since(startTime).Nanoseconds())
 	scope.Stack.swap3()
 	return nil, nil
 }
 
 func opSwap4(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SWAP4, time.Since(startTime).Nanoseconds())
 	scope.Stack.swap4()
 	return nil, nil
 }
 
 func opSwap5(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SWAP5, time.Since(startTime).Nanoseconds())
 	scope.Stack.swap5()
 	return nil, nil
 }
 
 func opSwap6(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SWAP6, time.Since(startTime).Nanoseconds())
 	scope.Stack.swap6()
 	return nil, nil
 }
 
 func opSwap7(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SWAP7, time.Since(startTime).Nanoseconds())
 	scope.Stack.swap7()
 	return nil, nil
 }
 
 func opSwap8(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SWAP8, time.Since(startTime).Nanoseconds())
 	scope.Stack.swap8()
 	return nil, nil
 }
 
 func opSwap9(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SWAP9, time.Since(startTime).Nanoseconds())
 	scope.Stack.swap9()
 	return nil, nil
 }
 
 func opSwap10(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SWAP10, time.Since(startTime).Nanoseconds())
 	scope.Stack.swap10()
 	return nil, nil
 }
 
 func opSwap11(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SWAP11, time.Since(startTime).Nanoseconds())
 	scope.Stack.swap11()
 	return nil, nil
 }
 
 func opSwap12(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SWAP12, time.Since(startTime).Nanoseconds())
 	scope.Stack.swap12()
 	return nil, nil
 }
 
 func opSwap13(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SWAP13, time.Since(startTime).Nanoseconds())
 	scope.Stack.swap13()
 	return nil, nil
 }
 
 func opSwap14(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SWAP14, time.Since(startTime).Nanoseconds())
 	scope.Stack.swap14()
 	return nil, nil
 }
 
 func opSwap15(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SWAP15, time.Since(startTime).Nanoseconds())
 	scope.Stack.swap15()
 	return nil, nil
 }
 
 func opSwap16(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SWAP16, time.Since(startTime).Nanoseconds())
 	scope.Stack.swap16()
 	return nil, nil
 }
 
+// CALL, CREATE 等需要排除嵌套调用时间的特殊指令
+
+func recordCallTiming(op OpCode, totalStart time.Time, nestedDuration int64) {
+	totalDuration := time.Since(totalStart).Nanoseconds()
+	RecordTiming(op, totalDuration-nestedDuration)
+}
+
 func opCreate(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	totalStart := time.Now()
+
 	if evm.readOnly {
 		return nil, ErrWriteProtection
 	}
@@ -677,7 +840,11 @@ func opCreate(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 
 	scope.Contract.UseGas(gas, evm.Config.Tracer, tracing.GasChangeCallContractCreation)
 
+	// 记录嵌套调用的时间
+	nestedStart := time.Now()
 	res, addr, returnGas, suberr := evm.Create(scope.Contract.Address(), input, gas, &value)
+	nestedDuration := time.Since(nestedStart).Nanoseconds()
+	defer recordCallTiming(CREATE, totalStart, nestedDuration)
 	// Push item on the stack based on the returned error. If the ruleset is
 	// homestead we must check for CodeStoreOutOfGasError (homestead only
 	// rule) and treat as an error, if the ruleset is frontier we must
@@ -702,6 +869,8 @@ func opCreate(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opCreate2(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	totalStart := time.Now()
+
 	if evm.readOnly {
 		return nil, ErrWriteProtection
 	}
@@ -718,8 +887,11 @@ func opCreate2(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 	scope.Contract.UseGas(gas, evm.Config.Tracer, tracing.GasChangeCallContractCreation2)
 	// reuse size int for stackvalue
 	stackvalue := size
+	nestedStart := time.Now()
 	res, addr, returnGas, suberr := evm.Create2(scope.Contract.Address(), input, gas,
 		&endowment, &salt)
+	nestedDuration := time.Since(nestedStart).Nanoseconds()
+	defer recordCallTiming(CREATE2, totalStart, nestedDuration)
 	// Push item on the stack based on the returned error.
 	if suberr != nil {
 		stackvalue.Clear()
@@ -738,6 +910,8 @@ func opCreate2(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opCall(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	totalStart := time.Now()
+
 	stack := scope.Stack
 	// Pop gas. The actual gas in evm.callGasTemp.
 	// We can use this as a temporary value
@@ -755,7 +929,11 @@ func opCall(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 	if !value.IsZero() {
 		gas += params.CallStipend
 	}
+
+	nestedStart := time.Now()
 	ret, returnGas, err := evm.Call(scope.Contract.Address(), toAddr, args, gas, &value)
+	nestedDuration := time.Since(nestedStart).Nanoseconds()
+	defer recordCallTiming(CALL, totalStart, nestedDuration)
 
 	if err != nil {
 		temp.Clear()
@@ -774,6 +952,8 @@ func opCall(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opCallCode(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	totalStart := time.Now()
+
 	// Pop gas. The actual gas is in evm.callGasTemp.
 	stack := scope.Stack
 	// We use it as a temporary value
@@ -789,7 +969,11 @@ func opCallCode(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 		gas += params.CallStipend
 	}
 
+	nestedStart := time.Now()
 	ret, returnGas, err := evm.CallCode(scope.Contract.Address(), toAddr, args, gas, &value)
+	nestedDuration := time.Since(nestedStart).Nanoseconds()
+	defer recordCallTiming(CALLCODE, totalStart, nestedDuration)
+
 	if err != nil {
 		temp.Clear()
 	} else {
@@ -807,6 +991,8 @@ func opCallCode(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opDelegateCall(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	totalStart := time.Now()
+
 	stack := scope.Stack
 	// Pop gas. The actual gas is in evm.callGasTemp.
 	// We use it as a temporary value
@@ -818,7 +1004,11 @@ func opDelegateCall(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 	// Get arguments from the memory.
 	args := scope.Memory.GetPtr(inOffset.Uint64(), inSize.Uint64())
 
+	nestedStart := time.Now()
 	ret, returnGas, err := evm.DelegateCall(scope.Contract.Caller(), scope.Contract.Address(), toAddr, args, gas, scope.Contract.value)
+	nestedDuration := time.Since(nestedStart).Nanoseconds()
+	defer recordCallTiming(DELEGATECALL, totalStart, nestedDuration)
+
 	if err != nil {
 		temp.Clear()
 	} else {
@@ -836,6 +1026,8 @@ func opDelegateCall(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opStaticCall(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	totalStart := time.Now()
+
 	// Pop gas. The actual gas is in evm.callGasTemp.
 	stack := scope.Stack
 	// We use it as a temporary value
@@ -847,7 +1039,11 @@ func opStaticCall(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 	// Get arguments from the memory.
 	args := scope.Memory.GetPtr(inOffset.Uint64(), inSize.Uint64())
 
+	nestedStart := time.Now()
 	ret, returnGas, err := evm.StaticCall(scope.Contract.Address(), toAddr, args, gas)
+	nestedDuration := time.Since(nestedStart).Nanoseconds()
+	defer recordCallTiming(STATICCALL, totalStart, nestedDuration)
+
 	if err != nil {
 		temp.Clear()
 	} else {
@@ -865,6 +1061,8 @@ func opStaticCall(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opReturn(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(RETURN, time.Since(startTime).Nanoseconds())
 	offset, size := scope.Stack.pop(), scope.Stack.pop()
 	ret := scope.Memory.GetCopy(offset.Uint64(), size.Uint64())
 
@@ -872,6 +1070,8 @@ func opReturn(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opRevert(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(REVERT, time.Since(startTime).Nanoseconds())
 	offset, size := scope.Stack.pop(), scope.Stack.pop()
 	ret := scope.Memory.GetCopy(offset.Uint64(), size.Uint64())
 
@@ -880,14 +1080,20 @@ func opRevert(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opUndefined(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(INVALID, time.Since(startTime).Nanoseconds())
 	return nil, &ErrInvalidOpCode{opcode: OpCode(scope.Contract.Code[*pc])}
 }
 
 func opStop(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(STOP, time.Since(startTime).Nanoseconds())
 	return nil, errStopToken
 }
 
 func opSelfdestruct(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SELFDESTRUCT, time.Since(startTime).Nanoseconds())
 	if evm.readOnly {
 		return nil, ErrWriteProtection
 	}
@@ -907,6 +1113,8 @@ func opSelfdestruct(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 }
 
 func opSelfdestruct6780(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(SELFDESTRUCT, time.Since(startTime).Nanoseconds())
 	if evm.readOnly {
 		return nil, ErrWriteProtection
 	}
@@ -931,6 +1139,8 @@ func opSelfdestruct6780(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, erro
 // make log instruction function
 func makeLog(size int) executionFunc {
 	return func(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+		startTime := time.Now()
+		defer RecordTiming(OpCode(LOG0+OpCode(size)), time.Since(startTime).Nanoseconds())
 		if evm.readOnly {
 			return nil, ErrWriteProtection
 		}
@@ -958,6 +1168,8 @@ func makeLog(size int) executionFunc {
 
 // opPush1 is a specialized version of pushN
 func opPush1(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(PUSH1, time.Since(startTime).Nanoseconds())
 	var (
 		codeLen = uint64(len(scope.Contract.Code))
 		integer = new(uint256.Int)
@@ -973,6 +1185,8 @@ func opPush1(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 
 // opPush2 is a specialized version of pushN
 func opPush2(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	startTime := time.Now()
+	defer RecordTiming(PUSH2, time.Since(startTime).Nanoseconds())
 	var (
 		codeLen = uint64(len(scope.Contract.Code))
 		integer = new(uint256.Int)
@@ -991,6 +1205,8 @@ func opPush2(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 // make push instruction function
 func makePush(size uint64, pushByteSize int) executionFunc {
 	return func(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+		startTime := time.Now()
+		defer RecordTiming(OpCode(PUSH1+OpCode(pushByteSize-1)), time.Since(startTime).Nanoseconds())
 		var (
 			codeLen = len(scope.Contract.Code)
 			start   = min(codeLen, int(*pc+1))
@@ -1011,6 +1227,8 @@ func makePush(size uint64, pushByteSize int) executionFunc {
 // make dup instruction function
 func makeDup(size int) executionFunc {
 	return func(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+		startTime := time.Now()
+		defer RecordTiming(OpCode(DUP1+OpCode(size-1)), time.Since(startTime).Nanoseconds())
 		scope.Stack.dup(size)
 		return nil, nil
 	}
