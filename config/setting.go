@@ -24,6 +24,9 @@ const (
 	AddressNumberRate    = 1 // 总共生成多少个地址, 按单个区块交易数量的（比例）来生成
 	CompetingTxCountRate = 0.5
 	IoTxCountRate        = 0.5
+
+	WaterMarkAlpha = 1.5 // 水位线参数 α
+	WaterMarkBeta  = 3.5 // 水位线参数 β
 )
 
 // 斐波那契计算相关配置

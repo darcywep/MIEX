@@ -61,10 +61,11 @@ type Transaction struct {
 
 	fromAddress *common.Address
 
-	TxType      config.TransactionType
-	WriteKeys   []string
-	ReadKeys    []string
-	SmallBankTo common.Address
+	TxType        config.TransactionType
+	WriteKeys     []string
+	ReadKeys      []string
+	SmallBankTo   common.Address
+	ExecutionCost uint64 // Estimated execution cost
 
 	// caches
 	hash atomic.Pointer[common.Hash]
