@@ -11,7 +11,7 @@ import (
 	"Janus/ethereum/replay/replay_config"
 )
 
-const chianDataPath = "/data/ethereum/state_snapshot/chaindata_2100/"
+const chianDataPath = "/data/ethereum/state_snapshot/chaindata_2100_prod/"
 
 var (
 	pebbleConfig = &database.PebbleConfig{

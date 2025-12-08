@@ -14,6 +14,7 @@ import (
 
 // OpenDatabase is not ancient db
 func OpenDatabase(pebbleConfig *PebbleConfig) (ethdb.Database, error) {
+	fmt.Println("Opening database", pebbleConfig.File)
 	db, err := pebble.New(pebbleConfig.File, pebbleConfig.Cache, pebbleConfig.Handles, pebbleConfig.Namespace, pebbleConfig.Readonly)
 	if err != nil {
 		return nil, err
