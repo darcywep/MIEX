@@ -80,7 +80,7 @@ func RecordTiming(opcode OpCode, duration int64) {
 	timing.TotalTime += duration
 	timing.SampleCount++
 
-	// 达到目标样本数
+	// 达到目标样本数()
 	if timing.SampleCount == MaxSamplesPerInstruction {
 		timing.AverageTime = float64(timing.TotalTime) / float64(timing.SampleCount)
 		fmt.Printf("[完成] %s (0x%02x): %d 个样本, 平均 %.2f ns\n",
