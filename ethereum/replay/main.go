@@ -11,6 +11,7 @@ func main() {
 	//} else {
 	//	replay_gethcopy.ReplayCopy()
 	//}
-	replay_gethcopy.ReplayCopy()
-	//replay_gethcopy.ReplayWithRecordOpCodeTiming()
+	//replay_geth.ReplayGeth()
+	//replay_gethcopy.ReplayCopy()
+	replay_gethcopy.ReplayWithRecordOpCodeTiming()
 }
