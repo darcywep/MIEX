@@ -1,8 +1,12 @@
 package main
 
-import "Janus/ethereum/replay/replay_gethcopy"
+import (
+	"Janus/ethereum/replay/replay_gethcopy"
+	"Janus/tools"
+)
 
 func main() {
+	tools.JournalNonce = true
 	//mode := flag.String("mode", "", "replay mode: geth or copy")
 	//flag.Parse()
 	//
