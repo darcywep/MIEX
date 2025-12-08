@@ -107,6 +107,12 @@ func (it *InstructionTimer) checkCompletionUnlocked() {
 			fmt.Printf("保存计时数据时出错: %v\n", err)
 		}
 		os.Exit(0)
+	} else {
+		fmt.Printf("尚有 %d 个指令未完成采样。\n", len(it.needed))
+		for opcode := range it.needed {
+			fmt.Printf("%s  ", opcode.String())
+		}
+		fmt.Println("")
 	}
 }
 

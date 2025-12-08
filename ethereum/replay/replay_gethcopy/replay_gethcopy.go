@@ -87,8 +87,8 @@ func ReplayCopy() {
 		if err != nil {
 			fmt.Println(err)
 		}
-		fmt.Println("blockNumber="+blockNumber.String()+"\t process state root:", block.Root())
-		fmt.Println("blockNumber="+blockNumber.String()+"\t block state root:", root)
+		fmt.Println("blockNumber="+blockNumber.String()+"\t block state root  :", block.Root())
+		fmt.Println("blockNumber="+blockNumber.String()+"\t process state root:", root)
 		parentStateRoot = root
 	}
 }
