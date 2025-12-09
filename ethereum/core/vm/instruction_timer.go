@@ -55,6 +55,26 @@ func InitInstructionTimer(filename string) {
 	fmt.Printf("输出文件: %s\n\n", filename)
 }
 
+// RecordGasTiming 记录一次指令计算Gas的时间
+func RecordGasTiming(opcode OpCode, duration int64) {
+	if !TimingEnabled || globalTimer == nil {
+		return
+	}
+
+	// 获取或创建计时条目
+	timing, exists := globalTimer.timings[opcode]
+	if !exists {
+		timing = &InstructionTiming{
+			OpCode: opcode,
+			OpName: opcode.String(),
+		}
+		globalTimer.timings[opcode] = timing
+	}
+
+	// 添加样本
+	timing.TotalTime += duration
+}
+
 // RecordTiming 记录一次指令执行时间
 func RecordTiming(opcode OpCode, duration int64) {
 	if !TimingEnabled || globalTimer == nil {
