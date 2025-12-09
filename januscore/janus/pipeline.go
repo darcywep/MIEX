@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/holiman/uint256"
 )
@@ -16,6 +17,7 @@ import (
 type WorkItem struct {
 	Type       WorkType
 	BatchID    int
+	Priority   int // 优先级：越小越高（长交易=1, 短交易=2, 下一批次=3, 验证=4, 重执行=5）
 	Data       interface{}
 	ResultChan chan interface{}
 }
@@ -24,10 +26,11 @@ type WorkItem struct {
 type WorkType int
 
 const (
-	WorkExecCurrentBatch WorkType = iota // 执行当前批次交易
-	WorkExecNextBatch                    // 执行下一批次交易
-	WorkValidate                         // 验证任务
-	WorkReExecute                        // 重执行任务
+	WorkExecLong  WorkType = iota // 执行长交易
+	WorkExecShort                 // 执行短交易
+	WorkExecNext                  // 执行下一批次
+	WorkValidate                  // 验证任务
+	WorkReExecute                 // 重执行任务
 )
 
 // BatchState 批次状态
@@ -36,25 +39,23 @@ type BatchState struct {
 	Batch     *Batch
 	NextBatch *Batch
 
-	// 交易队列（带TxID信息）
-	LongTxChan    chan *TxWithID
-	ShortTxChan   chan *TxWithID
-	NextBatchChan chan *types.Transaction
-
 	// 执行结果
 	ExecResults   []*ReadWriteSet
 	ExecResultsMu sync.Mutex
 	ThreadRWSets  map[int][]*ReadWriteSet
 
 	// 执行计数
-	ExecCompleted    int32
-	TotalTxs         int
-	ThreadsInNext    int32 // 有多少线程在执行下一批次
-	ThreadsCompleted int32 // 有多少线程完成了当前批次
+	ExecCompleted int32
+	TotalTxs      int
+	ThreadsInNext int32 // 有多少线程在执行下一批次
+
+	// 任务提交状态
+	LongTxSubmitted  int32
+	ShortTxSubmitted int32
+	NextTxSubmitted  int32
 
 	// 验证状态
 	ValidationStarted int32
-	ValidationPairs   chan *ValidationPair // 验证配对通道
 	CommittedTxs      []*ReadWriteSet
 	AbortedTxs        []*ReadWriteSet
 
@@ -65,12 +66,6 @@ type BatchState struct {
 type TxWithID struct {
 	Tx   *types.Transaction
 	TxID int // 区块链中的原始顺序ID
-}
-
-// ValidationPair 验证配对
-type ValidationPair struct {
-	WorkerID1 int
-	WorkerID2 int
 }
 
 // PipelineEngine 流水线引擎
@@ -129,227 +124,230 @@ func (pe *PipelineEngine) Stop() {
 }
 
 // workerThread 工作线程
+// 统一从 workQueue 获取任务：
+// - 执行长交易（优先级最高）
+// - 执行短交易
+// - 执行下一批次交易
+// - 验证任务
+// - 重执行任务
 func (pe *PipelineEngine) workerThread(workerID int) {
 	defer pe.workerWg.Done()
 
 	for {
 		select {
+		case work := <-pe.workQueue:
+			if work == nil {
+				return
+			}
+			pe.processWork(work, workerID)
+
 		case <-pe.stopChan:
 			return
-		default:
 		}
+	}
+}
 
-		// 获取当前批次
+// processWork 处理工作
+func (pe *PipelineEngine) processWork(work *WorkItem, workerID int) {
+	switch work.Type {
+	case WorkExecLong, WorkExecShort:
+		result := pe.executeTransaction(work.Data.(*ExecutionTask), workerID)
+
+		// 收集结果
 		pe.currentBatchMu.RLock()
 		state := pe.currentBatch
 		pe.currentBatchMu.RUnlock()
 
-		if state == nil {
-			// 没有当前批次，尝试从工作队列获取其他任务
-			select {
-			case work := <-pe.workQueue:
-				if work != nil {
-					pe.processWork(work, workerID)
-				}
-			case <-pe.stopChan:
-				return
-			default:
-				continue
+		if state != nil && state.BatchID == work.BatchID {
+			state.ExecResultsMu.Lock()
+			state.ExecResults = append(state.ExecResults, result)
+			if state.ThreadRWSets[workerID] == nil {
+				state.ThreadRWSets[workerID] = make([]*ReadWriteSet, 0)
 			}
-			continue
-		}
+			state.ThreadRWSets[workerID] = append(state.ThreadRWSets[workerID], result)
+			state.ExecResultsMu.Unlock()
 
-		// 尝试执行当前批次的交易
-		executed := false
+			// 增加完成计数
+			completed := atomic.AddInt32(&state.ExecCompleted, 1)
 
-		// 1. 优先执行长交易
-		select {
-		case txWithID, ok := <-state.LongTxChan:
-			if ok {
-				pe.executeSingleTx(state, txWithID, workerID, true)
-				executed = true
-				continue
-			}
-		default:
-		}
-
-		// 2. 执行短交易
-		if !executed {
-			select {
-			case txWithID, ok := <-state.ShortTxChan:
-				if ok {
-					pe.executeSingleTx(state, txWithID, workerID, false)
-					executed = true
-					continue
-				}
-			default:
+			// 检查是否完成当前批次
+			if int(completed) == state.TotalTxs {
+				// 当前批次执行完成，启动验证
+				go pe.startValidation(state)
 			}
 		}
 
-		// 3. 当前批次没有交易了
-		if !executed {
-			// 标记该线程完成了当前批次
-			completedThreads := atomic.AddInt32(&state.ThreadsCompleted, 1)
+		work.ResultChan <- result
 
-			fmt.Printf("[Worker %d] Completed current batch (thread %d/%d completed)\n",
-				workerID, completedThreads, pe.numThreads)
+	case WorkExecNext:
+		result := pe.executeTransaction(work.Data.(*ExecutionTask), workerID)
 
-			threadsInNext := atomic.LoadInt32(&state.ThreadsInNext)
+		// Early Abort 检查
+		pe.currentBatchMu.RLock()
+		state := pe.currentBatch
+		pe.currentBatchMu.RUnlock()
 
-			if threadsInNext < int32(pe.numThreads/2) && state.NextBatch != nil {
-				// 前 n/2 个空闲线程：去执行下一批次
-				if atomic.CompareAndSwapInt32(&state.ThreadsInNext, threadsInNext, threadsInNext+1) {
-					fmt.Printf("[Worker %d] Executing next batch (thread %d/%d in next)\n",
-						workerID, threadsInNext+1, pe.numThreads/2)
-					pe.executeNextBatchTransactions(state, workerID)
-					continue
-				}
-			}
-
-			// 后 n/2 个空闲线程：参与验证
-			// 等待配对进行DAG构建
-			fmt.Printf("[Worker %d] Waiting for validation pairing\n", workerID)
-			pe.waitForValidationPairing(state, workerID)
-
-			// 配对验证完成后，继续处理其他任务
-			select {
-			case work := <-pe.workQueue:
-				if work != nil {
-					pe.processWork(work, workerID)
-				}
-			case <-pe.stopChan:
-				return
-			default:
-				continue
-			}
+		if state != nil && pe.hasConflictWithBatch(state, result) {
+			result.Cost = 0
+			fmt.Printf("[Worker %d] Early abort tx from next batch\n", workerID)
 		}
+
+		work.ResultChan <- result
+
+	case WorkValidate:
+		result := pe.validateDAG(work.Data.(*ValidationTask))
+		work.ResultChan <- result
+
+	case WorkReExecute:
+		result := pe.reExecuteTransaction(work.Data.(*ReExecutionTask), workerID)
+		work.ResultChan <- result
 	}
 }
 
-// executeSingleTx 执行单个交易
-func (pe *PipelineEngine) executeSingleTx(state *BatchState, txWithID *TxWithID, workerID int, isLong bool) {
-	task := &ExecutionTask{
-		Tx:       txWithID.Tx,
-		TxID:     txWithID.TxID, // 使用原始顺序ID
-		BatchID:  state.BatchID,
-		IsLongTx: isLong,
+// SubmitBatch 提交批次
+func (pe *PipelineEngine) SubmitBatch(batch *Batch, nextBatch *Batch) {
+	state := &BatchState{
+		BatchID:      batch.ID,
+		Batch:        batch,
+		NextBatch:    nextBatch,
+		ThreadRWSets: make(map[int][]*ReadWriteSet),
+		ExecResults:  make([]*ReadWriteSet, 0),
+		TotalTxs:     len(batch.AllTxs),
 	}
 
-	// 直接执行
-	rwset := pe.executeTransaction(task, workerID)
+	pe.batchesMu.Lock()
+	pe.batches[batch.ID] = state
+	pe.batchesMu.Unlock()
 
-	// 收集结果
-	state.ExecResultsMu.Lock()
-	state.ExecResults = append(state.ExecResults, rwset)
-	if state.ThreadRWSets[workerID] == nil {
-		state.ThreadRWSets[workerID] = make([]*ReadWriteSet, 0)
-	}
-	state.ThreadRWSets[workerID] = append(state.ThreadRWSets[workerID], rwset)
-	state.ExecResultsMu.Unlock()
+	// 设置为当前批次
+	pe.currentBatchMu.Lock()
+	pe.currentBatch = state
+	pe.currentBatchMu.Unlock()
 
-	// 增加完成计数
-	atomic.AddInt32(&state.ExecCompleted, 1)
+	// 启动任务提交协程
+	go pe.submitBatchTasks(state)
 }
 
-// executeNextBatchTransactions 执行下一批次的交易
-func (pe *PipelineEngine) executeNextBatchTransactions(state *BatchState, workerID int) {
-	if state.NextBatch == nil {
-		return
+// submitBatchTasks 提交批次任务
+// 按优先级提交任务到工作队列：长交易 > 短交易
+func (pe *PipelineEngine) submitBatchTasks(state *BatchState) {
+	// 提交长交易（优先级1）
+	for txID, tx := range state.Batch.AllTxs {
+		if tx.TxType == janusConfig.ComputeTx {
+			resultChan := make(chan interface{}, 1)
+
+			pe.workQueue <- &WorkItem{
+				Type:     WorkExecLong,
+				BatchID:  state.BatchID,
+				Priority: 1,
+				Data: &ExecutionTask{
+					Tx:       tx,
+					TxID:     txID,
+					BatchID:  state.BatchID,
+					IsLongTx: true,
+				},
+				ResultChan: resultChan,
+			}
+
+			// 异步等待结果（不阻塞提交）
+			go func() { <-resultChan }()
+
+			atomic.AddInt32(&state.LongTxSubmitted, 1)
+		}
 	}
 
+	// 提交短交易（优先级2）
+	for txID, tx := range state.Batch.AllTxs {
+		if tx.TxType == janusConfig.IOTx {
+			resultChan := make(chan interface{}, 1)
+
+			pe.workQueue <- &WorkItem{
+				Type:     WorkExecShort,
+				BatchID:  state.BatchID,
+				Priority: 2,
+				Data: &ExecutionTask{
+					Tx:       tx,
+					TxID:     txID,
+					BatchID:  state.BatchID,
+					IsLongTx: false,
+				},
+				ResultChan: resultChan,
+			}
+
+			go func() { <-resultChan }()
+
+			atomic.AddInt32(&state.ShortTxSubmitted, 1)
+		}
+	}
+
+	// 等待一段时间后，提交下一批次任务（水位线间并发）
+	// 允许前 n/2 个线程执行下一批次
+	if state.NextBatch != nil {
+		go pe.submitNextBatchTasks(state)
+	}
+}
+
+// submitNextBatchTasks 提交下一批次任务
+func (pe *PipelineEngine) submitNextBatchTasks(state *BatchState) {
+	// 等待当前批次大部分任务被提交
 	for {
-		select {
-		case tx, ok := <-state.NextBatchChan:
-			if !ok {
-				return
-			}
+		submitted := atomic.LoadInt32(&state.LongTxSubmitted) + atomic.LoadInt32(&state.ShortTxSubmitted)
+		if int(submitted) >= state.TotalTxs/2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
-			task := &ExecutionTask{
+	// 提交下一批次任务（限制数量，只给前 n/2 个线程）
+	maxNextTasks := (pe.numThreads / 2) * 10 // 每个线程最多处理10笔
+
+	for txID, tx := range state.NextBatch.AllTxs {
+		if int(atomic.LoadInt32(&state.NextTxSubmitted)) >= maxNextTasks {
+			break
+		}
+
+		resultChan := make(chan interface{}, 1)
+
+		pe.workQueue <- &WorkItem{
+			Type:     WorkExecNext,
+			BatchID:  state.NextBatch.ID,
+			Priority: 3,
+			Data: &ExecutionTask{
 				Tx:       tx,
+				TxID:     txID,
 				BatchID:  state.NextBatch.ID,
 				IsLongTx: tx.TxType == janusConfig.ComputeTx,
-			}
-
-			rwset := pe.executeTransaction(task, workerID)
-
-			// Early Abort: 检查与当前批次的冲突
-			if pe.hasConflictWithBatch(state, rwset) {
-				rwset.Cost = 0
-				fmt.Printf("[Worker %d] Early abort tx from next batch\n", workerID)
-			}
-
-		default:
-			return
+			},
+			ResultChan: resultChan,
 		}
+
+		go func() { <-resultChan }()
+
+		atomic.AddInt32(&state.NextTxSubmitted, 1)
 	}
 }
 
-// waitForValidationPairing 等待验证配对
-// 根据文档：线程3完成后，与线程1配对构建子DAG；线程4完成后，与线程2配对构建子DAG
-func (pe *PipelineEngine) waitForValidationPairing(state *BatchState, workerID int) {
-	completedThreads := atomic.LoadInt32(&state.ThreadsCompleted)
-
-	// 如果是前半部分完成的线程（去执行下一批次的），不参与验证配对
-	if completedThreads <= int32(pe.numThreads/2) {
+// startValidation 启动验证阶段
+func (pe *PipelineEngine) startValidation(state *BatchState) {
+	// 确保只启动一次
+	if !atomic.CompareAndSwapInt32(&state.ValidationStarted, 0, 1) {
 		return
 	}
 
-	// 后n/2个线程参与验证配对
-	// 计算配对：第 (n/2 + 1) 个完成的线程 与 第1个完成的线程配对
-	//         第 (n/2 + 2) 个完成的线程 与 第2个完成的线程配对
-	//         ...
-	pairIndex := completedThreads - int32(pe.numThreads/2) - 1
-
-	// 等待所有交易执行完成
-	for {
-		execCompleted := atomic.LoadInt32(&state.ExecCompleted)
-		if int(execCompleted) >= state.TotalTxs {
-			break
-		}
-	}
-
-	// 第一个进入的后n/2线程启动验证协调
-	if atomic.CompareAndSwapInt32(&state.ValidationStarted, 0, 1) {
-		fmt.Printf("[Worker %d] Starting validation coordination\n", workerID)
-		go pe.coordinateValidation(state)
-	}
-
-	// 等待并执行配对的DAG构建
-	select {
-	case pair := <-state.ValidationPairs:
-		if pair.WorkerID1 == workerID || pair.WorkerID2 == workerID {
-			fmt.Printf("[Worker %d] Building sub-DAG with pair (%d, %d)\n",
-				workerID, pair.WorkerID1, pair.WorkerID2)
-			pe.buildPairDAG(state, pair.WorkerID1, pair.WorkerID2)
-		}
-	default:
-	}
-}
-
-// coordinateValidation 协调验证过程
-func (pe *PipelineEngine) coordinateValidation(state *BatchState) {
-	fmt.Printf("[Validation] Coordinating validation for batch %d\n", state.BatchID)
-
-	// 等待所有交易执行完成
-	for {
-		completed := atomic.LoadInt32(&state.ExecCompleted)
-		if int(completed) >= state.TotalTxs {
-			break
-		}
-	}
+	fmt.Printf("[Validation] Starting validation for batch %d\n", state.BatchID)
 
 	state.ExecResultsMu.Lock()
 	rwsets := state.ExecResults
 	threadRWSets := state.ThreadRWSets
 	state.ExecResultsMu.Unlock()
 
-	// 构建完整的冲突图 DAG（合并所有线程的状态表）
+	// 构建冲突图 DAG
 	dag := pe.buildConflictDAG(rwsets, threadRWSets)
 	subDAGs := pe.extractSubDAGs(dag)
 
-	fmt.Printf("[Validation] Built complete DAG with %d sub-DAGs\n", len(subDAGs))
+	fmt.Printf("[Validation] Built DAG with %d sub-DAGs\n", len(subDAGs))
 
-	// 将验证任务提交到工作队列
+	// 提交验证任务到工作队列（8个线程并发验证）
 	resultChans := make([]chan interface{}, len(subDAGs))
 	for i, subDAG := range subDAGs {
 		resultChans[i] = make(chan interface{}, 1)
@@ -357,6 +355,7 @@ func (pe *PipelineEngine) coordinateValidation(state *BatchState) {
 		pe.workQueue <- &WorkItem{
 			Type:       WorkValidate,
 			BatchID:    state.BatchID,
+			Priority:   4,
 			Data:       &ValidationTask{SubDAG: subDAG},
 			ResultChan: resultChans[i],
 		}
@@ -392,80 +391,10 @@ func (pe *PipelineEngine) coordinateValidation(state *BatchState) {
 
 	// 启动重执行
 	if len(abortedTxs) > 0 {
-		pe.startReExecution(state)
+		go pe.startReExecution(state)
 	} else {
 		pe.completeBatch(state)
 	}
-}
-
-// buildPairDAG 构建配对的子DAG（简化实现，实际在buildConflictDAG中完成）
-func (pe *PipelineEngine) buildPairDAG(state *BatchState, workerID1, workerID2 int) {
-	// 这里简化处理，实际的DAG构建在 buildConflictDAG 中通过合并状态表完成
-	// 文档中的配对构建是为了并行加速，最终会合并成完整DAG
-}
-
-// processWork 处理工作队列中的任务
-func (pe *PipelineEngine) processWork(work *WorkItem, workerID int) {
-	switch work.Type {
-	case WorkValidate:
-		result := pe.validateDAG(work.Data.(*ValidationTask))
-		work.ResultChan <- result
-
-	case WorkReExecute:
-		result := pe.reExecuteTransaction(work.Data.(*ReExecutionTask), workerID)
-		work.ResultChan <- result
-	}
-}
-
-// SubmitBatch 提交批次
-func (pe *PipelineEngine) SubmitBatch(batch *Batch, nextBatch *Batch) {
-	state := &BatchState{
-		BatchID:         batch.ID,
-		Batch:           batch,
-		NextBatch:       nextBatch,
-		LongTxChan:      make(chan *TxWithID, len(batch.LongTxs)),
-		ShortTxChan:     make(chan *TxWithID, len(batch.ShortTxs)),
-		NextBatchChan:   make(chan *types.Transaction, 1000),
-		ValidationPairs: make(chan *ValidationPair, 10),
-		ThreadRWSets:    make(map[int][]*ReadWriteSet),
-		ExecResults:     make([]*ReadWriteSet, 0),
-		TotalTxs:        len(batch.AllTxs),
-	}
-
-	// 为每笔交易分配原始顺序ID
-	longTxIndex := 0
-	shortTxIndex := 0
-
-	for txID, tx := range batch.AllTxs {
-		if tx.TxType == janusConfig.ComputeTx {
-			// 长交易
-			state.LongTxChan <- &TxWithID{Tx: tx, TxID: txID}
-			longTxIndex++
-		} else {
-			// 短交易
-			state.ShortTxChan <- &TxWithID{Tx: tx, TxID: txID}
-			shortTxIndex++
-		}
-	}
-	close(state.LongTxChan)
-	close(state.ShortTxChan)
-
-	// 填充下一批次交易队列
-	if nextBatch != nil {
-		for _, tx := range nextBatch.AllTxs {
-			state.NextBatchChan <- tx
-		}
-		close(state.NextBatchChan)
-	}
-
-	pe.batchesMu.Lock()
-	pe.batches[batch.ID] = state
-	pe.batchesMu.Unlock()
-
-	// 设置为当前批次
-	pe.currentBatchMu.Lock()
-	pe.currentBatch = state
-	pe.currentBatchMu.Unlock()
 }
 
 // startReExecution 启动重执行阶段
@@ -476,7 +405,9 @@ func (pe *PipelineEngine) startReExecution(state *BatchState) {
 
 	groups := pe.partitionByConflict(abortedTxs)
 
-	// 并发重执行
+	fmt.Printf("[ReExecution] Batch %d: %d groups\n", state.BatchID, len(groups))
+
+	// 提交重执行任务到工作队列
 	resultChans := make([]chan interface{}, 0)
 	for _, group := range groups {
 		for _, rwset := range group {
@@ -486,6 +417,7 @@ func (pe *PipelineEngine) startReExecution(state *BatchState) {
 			pe.workQueue <- &WorkItem{
 				Type:       WorkReExecute,
 				BatchID:    state.BatchID,
+				Priority:   5,
 				Data:       &ReExecutionTask{OldRWSet: rwset},
 				ResultChan: resultChan,
 			}
@@ -598,7 +530,7 @@ func (pe *PipelineEngine) executeTransaction(task *ExecutionTask, workerID int) 
 	}
 
 	return &ReadWriteSet{
-		TxID:     task.TxID, // 使用原始顺序ID
+		TxID:     task.TxID,
 		Tx:       task.Tx,
 		ReadSet:  readSet,
 		WriteSet: writeSet,
