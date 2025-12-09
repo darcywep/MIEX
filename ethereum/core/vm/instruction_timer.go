@@ -87,12 +87,12 @@ func RecordTiming(opcode OpCode, duration int64) {
 			timing.OpName, opcode, timing.SampleCount, timing.AverageTime)
 		delete(globalTimer.needed, opcode) // 从需要采样的列表中移除
 		// 检查是否所有指令都完成了
-		globalTimer.checkCompletionUnlocked()
+		globalTimer.CheckCompletionUnlocked()
 	}
 }
 
-// checkCompletionUnlocked 检查是否所有指令都已完成（调用时必须已持有锁）
-func (it *InstructionTimer) checkCompletionUnlocked() {
+// CheckCompletionUnlocked 检查是否所有指令都已完成（调用时必须已持有锁）
+func (it *InstructionTimer) CheckCompletionUnlocked() {
 	allComplete := false
 	if len(it.needed) == 0 {
 		allComplete = true
@@ -110,9 +110,9 @@ func (it *InstructionTimer) checkCompletionUnlocked() {
 	} else {
 		fmt.Printf("尚有 %d 个指令未完成采样。\n", len(it.needed))
 		for opcode := range it.needed {
-			fmt.Printf("%s  ", opcode.String())
+			opcodeInfo := globalTimer.timings[opcode]
+			fmt.Println(opcode.String(), opcodeInfo.SampleCount) // 输出未完成采样的指令及其当前样本数
 		}
-		fmt.Println("")
 	}
 }
 

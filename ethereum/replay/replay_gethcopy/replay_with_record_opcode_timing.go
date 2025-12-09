@@ -59,5 +59,8 @@ func ReplayWithRecordOpCodeTiming() {
 		fmt.Println("blockNumber="+blockNumber.String()+"\t process state root:", block.Root())
 		fmt.Println("blockNumber="+blockNumber.String()+"\t block state root  :", root)
 		parentStateRoot = root
+		if blockNumber.Uint64()%10 == 0 {
+			vm.GetInstructionTimer().CheckCompletionUnlocked()
+		}
 	}
 }

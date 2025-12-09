@@ -16,7 +16,7 @@ const chianDataPath = "/data/ethereum/state_snapshot/chaindata_2100_prod/"
 var (
 	pebbleConfig = &database.PebbleConfig{
 		File:      chianDataPath,
-		Cache:     92160, // 如果内存较小，请修改
+		Cache:     65536, // 如果内存较小，请修改
 		Handles:   524288,
 		Namespace: "eth/db/chaindata/",
 		Readonly:  false,
