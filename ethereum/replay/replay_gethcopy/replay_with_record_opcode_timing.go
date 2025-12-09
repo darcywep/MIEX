@@ -4,9 +4,28 @@ import (
 	"Janus/ethereum/config"
 	"Janus/ethereum/core/vm"
 	"Janus/ethereum/database"
+	"Janus/ethereum/ethdb"
 	"Janus/ethereum/replay/replay_config"
 	"fmt"
+
+	"github.com/ethereum/go-ethereum/common"
 )
+
+func Reference(alldb *database.AllDBForState, parentRoot, root common.Hash) {
+	// Full but not archive node, do proper garbage collection
+	alldb.TrieDB.Reference(root, common.Hash{}) // metadata reference to keep trie alive
+
+	// If we exceeded our memory allowance, flush matured singleton nodes to disk
+	var (
+		_, nodes, imgs = alldb.TrieDB.Size() // all memory is contained within the nodes return for hashdb
+		limit          = common.StorageSize(64*1024) * 1024 * 1024
+	)
+	alldb.TrieDB.Dereference(parentRoot)
+
+	if nodes > limit || imgs > 16*1024*1024*1024 {
+		alldb.TrieDB.Cap(limit - ethdb.IdealBatchSize)
+	}
+}
 
 func ReplayWithRecordOpCodeTiming() {
 	processor, frdb, err := newProcessor()
@@ -58,8 +77,9 @@ func ReplayWithRecordOpCodeTiming() {
 		}
 		fmt.Println("blockNumber="+blockNumber.String()+"\t process state root:", block.Root())
 		fmt.Println("blockNumber="+blockNumber.String()+"\t block state root  :", root)
+		Reference(alldbForState, parentStateRoot, root)
 		parentStateRoot = root
-		if blockNumber.Uint64()%10 == 0 {
+		if blockNumber.Uint64()%1000 == 0 {
 			vm.GetInstructionTimer().CheckCompletionUnlocked()
 		}
 	}
