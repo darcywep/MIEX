@@ -517,7 +517,7 @@ func opSload(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 	hash := common.Hash(loc.Bytes32())
 	val := evm.StateDB.GetState(scope.Contract.Address(), hash)
 	if tools.CatStorageState {
-		fmt.Println(new(big.Int).SetBytes(val.Bytes()))
+		fmt.Println("opSload: ", new(big.Int).SetBytes(val.Bytes()))
 	}
 	loc.SetBytes(val.Bytes())
 	return nil, nil

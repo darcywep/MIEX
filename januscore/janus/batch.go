@@ -8,10 +8,10 @@ import (
 // Batch 表示一个执行批次
 type Batch struct {
 	ID          int
-	LongTxs     []*types.Transaction // 长交易（计算型）
-	ShortTxs    []*types.Transaction // 短交易（IO型）
-	AllTxs      []*types.Transaction // 所有交易（按原始顺序）
-	WatermarkID int                  // 水位线位置的交易ID
+	LongTxs     []*janusTransaction // 长交易（计算型）
+	ShortTxs    []*janusTransaction // 短交易（IO型）
+	AllTxs      []*janusTransaction // 所有交易（按原始顺序）
+	WatermarkID int                 // 水位线位置的交易ID
 }
 
 // BatchGenerator 批次生成器
@@ -33,9 +33,9 @@ func NewBatchGenerator(threadNumber int) *BatchGenerator {
 // GenerateBatches 根据交易序列生成批次
 // 输入：区块中的原始交易序列（按共识顺序）
 // 输出：多个批次 Batch 1, Batch 2, ... Batch n
-func (bg *BatchGenerator) GenerateBatches(txs []*types.Transaction) []*Batch {
+func (bg *BatchGenerator) GenerateBatches(txs []*types.Transaction) ([]*Batch, []*janusTransaction) {
 	if len(txs) == 0 {
-		return []*Batch{}
+		return []*Batch{}, []*janusTransaction{}
 	}
 
 	batches := make([]*Batch, 0)
@@ -44,10 +44,11 @@ func (bg *BatchGenerator) GenerateBatches(txs []*types.Transaction) []*Batch {
 	// 当前批次
 	currentBatch := &Batch{
 		ID:       batchID,
-		LongTxs:  make([]*types.Transaction, 0),
-		ShortTxs: make([]*types.Transaction, 0),
-		AllTxs:   make([]*types.Transaction, 0),
+		LongTxs:  make([]*janusTransaction, 0),
+		ShortTxs: make([]*janusTransaction, 0),
+		AllTxs:   make([]*janusTransaction, 0),
 	}
+	jtxs := make([]*janusTransaction, len(txs))
 
 	longTxCount := 0  // 当前批次长交易数量
 	totalTxCount := 0 // 当前批次交易总数
@@ -58,16 +59,24 @@ func (bg *BatchGenerator) GenerateBatches(txs []*types.Transaction) []*Batch {
 
 	// 遍历所有交易
 	for txIdx, tx := range txs {
+
 		// 判断交易类型
 		isLongTx := tx.TxType == janusConfig.ComputeTx
-
+		jtx := &janusTransaction{
+			Tx:          tx,
+			IsLongTx:    isLongTx,
+			EarlyAbort:  false,
+			IsRuned:     false,
+			OriginalIdx: txIdx,
+		}
+		jtxs[txIdx] = jtx
 		// 添加交易到当前批次
-		currentBatch.AllTxs = append(currentBatch.AllTxs, tx)
+		currentBatch.AllTxs = append(currentBatch.AllTxs, jtx)
 		if isLongTx {
-			currentBatch.LongTxs = append(currentBatch.LongTxs, tx)
+			currentBatch.LongTxs = append(currentBatch.LongTxs, jtx)
 			longTxCount++
 		} else {
-			currentBatch.ShortTxs = append(currentBatch.ShortTxs, tx)
+			currentBatch.ShortTxs = append(currentBatch.ShortTxs, jtx)
 		}
 		totalTxCount++
 
@@ -92,9 +101,9 @@ func (bg *BatchGenerator) GenerateBatches(txs []*types.Transaction) []*Batch {
 			batchID++
 			currentBatch = &Batch{
 				ID:       batchID,
-				LongTxs:  make([]*types.Transaction, 0),
-				ShortTxs: make([]*types.Transaction, 0),
-				AllTxs:   make([]*types.Transaction, 0),
+				LongTxs:  make([]*janusTransaction, 0),
+				ShortTxs: make([]*janusTransaction, 0),
+				AllTxs:   make([]*janusTransaction, 0),
 			}
 			longTxCount = 0
 			totalTxCount = 0
@@ -107,5 +116,5 @@ func (bg *BatchGenerator) GenerateBatches(txs []*types.Transaction) []*Batch {
 		batches = append(batches, currentBatch)
 	}
 
-	return batches
+	return batches, jtxs
 }

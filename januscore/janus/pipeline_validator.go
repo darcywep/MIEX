@@ -1,0 +1,517 @@
+package janus
+
+import (
+	"fmt"
+	"sync"
+)
+
+// buildStateTable 构建单个线程的状态读写表
+func (pe *PipelineEngine) buildStateTable(rwsets []*ReadWriteSet) map[string]*StateTable {
+	stateMap := make(map[string]*StateTable)
+
+	for _, rwset := range rwsets {
+		// 处理读集
+		for addr := range rwset.ReadSet {
+			if stateMap[addr] == nil {
+				stateMap[addr] = &StateTable{
+					Address:    addr,
+					Operations: make([]*Operation, 0),
+				}
+			}
+			stateMap[addr].Operations = append(stateMap[addr].Operations, &Operation{
+				TxID: rwset.TxID,
+				Type: "r",
+			})
+		}
+
+		// 处理写集
+		for addr := range rwset.WriteSet {
+			if stateMap[addr] == nil {
+				stateMap[addr] = &StateTable{
+					Address:    addr,
+					Operations: make([]*Operation, 0),
+				}
+			}
+			stateMap[addr].Operations = append(stateMap[addr].Operations, &Operation{
+				TxID: rwset.TxID,
+				Type: "w",
+			})
+		}
+	}
+
+	// 对每个地址的操作列表进行排序
+	// 排序规则：先按 TxID 排序，TxID 相同时 r 在前，w 在后
+	for _, table := range stateMap {
+		ops := table.Operations
+		// 冒泡排序
+		for i := 0; i < len(ops); i++ {
+			for j := i + 1; j < len(ops); j++ {
+				// 比较规则
+				needSwap := false
+				if ops[i].TxID > ops[j].TxID {
+					// TxID 大的排后面
+					needSwap = true
+				} else if ops[i].TxID == ops[j].TxID {
+					// TxID 相同，w 排后面（r 在前）
+					if ops[i].Type == "w" && ops[j].Type == "r" {
+						needSwap = true
+					}
+				}
+
+				if needSwap {
+					ops[i], ops[j] = ops[j], ops[i]
+				}
+			}
+		}
+	}
+
+	return stateMap
+}
+
+// compareOperations 比较两个操作的顺序
+// 返回值：< 0 表示 op1 < op2，0 表示相等，> 0 表示 op1 > op2
+// 排序规则：先按 TxID，TxID 相同时 r 在前 w 在后
+func (pe *PipelineEngine) compareOperations(op1, op2 *Operation) int {
+	if op1.TxID < op2.TxID {
+		return -1
+	}
+	if op1.TxID > op2.TxID {
+		return 1
+	}
+	// TxID 相同，比较类型
+	if op1.Type == "r" && op2.Type == "w" {
+		return -1 // r 在前
+	}
+	if op1.Type == "w" && op2.Type == "r" {
+		return 1 // w 在后
+	}
+	return 0 // 相同
+}
+
+// mergeTwoLists 合并两个已排序的操作列表(需要注意的是：某个线程可能不涉及该地址的读写操作，导致传入的列表数量可能少于2)
+// 每个列表已经按 TxID 排序，TxID 相同时 r 在前 w 在后
+func (pe *PipelineEngine) mergeTwoLists(lists [][]*Operation) []*Operation {
+	if len(lists) == 0 {
+		fmt.Println("[Error!] [mergeOperationLists] No operation lists to merge")
+		return []*Operation{}
+	}
+	if len(lists) == 1 {
+		return lists[0]
+	}
+	// 仅支持合并两个列表
+	list1, list2 := lists[0], lists[1]
+	result := make([]*Operation, 0, len(list1)+len(list2))
+	i, j := 0, 0
+
+	for i < len(list1) && j < len(list2) {
+		// 比较两个操作，决定谁排在前面
+		if pe.compareOperations(list1[i], list2[j]) <= 0 {
+			result = append(result, list1[i])
+			i++
+		} else {
+			result = append(result, list2[j])
+			j++
+		}
+	}
+
+	// 添加剩余元素
+	for i < len(list1) {
+		result = append(result, list1[i])
+		i++
+	}
+	for j < len(list2) {
+		result = append(result, list2[j])
+		j++
+	}
+
+	return result
+}
+
+func (pe *PipelineEngine) mergeStateTables(state *BatchState, threadStateTable1, threadStateTable2 map[string]*StateTable, workerID int) (mergeThreadStateTable, pairStateTable map[string]*StateTable) {
+	// 获取所有状态地址
+	mergeThreadStateTable = make(map[string]*StateTable)
+	for addr := range threadStateTable1 {
+		mergeThreadStateTable[addr] = &StateTable{Address: addr}
+	}
+	for addr := range threadStateTable2 {
+		if mergeThreadStateTable[addr] == nil {
+			mergeThreadStateTable[addr] = &StateTable{Address: addr}
+		}
+	}
+
+	// 对每个状态地址进行合并，构建冲突边
+	for addr := range mergeThreadStateTable {
+		// 收集两个线程对该地址的操作列表
+		opLists := make([][]*Operation, 0)
+		if table1 := threadStateTable1[addr]; table1 != nil {
+			opLists = append(opLists, table1.Operations)
+		}
+		if table2 := threadStateTable2[addr]; table2 != nil {
+			opLists = append(opLists, table2.Operations)
+		}
+
+		// 使用归并排序合并两个已排序的操作列表
+		mergeThreadStateTable[addr].Operations = pe.mergeTwoLists(opLists)
+	}
+	state.MergeThreadStateTables.queueMu.Lock()
+
+	state.MergeThreadStateTables.completedMergeCount++
+	completedMergeCount := state.MergeThreadStateTables.completedMergeCount // 先拿出merge的数量，释放锁后再使用，避免堵塞
+	if completedMergeCount%2 == state.MergeThreadStateTables.waitFlag {     // 需要进入等待
+		state.MergeThreadStateTables.stateTablesQueue = append(state.MergeThreadStateTables.stateTablesQueue, mergeThreadStateTable)
+	} else { // 偶数次合并，直接进行合并
+		pairStateTable = state.MergeThreadStateTables.stateTablesQueue[0]
+		state.MergeThreadStateTables.stateTablesQueue = state.MergeThreadStateTables.stateTablesQueue[1:]
+	}
+	state.MergeThreadStateTables.queueMu.Unlock()
+
+	isWait := state.MergeThreadStateTables.awakeOrWaitThreadStateTableForMerge(state, completedMergeCount, workerID)
+	if isWait {
+		// 被唤醒之后进入下一阶段
+		pe.workerStaties[workerID].Phase = ConstructDAGPhase
+	} // 完成之后，未睡眠，仍然在当前阶段
+	return mergeThreadStateTable, pairStateTable
+}
+
+// groupOperationsByTx 将操作按交易分组
+// 输入：[(tx1,r), (tx1,w), (tx2,r), (tx2,w), (tx3,w)]
+// 输出：[{tx1, hasR, hasW}, {tx2, hasR, hasW}, {tx3, noR, hasW}]
+func (pe *PipelineEngine) groupOperationsByTx(ops []*Operation) []*TxOperation {
+	if len(ops) == 0 {
+		return []*TxOperation{}
+	}
+
+	result := make([]*TxOperation, 0)
+	currentTxID := ops[0].TxID
+	currentOp := &TxOperation{TxID: currentTxID}
+
+	for _, op := range ops {
+		if op.TxID != currentTxID {
+			// 新的交易，保存当前交易操作
+			result = append(result, currentOp)
+			currentTxID = op.TxID
+			currentOp = &TxOperation{TxID: currentTxID}
+		}
+
+		// 记录操作类型
+		if op.Type == "r" {
+			currentOp.HasRead = true
+		} else if op.Type == "w" {
+			currentOp.HasWrite = true
+		}
+	}
+
+	// 添加最后一个交易
+	result = append(result, currentOp)
+	return result
+}
+
+// buildConflictEdges 构建冲突边
+// 规则：
+// 1. 同一交易的读写操作视为一个整体，只产生一条边
+// 2. 传递性冲突：如果 tx_i 有写，tx_j 有读，则 tx_i → tx_j
+// 3. 边的类型始终为 WR（简化处理，用于最大提交验证）
+func (pe *PipelineEngine) buildConflictEdges(txOps []*TxOperation, addr string, dag *ConflictDAG) {
+	n := len(txOps)
+	if n <= 1 {
+		return
+	}
+
+	// 对于每对交易 (i, j)，如果 i < j 且 tx_i 有写，tx_j 有读，则添加边
+	for i := 0; i < n; i++ {
+		if !txOps[i].HasWrite {
+			continue // tx_i 没有写操作，不会产生冲突边
+		}
+
+		for j := i + 1; j < n; j++ {
+			// tx_i 有写，tx_j 有读，产生冲突
+			if txOps[j].HasRead {
+				// 所有边类型都标记为 WR（用于最大提交验证）
+				pe.addEdgeWithDetail(dag, txOps[i].TxID, txOps[j].TxID, addr, "WR")
+			}
+		}
+	}
+}
+
+// addEdgeWithDetail 添加边到DAG，并记录冲突详情
+// 参数：
+//   - from: 源交易ID
+//   - to: 目标交易ID
+//   - address: 冲突的状态地址
+//   - conflictType: 冲突类型 "WR" 或 "WRW"
+func (pe *PipelineEngine) addEdgeWithDetail(dag *ConflictDAG, from, to int, address, conflictType string) {
+	// 创建冲突边
+	edge := &ConflictEdge{
+		From:    from,
+		To:      to,
+		Address: address,
+		Type:    conflictType,
+	}
+
+	// 添加到 EdgeDetails
+	dag.EdgeDetails[from] = append(dag.EdgeDetails[from], edge)
+
+	dag.InDegree[to]++
+}
+
+// TxOperation 表示一个交易对某个地址的所有操作
+type TxOperation struct {
+	TxID     int
+	HasRead  bool
+	HasWrite bool
+}
+
+// constructDAGForAddress 为每个地址构建DAG的冲突边
+// 参数:
+//   - state: 当前批次状态
+//   - rwTable1: 第一个状态读写表
+//   - rwTable2: 第二个状态读写表（可能为nil，表示只有一个表）
+//   - workerID: 当前工作线程ID
+//
+// 功能：
+// 1. 处理一个或两个StateTable中的操作
+// 2. 按交易分组操作
+// 3. 根据冲突规则构建DAG边
+// 4. 将交易节点添加到DAG中
+func (pe *PipelineEngine) constructDAGForAddress(state *BatchState, rwTable1, rwTable2 *StateTable, workerID int) {
+	// 获取当前工作线程的DAG
+	dag := state.constructDAG.dags[workerID]
+
+	constructDAG := func(rwTable *StateTable) {
+		if rwTable != nil && len(rwTable.Operations) > 0 {
+			// 步骤1：将操作按交易分组
+			// 输入: [(tx1,r), (tx1,w), (tx2,r), ...]
+			// 输出: [{tx1, hasR, hasW}, {tx2, hasR, noW}, ...]
+			txOps := pe.groupOperationsByTx(rwTable.Operations)
+
+			// 步骤2：将涉及的交易节点添加到 DAG
+			for _, txOp := range txOps {
+				// 如果节点尚未添加到DAG中
+				if _, exists := dag.Nodes[txOp.TxID]; !exists {
+					// 从批次状态中查找对应的交易读写集
+					rwset := pe.janusTransactions[txOp.TxID].rwSet
+					if rwset == nil {
+						panic(fmt.Errorf("dag.Nodes[%d].rwSet is nil", txOp.TxID))
+					}
+					dag.Nodes[txOp.TxID] = rwset // 添加节点
+					dag.EdgeDetails[txOp.TxID] = make([]*ConflictEdge, 0)
+					dag.InDegree[txOp.TxID] = 0
+				}
+			}
+
+			// 步骤3：根据冲突规则构建冲突边
+			// 规则：如果 tx_i 有写，tx_j (j>i) 有读或写，则添加边 tx_i → tx_j
+			pe.buildConflictEdges(txOps, rwTable.Address, dag)
+
+		}
+	}
+	// ===== 处理第一个状态表 =====
+	constructDAG(rwTable1)
+
+	// ===== 处理第二个状态表（如果存在）=====
+	constructDAG(rwTable2)
+}
+
+func (pe *PipelineEngine) mergeTwoDags(state *BatchState, pairDag *ConflictDAG, workerID int) (newPairDag *ConflictDAG) {
+	// 获取当前工作线程的DAG
+	dag := state.constructDAG.dags[workerID]
+	for nodeID, rwset := range pairDag.Nodes {
+		// 如果节点尚未添加到DAG中
+		if _, exists := dag.Nodes[nodeID]; !exists {
+			dag.Nodes[nodeID] = rwset // 添加节点
+			dag.EdgeDetails[nodeID] = pairDag.EdgeDetails[nodeID]
+			dag.InDegree[nodeID] = pairDag.InDegree[nodeID]
+			continue
+		}
+		// 节点已存在，合并边和入度
+		dag.EdgeDetails[nodeID] = append(dag.EdgeDetails[nodeID], pairDag.EdgeDetails[nodeID]...)
+		dag.InDegree[nodeID] += pairDag.InDegree[nodeID]
+	}
+	if pairDag.totalMerges != -1 {
+		dag.totalMerges = pairDag.totalMerges
+	}
+
+	state.constructDAG.queueMu.Lock()
+	state.constructDAG.completedMergeCount++
+	completedMergeCount := state.constructDAG.completedMergeCount
+	if completedMergeCount%2 == 1 { // 需要进入等待
+		state.constructDAG.dagQueue = append(state.constructDAG.dagQueue, dag)
+	} else {
+		// 偶数次合并，直接进行合并
+		newPairDag = state.constructDAG.dagQueue[0]
+		state.constructDAG.dagQueue = state.constructDAG.dagQueue[1:]
+	}
+	state.constructDAG.queueMu.Unlock()
+	isWait := state.constructDAG.awakeOrWaitConstructDAG(state, completedMergeCount, dag.totalMerges, workerID)
+	if isWait {
+		// 被唤醒之后进入下一阶段
+		pe.workerStaties[workerID].Phase = CommitMaximumValidationPhase
+	} // 完成之后，未睡眠，仍然在当前阶段
+
+	return newPairDag
+}
+
+// checkAndStartValidation 检查并启动验证
+func (pe *PipelineEngine) checkAndStartValidation(state *BatchState) {
+
+	// 只启动一次验证
+	if state.ValidationStarted.CompareAndSwap(0, 1) {
+		fmt.Printf("[Validation] Starting validation for batch %d\n", state.BatchID)
+		go pe.startValidation(state)
+	}
+}
+
+// startValidation 启动验证阶段
+func (pe *PipelineEngine) startValidation(state *BatchState) {
+
+	//completeDAG := pe.mergePairDAGs(pairDAGs)
+	//subDAGs := pe.extractSubDAGs(completeDAG)
+	//
+	//fmt.Printf("[Validation] Merged %d pair DAGs into %d sub-DAGs\n", len(pairDAGs), len(subDAGs))
+	//
+	//// 并发验证
+	//resultChan := make(chan []*ReadWriteSet, len(subDAGs))
+	//var wg sync.WaitGroup
+	//
+	//for _, subDAG := range subDAGs {
+	//	wg.Add(1)
+	//	go func(dag *ConflictDAG) {
+	//		defer wg.Done()
+	//		result := pe.solveSubDAG(dag)
+	//		resultChan <- result
+	//	}(subDAG)
+	//}
+	//
+	//wg.Wait()
+	//close(resultChan)
+	//
+	//committedTxs := make([]*ReadWriteSet, 0)
+	//for result := range resultChan {
+	//	committedTxs = append(committedTxs, result...)
+	//}
+	//
+	////state.ExecResultsMu.Lock()
+	////allRWSets := state.ExecResults
+	////state.ExecResultsMu.Unlock()
+	//
+	//committedSet := make(map[int]bool)
+	//for _, rwset := range committedTxs {
+	//	committedSet[rwset.TxID] = true
+	//}
+	//
+	//abortedTxs := make([]*ReadWriteSet, 0)
+	////for _, rwset := range allRWSets {
+	////	if !committedSet[rwset.TxID] {
+	////		abortedTxs = append(abortedTxs, rwset)
+	////	}
+	////}
+	//
+	//state.mu.Lock()
+	//state.CommittedTxs = committedTxs
+	//state.AbortedTxs = abortedTxs
+	//state.mu.Unlock()
+	//
+	//fmt.Printf("[Validation] Batch %d: %d committed, %d aborted\n",
+	//	state.BatchID, len(committedTxs), len(abortedTxs))
+	//
+	//if len(abortedTxs) > 0 {
+	//	go pe.startReExecution(state)
+	//} else {
+	//	pe.completeBatch(state)
+	//}
+}
+
+// startReExecution 启动重执行阶段
+func (pe *PipelineEngine) startReExecution(state *BatchState) {
+	state.mu.Lock()
+	abortedTxs := state.AbortedTxs
+	state.mu.Unlock()
+
+	fmt.Printf("[ReExecution] Starting re-execution for %d aborted transactions\n", len(abortedTxs))
+
+	groups := pe.partitionByConflict(abortedTxs)
+
+	var wg sync.WaitGroup
+	reExecResults := make([]*ReadWriteSet, 0)
+	var resultMu sync.Mutex
+
+	for _, group := range groups {
+		for _, rwset := range group {
+			wg.Add(1)
+			go func(oldRWSet *ReadWriteSet) {
+				defer wg.Done()
+				newRWSet := pe.reExecuteTransaction(oldRWSet, 0)
+				resultMu.Lock()
+				reExecResults = append(reExecResults, newRWSet)
+				resultMu.Unlock()
+			}(rwset)
+		}
+	}
+
+	wg.Wait()
+
+	state.mu.Lock()
+	state.CommittedTxs = append(state.CommittedTxs, reExecResults...)
+	state.AbortedTxs = []*ReadWriteSet{}
+	state.mu.Unlock()
+
+	fmt.Printf("[ReExecution] Batch %d: %d transactions re-executed\n", state.BatchID, len(reExecResults))
+
+	pe.completeBatch(state)
+}
+
+// partitionByConflict 根据冲突关系将交易分组
+func (pe *PipelineEngine) partitionByConflict(rwsets []*ReadWriteSet) [][]*ReadWriteSet {
+	n := len(rwsets)
+	if n == 0 {
+		return [][]*ReadWriteSet{}
+	}
+
+	// 使用并查集分组
+	parent := make([]int, n)
+	for i := range parent {
+		parent[i] = i
+	}
+
+	var find func(int) int
+	find = func(x int) int {
+		if parent[x] != x {
+			parent[x] = find(parent[x])
+		}
+		return parent[x]
+	}
+
+	union := func(x, y int) {
+		px, py := find(x), find(y)
+		if px != py {
+			parent[px] = py
+		}
+	}
+
+	// 检查所有交易对的冲突关系
+	for i := 0; i < n; i++ {
+		for j := i + 1; j < n; j++ {
+			if pe.hasConflict(rwsets[i], rwsets[j]) {
+				union(i, j)
+			}
+		}
+	}
+
+	// 按根节点分组
+	groups := make(map[int][]*ReadWriteSet)
+	for i, rwset := range rwsets {
+		root := find(i)
+		if groups[root] == nil {
+			groups[root] = make([]*ReadWriteSet, 0)
+		}
+		groups[root] = append(groups[root], rwset)
+	}
+
+	// 转换为切片
+	result := make([][]*ReadWriteSet, 0, len(groups))
+	for _, group := range groups {
+		result = append(result, group)
+	}
+
+	return result
+}

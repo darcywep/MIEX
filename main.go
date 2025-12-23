@@ -11,6 +11,7 @@ import (
 	"Janus/ethereum/config"
 	"Janus/ethereum/core/types"
 	"Janus/ethereum/database"
+	"Janus/januscore/janus"
 	"Janus/monitor"
 	"Janus/tools"
 	"flag"
@@ -96,18 +97,22 @@ func run(baseline, baseFileName string, tpss *[]float64, signalChan chan struct{
 	} else if baseline == "serial" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, serial.Run(blockTxs, levm))
+	} else if baseline == "janus" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, janus.Run(blockTxs, levm))
 	}
 }
 
 func main() {
-	baseline := flag.String("baseline", "all",
+	baseline := flag.String("baseline", "janus",
 		"baseline: (default all)\n"+
 			"\t\"all\" is run all baseline\n"+
 			"\t\"schain\" is run schain\n"+
 			"\t\"optme\" is run optme\n"+
 			"\t\"aria\" is run aria\n"+
 			"\t\"harmony\" is run harmony\n"+
-			"\t\"serial\" is run serial\n")
+			"\t\"serial\" is run serial\n"+
+			"\t\"janus\" is run janus\n")
 	threadNumber := flag.String("thread", "8", "thread number(default 8)")
 	skew := flag.String("skew", "0.5", "thread number(default 0.5)")
 	txNumber := flag.String("txNum", "100000", "thread number(default 6000)")
@@ -116,7 +121,8 @@ func main() {
 	fmt.Println("baseline: ", *baseline, "\tthreadNumber: ", *threadNumber,
 		"\tskew: ", *skew, "\ttxNumber: ", *txNumber)
 
-	if *baseline != "all" && *baseline != "harmony" && *baseline != "schain" && *baseline != "optme" && *baseline != "aria" && *baseline != "serial" {
+	if *baseline != "all" && *baseline != "harmony" && *baseline != "schain" && *baseline != "optme" &&
+		*baseline != "aria" && *baseline != "serial" && *baseline != "janus" {
 		fmt.Println("baseline is invalid")
 		return
 	}
@@ -129,7 +135,7 @@ func main() {
 	var (
 		baseFileName           = "thread(" + strconv.Itoa(janusConfig.AllThreadNum) + ")_skew(" + fmt.Sprintf("%f", janusConfig.Skew) + ").xlsx"
 		tpss         []float64 = make([]float64, 0)
-		baselines              = []string{"serial", "harmony", "schain", "optme", "aria"}
+		baselines              = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
 	)
 
 	blockNum := janusConfig.TxNum / janusConfig.BlockSize

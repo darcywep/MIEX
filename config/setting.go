@@ -19,7 +19,7 @@ var (
 
 // 交易生成相关配置
 const (
-	BlockSize = 2000
+	BlockSize = 64
 
 	AddressNumberRate    = 1 // 总共生成多少个地址, 按单个区块交易数量的（比例）来生成
 	CompetingTxCountRate = 0.5
