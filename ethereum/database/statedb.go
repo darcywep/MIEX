@@ -51,6 +51,7 @@ func (a *AllDBForState) UpdateStateDB(stateRoot common.Hash) error {
 	if stateRoot == a.StateRoot {
 		return nil
 	}
+	a.StateDB = nil
 	statedb, err := state.New(stateRoot, a.BlockChainStateDB)
 	if err != nil {
 		return fmt.Errorf("create state db: " + err.Error())
