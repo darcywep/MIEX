@@ -3,14 +3,6 @@
   <component name="PublishConfigData" serverName="bcds79" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
     <option name="confirmBeforeUploading" value="false" />
     <serverData>
-      <paths name="bcds74">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/Janus" local="$PROJECT_DIR$" web="/" />
-            <mapping local="" />
-          </mappings>
-        </serverdata>
-      </paths>
       <paths name="bcds79">
         <serverdata>
           <mappings>

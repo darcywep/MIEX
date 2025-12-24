@@ -143,6 +143,8 @@ func ReplayWithRecordOpCodeTiming() {
 			fmt.Printf("⚠️  Root mismatch at block %v: expected %v, got %v\n",
 				blockNumber, block.Root(), root)
 		}
+		fmt.Println("blockNumber="+blockNumber.String()+"\t process state root:", block.Root())
+		fmt.Println("blockNumber="+blockNumber.String()+"\t block state root  :", root)
 
 		// Copy用完立即置nil
 		statedbCopy = nil
