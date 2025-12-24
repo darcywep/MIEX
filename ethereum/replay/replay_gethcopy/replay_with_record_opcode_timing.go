@@ -11,7 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-func Reference(alldb *database.AllDBForState, parentRoot, root common.Hash) {
+func Reference1(alldb *database.AllDBForState, parentRoot, root common.Hash) {
 	// Full but not archive node, do proper garbage collection
 	alldb.TrieDB.Reference(root, common.Hash{}) // metadata reference to keep trie alive
 
@@ -27,7 +27,7 @@ func Reference(alldb *database.AllDBForState, parentRoot, root common.Hash) {
 	}
 }
 
-func ReplayWithRecordOpCodeTiming() {
+func ReplayWithRecordOpCodeTiming1() {
 	processor, frdb, err := newProcessor()
 	if err != nil {
 		panic(err)
@@ -77,7 +77,7 @@ func ReplayWithRecordOpCodeTiming() {
 		}
 		fmt.Println("blockNumber="+blockNumber.String()+"\t process state root:", block.Root())
 		fmt.Println("blockNumber="+blockNumber.String()+"\t block state root  :", root)
-		Reference(alldbForState, parentStateRoot, root)
+		Reference1(alldbForState, parentStateRoot, root)
 		parentStateRoot = root
 		if blockNumber.Uint64()%1000 == 0 {
 			vm.GetInstructionTimer().CheckCompletionUnlocked()
