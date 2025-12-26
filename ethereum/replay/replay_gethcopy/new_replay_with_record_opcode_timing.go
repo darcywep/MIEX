@@ -16,7 +16,7 @@ import (
 
 const (
 	// 128GB内存配置
-	TrieMemoryLimit  = 32 * 1024 * 1024 * 1024 // 64GB - trie节点
+	TrieMemoryLimit  = 64 * 1024 * 1024 * 1024 // 64GB - trie节点
 	ImageMemoryLimit = 5 * 1024 * 1024 * 1024  // 5GB - 图像
 
 	// 激进的刷盘策略（这些是关键）
