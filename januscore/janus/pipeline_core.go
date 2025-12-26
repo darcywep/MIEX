@@ -99,8 +99,7 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 		if pe.currentBatchID.Load() > pe.workerStaties[workerID].currentBatchID {
 			pe.workerStaties[workerID].currentBatchID = pe.currentBatchID.Load()
 			pe.workerStaties[workerID].Phase = ExecuteTaskPhase
-			fmt.Printf("[Worker %d] Switched to Batch %d\n",
-				workerID, pe.workerStaties[workerID].currentBatchID)
+			fmt.Printf("[Worker %d] Switched to Batch %d\n", workerID, pe.workerStaties[workerID].currentBatchID)
 		}
 
 		state := pe.batchStates[pe.currentBatchID.Load()]
@@ -137,7 +136,9 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 			}
 			continue
 		}
+		if pe.workerStaties[workerID].Phase == CommitMaximumValidationPhase {
 
+		}
 	}
 }
 
