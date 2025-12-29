@@ -1,0 +1,737 @@
+[
+  {
+    "op_name": "PUSH1",
+    "sample_count": 10000,
+    "average_time_ns": 49.698
+  },
+  {
+    "op_name": "PUSH2",
+    "sample_count": 10000,
+    "average_time_ns": 49.5609
+  },
+  {
+    "op_name": "POP",
+    "sample_count": 10000,
+    "average_time_ns": 50.4968
+  },
+  {
+    "op_name": "JUMPDEST",
+    "sample_count": 10000,
+    "average_time_ns": 49.663
+  },
+  {
+    "op_name": "SWAP1",
+    "sample_count": 10000,
+    "average_time_ns": 51.278
+  },
+  {
+    "op_name": "JUMPI",
+    "sample_count": 10000,
+    "average_time_ns": 49.652
+  },
+  {
+    "op_name": "DUP2",
+    "sample_count": 10000,
+    "average_time_ns": 49.667
+  },
+  {
+    "op_name": "JUMP",
+    "sample_count": 10000,
+    "average_time_ns": 49.487
+  },
+  {
+    "op_name": "ADD",
+    "sample_count": 10000,
+    "average_time_ns": 49.584
+  },
+  {
+    "op_name": "DUP1",
+    "sample_count": 10000,
+    "average_time_ns": 49.7329
+  },
+  {
+    "op_name": "SWAP2",
+    "sample_count": 10000,
+    "average_time_ns": 49.654
+  },
+  {
+    "op_name": "DUP3",
+    "sample_count": 10000,
+    "average_time_ns": 49.686
+  },
+  {
+    "op_name": "AND",
+    "sample_count": 10000,
+    "average_time_ns": 49.9258
+  },
+  {
+    "op_name": "MSTORE",
+    "sample_count": 10000,
+    "average_time_ns": 74.36
+  },
+  {
+    "op_name": "ISZERO",
+    "sample_count": 10000,
+    "average_time_ns": 49.684
+  },
+  {
+    "op_name": "DUP4",
+    "sample_count": 10000,
+    "average_time_ns": 49.7739
+  },
+  {
+    "op_name": "MLOAD",
+    "sample_count": 10000,
+    "average_time_ns": 70.3018
+  },
+  {
+    "op_name": "SUB",
+    "sample_count": 10000,
+    "average_time_ns": 51.2129
+  },
+  {
+    "op_name": "SWAP3",
+    "sample_count": 10000,
+    "average_time_ns": 49.7909
+  },
+  {
+    "op_name": "PUSH4",
+    "sample_count": 10000,
+    "average_time_ns": 50.0099
+  },
+  {
+    "op_name": "EQ",
+    "sample_count": 10000,
+    "average_time_ns": 51.62
+  },
+  {
+    "op_name": "DUP5",
+    "sample_count": 10000,
+    "average_time_ns": 49.4768
+  },
+  {
+    "op_name": "PUSH0",
+    "sample_count": 10000,
+    "average_time_ns": 49.9539
+  },
+  {
+    "op_name": "PUSH20",
+    "sample_count": 10000,
+    "average_time_ns": 50.144
+  },
+  {
+    "op_name": "GT",
+    "sample_count": 10000,
+    "average_time_ns": 49.8168
+  },
+  {
+    "op_name": "LT",
+    "sample_count": 10000,
+    "average_time_ns": 50.001
+  },
+  {
+    "op_name": "SHL",
+    "sample_count": 10000,
+    "average_time_ns": 49.4469
+  },
+  {
+    "op_name": "DUP6",
+    "sample_count": 10000,
+    "average_time_ns": 49.696
+  },
+  {
+    "op_name": "CALLDATALOAD",
+    "sample_count": 10000,
+    "average_time_ns": 49.7849
+  },
+  {
+    "op_name": "SWAP4",
+    "sample_count": 10000,
+    "average_time_ns": 49.7279
+  },
+  {
+    "op_name": "SLOAD",
+    "sample_count": 10000,
+    "average_time_ns": 254.5949
+  },
+  {
+    "op_name": "DUP7",
+    "sample_count": 10000,
+    "average_time_ns": 50.865
+  },
+  {
+    "op_name": "PUSH32",
+    "sample_count": 10000,
+    "average_time_ns": 49.98
+  },
+  {
+    "op_name": "MUL",
+    "sample_count": 10000,
+    "average_time_ns": 50.611
+  },
+  {
+    "op_name": "DIV",
+    "sample_count": 10000,
+    "average_time_ns": 50.292
+  },
+  {
+    "op_name": "KECCAK256",
+    "sample_count": 10000,
+    "average_time_ns": 80.8788
+  },
+  {
+    "op_name": "SHR",
+    "sample_count": 10000,
+    "average_time_ns": 50.5569
+  },
+  {
+    "op_name": "SWAP5",
+    "sample_count": 10000,
+    "average_time_ns": 49.867
+  },
+  {
+    "op_name": "CALLDATASIZE",
+    "sample_count": 10000,
+    "average_time_ns": 49.949
+  },
+  {
+    "op_name": "DUP8",
+    "sample_count": 10000,
+    "average_time_ns": 50.7369
+  },
+  {
+    "op_name": "OR",
+    "sample_count": 10000,
+    "average_time_ns": 49.698
+  },
+  {
+    "op_name": "SWAP6",
+    "sample_count": 10000,
+    "average_time_ns": 51.685
+  },
+  {
+    "op_name": "NOT",
+    "sample_count": 10000,
+    "average_time_ns": 49.984
+  },
+  {
+    "op_name": "DUP9",
+    "sample_count": 10000,
+    "average_time_ns": 50.2699
+  },
+  {
+    "op_name": "SLT",
+    "sample_count": 10000,
+    "average_time_ns": 50.4679
+  },
+  {
+    "op_name": "DUP10",
+    "sample_count": 10000,
+    "average_time_ns": 49.8257
+  },
+  {
+    "op_name": "RETURNDATASIZE",
+    "sample_count": 10000,
+    "average_time_ns": 50.7028
+  },
+  {
+    "op_name": "SSTORE",
+    "sample_count": 10000,
+    "average_time_ns": 400.4546
+  },
+  {
+    "op_name": "CALLER",
+    "sample_count": 10000,
+    "average_time_ns": 50.3729
+  },
+  {
+    "op_name": "MULMOD",
+    "sample_count": 10000,
+    "average_time_ns": 50.17
+  },
+  {
+    "op_name": "ADDMOD",
+    "sample_count": 10000,
+    "average_time_ns": 50.348
+  },
+  {
+    "op_name": "CALLVALUE",
+    "sample_count": 10000,
+    "average_time_ns": 50.7919
+  },
+  {
+    "op_name": "PUSH8",
+    "sample_count": 10000,
+    "average_time_ns": 51.444
+  },
+  {
+    "op_name": "DUP11",
+    "sample_count": 10000,
+    "average_time_ns": 51.786
+  },
+  {
+    "op_name": "GAS",
+    "sample_count": 10000,
+    "average_time_ns": 50.269
+  },
+  {
+    "op_name": "PUSH3",
+    "sample_count": 10000,
+    "average_time_ns": 50.241
+  },
+  {
+    "op_name": "SWAP7",
+    "sample_count": 10000,
+    "average_time_ns": 50.1519
+  },
+  {
+    "op_name": "PUSH14",
+    "sample_count": 10000,
+    "average_time_ns": 50.4829
+  },
+  {
+    "op_name": "RETURN",
+    "sample_count": 10000,
+    "average_time_ns": 84.755
+  },
+  {
+    "op_name": "EXP",
+    "sample_count": 10000,
+    "average_time_ns": 75.9119
+  },
+  {
+    "op_name": "SWAP8",
+    "sample_count": 10000,
+    "average_time_ns": 50.112
+  },
+  {
+    "op_name": "SIGNEXTEND",
+    "sample_count": 10000,
+    "average_time_ns": 49.6848
+  },
+  {
+    "op_name": "DUP12",
+    "sample_count": 10000,
+    "average_time_ns": 49.9559
+  },
+  {
+    "op_name": "PUSH29",
+    "sample_count": 10000,
+    "average_time_ns": 49.864
+  },
+  {
+    "op_name": "SWAP9",
+    "sample_count": 10000,
+    "average_time_ns": 51.7318
+  },
+  {
+    "op_name": "CALL",
+    "sample_count": 10000,
+    "average_time_ns": 588.5624
+  },
+  {
+    "op_name": "DUP13",
+    "sample_count": 10000,
+    "average_time_ns": 50.137
+  },
+  {
+    "op_name": "ADDRESS",
+    "sample_count": 10000,
+    "average_time_ns": 50.695
+  },
+  {
+    "op_name": "LOG3",
+    "sample_count": 10000,
+    "average_time_ns": 111.8879
+  },
+  {
+    "op_name": "STATICCALL",
+    "sample_count": 10000,
+    "average_time_ns": 344.3398
+  },
+  {
+    "op_name": "DUP14",
+    "sample_count": 10000,
+    "average_time_ns": 49.871
+  },
+  {
+    "op_name": "PUSH28",
+    "sample_count": 10000,
+    "average_time_ns": 50.704
+  },
+  {
+    "op_name": "PUSH16",
+    "sample_count": 10000,
+    "average_time_ns": 50.5419
+  },
+  {
+    "op_name": "CALLDATACOPY",
+    "sample_count": 10000,
+    "average_time_ns": 134.4499
+  },
+  {
+    "op_name": "EXTCODESIZE",
+    "sample_count": 10000,
+    "average_time_ns": 229.1397
+  },
+  {
+    "op_name": "STOP",
+    "sample_count": 10000,
+    "average_time_ns": 50.234
+  },
+  {
+    "op_name": "SWAP10",
+    "sample_count": 10000,
+    "average_time_ns": 51.5459
+  },
+  {
+    "op_name": "PUSH5",
+    "sample_count": 10000,
+    "average_time_ns": 50.09
+  },
+  {
+    "op_name": "RETURNDATACOPY",
+    "sample_count": 10000,
+    "average_time_ns": 113.125
+  },
+  {
+    "op_name": "SGT",
+    "sample_count": 10000,
+    "average_time_ns": 50.5519
+  },
+  {
+    "op_name": "TIMESTAMP",
+    "sample_count": 10000,
+    "average_time_ns": 51.3419
+  },
+  {
+    "op_name": "SWAP12",
+    "sample_count": 10000,
+    "average_time_ns": 50.6089
+  },
+  {
+    "op_name": "PUSH15",
+    "sample_count": 10000,
+    "average_time_ns": 50.4699
+  },
+  {
+    "op_name": "SWAP11",
+    "sample_count": 10000,
+    "average_time_ns": 51.0669
+  },
+  {
+    "op_name": "SWAP13",
+    "sample_count": 10000,
+    "average_time_ns": 50.91
+  },
+  {
+    "op_name": "SWAP14",
+    "sample_count": 10000,
+    "average_time_ns": 50.843
+  },
+  {
+    "op_name": "DUP15",
+    "sample_count": 10000,
+    "average_time_ns": 49.987
+  },
+  {
+    "op_name": "PUSH7",
+    "sample_count": 10000,
+    "average_time_ns": 50.064
+  },
+  {
+    "op_name": "DELEGATECALL",
+    "sample_count": 10000,
+    "average_time_ns": 409.2689
+  },
+  {
+    "op_name": "DUP16",
+    "sample_count": 10000,
+    "average_time_ns": 49.7818
+  },
+  {
+    "op_name": "CODESIZE",
+    "sample_count": 10000,
+    "average_time_ns": 50.986
+  },
+  {
+    "op_name": "CODECOPY",
+    "sample_count": 10000,
+    "average_time_ns": 124.0938
+  },
+  {
+    "op_name": "MOD",
+    "sample_count": 10000,
+    "average_time_ns": 51.342
+  },
+  {
+    "op_name": "LOG1",
+    "sample_count": 10000,
+    "average_time_ns": 135.3127
+  },
+  {
+    "op_name": "ORIGIN",
+    "sample_count": 10000,
+    "average_time_ns": 51.8719
+  },
+  {
+    "op_name": "BYTE",
+    "sample_count": 10000,
+    "average_time_ns": 50.739
+  },
+  {
+    "op_name": "PUSH12",
+    "sample_count": 10000,
+    "average_time_ns": 50.701
+  },
+  {
+    "op_name": "SDIV",
+    "sample_count": 10000,
+    "average_time_ns": 51.124
+  },
+  {
+    "op_name": "LOG2",
+    "sample_count": 10000,
+    "average_time_ns": 129.3368
+  },
+  {
+    "op_name": "SELFBALANCE",
+    "sample_count": 10000,
+    "average_time_ns": 54.239
+  },
+  {
+    "op_name": "SAR",
+    "sample_count": 10000,
+    "average_time_ns": 52.296
+  },
+  {
+    "op_name": "PUSH31",
+    "sample_count": 10000,
+    "average_time_ns": 52.0709
+  },
+  {
+    "op_name": "PUSH6",
+    "sample_count": 10000,
+    "average_time_ns": 50.6299
+  },
+  {
+    "op_name": "XOR",
+    "sample_count": 10000,
+    "average_time_ns": 50.4339
+  },
+  {
+    "op_name": "MSTORE8",
+    "sample_count": 10000,
+    "average_time_ns": 63.635
+  },
+  {
+    "op_name": "PUSH17",
+    "sample_count": 10000,
+    "average_time_ns": 54.198
+  },
+  {
+    "op_name": "SMOD",
+    "sample_count": 10000,
+    "average_time_ns": 52.863
+  },
+  {
+    "op_name": "PUSH10",
+    "sample_count": 10000,
+    "average_time_ns": 51.321
+  },
+  {
+    "op_name": "PUSH9",
+    "sample_count": 10000,
+    "average_time_ns": 51.348
+  },
+  {
+    "op_name": "CHAINID",
+    "sample_count": 10000,
+    "average_time_ns": 56.389
+  },
+  {
+    "op_name": "PUSH21",
+    "sample_count": 10000,
+    "average_time_ns": 52.358
+  },
+  {
+    "op_name": "SWAP15",
+    "sample_count": 10000,
+    "average_time_ns": 54.904
+  },
+  {
+    "op_name": "NUMBER",
+    "sample_count": 10000,
+    "average_time_ns": 53.073
+  },
+  {
+    "op_name": "PUSH11",
+    "sample_count": 10000,
+    "average_time_ns": 52.94
+  },
+  {
+    "op_name": "PUSH13",
+    "sample_count": 10000,
+    "average_time_ns": 51.033
+  },
+  {
+    "op_name": "PUSH24",
+    "sample_count": 10000,
+    "average_time_ns": 56.0439
+  },
+  {
+    "op_name": "LOG4",
+    "sample_count": 10000,
+    "average_time_ns": 184.8608
+  },
+  {
+    "op_name": "MCOPY",
+    "sample_count": 10000,
+    "average_time_ns": 168.693
+  },
+  {
+    "op_name": "PUSH30",
+    "sample_count": 10000,
+    "average_time_ns": 51.818
+  },
+  {
+    "op_name": "REVERT",
+    "sample_count": 10000,
+    "average_time_ns": 91.5339
+  },
+  {
+    "op_name": "TSTORE",
+    "sample_count": 10000,
+    "average_time_ns": 58.582
+  },
+  {
+    "op_name": "TLOAD",
+    "sample_count": 10000,
+    "average_time_ns": 60.212
+  },
+  {
+    "op_name": "BALANCE",
+    "sample_count": 10000,
+    "average_time_ns": 166.4949
+  },
+  {
+    "op_name": "PUSH26",
+    "sample_count": 10000,
+    "average_time_ns": 55.889
+  },
+  {
+    "op_name": "PUSH25",
+    "sample_count": 10000,
+    "average_time_ns": 52.771
+  },
+  {
+    "op_name": "PUSH22",
+    "sample_count": 10000,
+    "average_time_ns": 55.7863
+  },
+  {
+    "op_name": "EXTCODEHASH",
+    "sample_count": 10000,
+    "average_time_ns": 210.8535
+  },
+  {
+    "op_name": "SWAP16",
+    "sample_count": 10000,
+    "average_time_ns": 54.6124
+  },
+  {
+    "op_name": "BASEFEE",
+    "sample_count": 10000,
+    "average_time_ns": 57.36
+  },
+  {
+    "op_name": "COINBASE",
+    "sample_count": 10000,
+    "average_time_ns": 53.7901
+  },
+  {
+    "op_name": "GASPRICE",
+    "sample_count": 10000,
+    "average_time_ns": 60.0762
+  },
+  {
+    "op_name": "PUSH19",
+    "sample_count": 10000,
+    "average_time_ns": 53.9131
+  },
+  {
+    "op_name": "PUSH27",
+    "sample_count": 10000,
+    "average_time_ns": 52.0615
+  },
+  {
+    "op_name": "PUSH18",
+    "sample_count": 10000,
+    "average_time_ns": 52.93
+  },
+  {
+    "op_name": "PC",
+    "sample_count": 10000,
+    "average_time_ns": 52.1112
+  },
+  {
+    "op_name": "BLOBHASH",
+    "sample_count": 10000,
+    "average_time_ns": 52.2551
+  },
+  {
+    "op_name": "BLOCKHASH",
+    "sample_count": 10000,
+    "average_time_ns": 57.1322
+  },
+  {
+    "op_name": "PUSH23",
+    "sample_count": 10000,
+    "average_time_ns": 60.3841
+  },
+  {
+    "op_name": "DIFFICULTY",
+    "sample_count": 10000,
+    "average_time_ns": 61.3831
+  },
+  {
+    "op_name": "MSIZE",
+    "sample_count": 10000,
+    "average_time_ns": 50.2271
+  },
+  {
+    "op_name": "CREATE2",
+    "sample_count": 10000,
+    "average_time_ns": 1454.0046
+  },
+  {
+    "op_name": "SELFDESTRUCT",
+    "sample_count": 10000,
+    "average_time_ns": 348.3116
+  },
+  {
+    "op_name": "BLOBBASEFEE",
+    "sample_count": 10000,
+    "average_time_ns": 56.1228
+  },
+  {
+    "op_name": "LOG0",
+    "sample_count": 10000,
+    "average_time_ns": 164.4144
+  },
+  {
+    "op_name": "CREATE",
+    "sample_count": 10000,
+    "average_time_ns": 831.1052
+  },
+  {
+    "op_name": "INVALID",
+    "sample_count": 10000,
+    "average_time_ns": 63.3231
+  },
+  {
+    "op_name": "EXTCODECOPY",
+    "sample_count": 10000,
+    "average_time_ns": 666.8923
+  }
+]
