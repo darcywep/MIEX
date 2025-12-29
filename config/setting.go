@@ -1,6 +1,10 @@
 package config
 
-import "github.com/syndtr/goleveldb/leveldb/opt"
+import (
+	"github.com/syndtr/goleveldb/leveldb/opt"
+	"path/filepath"
+	"runtime"
+)
 
 var Options = &opt.Options{
 	//BlockCacheCapacity: 0, // 禁用 block cache
@@ -76,3 +80,12 @@ const (
 	CalcKeysPerTx    = ComputingWriteN + ComputingReadN // 每个计算交易读的 key 数
 	IoKeysPerTx      = IoWriteN + IoReadN               // 每个 IO 交易读的 key 数)
 )
+
+var InstructionTimingFilePath string
+
+func init() {
+	// 在 init 中计算项目根目录
+	_, filename, _, _ := runtime.Caller(0)
+	ProjectRoot := filepath.Dir(filepath.Dir(filename))
+	InstructionTimingFilePath = filepath.Join(ProjectRoot, "config", "instruction_timings.json")
+}

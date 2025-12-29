@@ -4,13 +4,10 @@
 package vm
 
 import (
+	"Janus/config"
 	"encoding/json"
 	"fmt"
 	"os"
-)
-
-const (
-	TimingDataFile = "instruction_timings.json"
 )
 
 // InstructionTiming 存储单个指令的计时信息
@@ -24,7 +21,7 @@ type InstructionTiming struct {
 var InstructionTimers map[OpCode]*InstructionTiming
 
 func init() {
-	timings, err := LoadTimings(TimingDataFile)
+	timings, err := LoadTimings(config.InstructionTimingFilePath)
 	if err != nil {
 		fmt.Printf("⚠️ 无法加载指令计时数据: %v\n", err)
 		InstructionTimers = make(map[OpCode]*InstructionTiming)
@@ -32,12 +29,13 @@ func init() {
 	}
 
 	InstructionTimers = make(map[OpCode]*InstructionTiming)
-	for opcode := OpCode(0); opcode <= OpCode(0xff); opcode++ {
-		if timing, exists := timings[opcode.String()]; exists {
-			timing.OpCode = opcode
-			InstructionTimers[opcode] = timing
-		}
+	for _, timing := range timings {
+		timing.OpCode = StringToOp(timing.OpName)
+		timing.AverageTime = timing.AverageTime / 100
+		InstructionTimers[timing.OpCode] = timing
+		//fmt.Println(timing.OpName, timing.OpCode, timing.SampleCount, timing.AverageTime)
 	}
+
 }
 
 // LoadTimings 从文件加载指令计时数据
@@ -66,17 +64,17 @@ func LoadTimings(filename string) (map[string]*InstructionTiming, error) {
 }
 
 // GetTimingByOpCode 根据OpCode获取计时信息
-func GetTimingByOpCode(timings map[string]*InstructionTiming, opcode OpCode) *InstructionTiming {
-	opname := opcode.String()
-	if timing, exists := timings[opname]; exists {
+func GetTimingByOpCode(op OpCode) *InstructionTiming {
+	if timing, exists := InstructionTimers[op]; exists {
 		return timing
 	}
 	return nil
 }
 
 // PrintTimingSummary 打印计时数据摘要
-func PrintTimingSummary(timings map[string]*InstructionTiming) {
-	if len(timings) == 0 {
+func PrintTimingSummary() {
+	fmt.Println("PrintTimingSummary")
+	if len(InstructionTimers) == 0 {
 		fmt.Println("没有计时数据")
 		return
 	}
@@ -84,7 +82,7 @@ func PrintTimingSummary(timings map[string]*InstructionTiming) {
 	fmt.Println("\n╔═══════════════════════════════════════════════════════════╗")
 	fmt.Println("║  指令计时数据摘要")
 	fmt.Println("╠═══════════════════════════════════════════════════════════╣")
-	fmt.Printf("║  总指令数: %d\n", len(timings))
+	fmt.Printf("║  总指令数: %d\n", len(InstructionTimers))
 	fmt.Println("╠═══════════════════════════════════════════════════════════╣")
 	fmt.Println("║  Op Name         | Samples | Avg Time (ns)")
 	fmt.Println("╠═══════════════════════════════════════════════════════════╣")
@@ -94,7 +92,8 @@ func PrintTimingSummary(timings map[string]*InstructionTiming) {
 	var totalSamples int
 	var totalTime float64
 
-	for _, timing := range timings {
+	for _, timing := range InstructionTimers {
+		fmt.Println(timing.OpCode, timing.OpName, timing.SampleCount, timing.AverageTime)
 		totalSamples += timing.SampleCount
 		totalTime += timing.AverageTime * float64(timing.SampleCount)
 

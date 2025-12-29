@@ -23,12 +23,14 @@ const (
 
 type janusTransaction struct {
 	Tx            *types.Transaction
+	rwSet         *ReadWriteSet
+	ExecutionCost float64 // Estimated execution cost
+	OriginalIdx   int
+
 	IsLongTx      bool
 	EarlyAbort    bool
 	CheckConflict bool
 	IsRuned       bool
-	rwSet         *ReadWriteSet
-	OriginalIdx   int
 }
 
 // Task 任务
@@ -179,7 +181,7 @@ type ReadWriteSet struct {
 	Tx         *janusTransaction
 	ReadSet    map[string]struct{} // 读集合
 	WriteSet   map[string]struct{} // 写集合
-	Cost       uint64              // 执行成本
+	Cost       float64             // 执行成本
 	ThreadID   int                 // 执行该交易的线程ID
 	EarlyAbort bool                // 是否被 Early Abort
 	Executed   bool                // 是否已执行（用于追踪提前执行的交易）
