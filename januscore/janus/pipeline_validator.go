@@ -227,10 +227,51 @@ func (pe *PipelineEngine) buildConflictEdges(txOps []*TxOperation, addr string, 
 			// tx_i 有写，tx_j 有读，产生冲突
 			if txOps[j].HasRead {
 				// 所有边类型都标记为 WR（用于最大提交验证）
-				pe.addEdgeWithDetail(dag, txOps[i].TxID, txOps[j].TxID, addr, "WR")
+				//pe.addEdgeWithDetail(dag, txOps[i].TxID, txOps[j].TxID, addr, "WR")
+				fromTxID := txOps[i].TxID
+				toTxID := txOps[j].TxID
+
+				// 【修改】检查边是否已存在，避免重复添加
+				if !pe.hasEdge(dag, fromTxID, toTxID) {
+					pe.addEdge(dag, fromTxID, toTxID)
+				}
+
 			}
 		}
 	}
+}
+
+// ============================================================================
+// 【修改2】hasEdge - 检查两个交易之间是否已存在边
+// ============================================================================
+// hasEdge 检查两个交易之间是否已存在边
+func (pe *PipelineEngine) hasEdge(dag *ConflictDAG, from, to int) bool {
+	toSet, exists := dag.Edges[from]
+	if !exists {
+		return false
+	}
+	_, hasEdge := toSet[to]
+	return hasEdge
+}
+
+// ============================================================================
+// 【修改3】addEdge - 添加边（简化版，不记录冲突详情）
+// ============================================================================
+// addEdge 添加边到DAG
+// 参数：
+//   - from: 源交易ID
+//   - to: 目标交易ID
+func (pe *PipelineEngine) addEdge(dag *ConflictDAG, from, to int) {
+	// 初始化 from 的边集合（如果不存在）
+	if dag.Edges[from] == nil {
+		dag.Edges[from] = make(map[int]struct{})
+	}
+
+	// 添加边 from -> to
+	dag.Edges[from][to] = struct{}{}
+
+	// 增加 to 的入度
+	dag.InDegree[to]++
 }
 
 // addEdgeWithDetail 添加边到DAG，并记录冲突详情
@@ -239,20 +280,23 @@ func (pe *PipelineEngine) buildConflictEdges(txOps []*TxOperation, addr string, 
 //   - to: 目标交易ID
 //   - address: 冲突的状态地址
 //   - conflictType: 冲突类型 "WR" 或 "WRW"
-func (pe *PipelineEngine) addEdgeWithDetail(dag *ConflictDAG, from, to int, address, conflictType string) {
-	// 创建冲突边
-	edge := &ConflictEdge{
-		From:    from,
-		To:      to,
-		Address: address,
-		Type:    conflictType,
-	}
-
-	// 添加到 EdgeDetails
-	dag.EdgeDetails[from] = append(dag.EdgeDetails[from], edge)
-
-	dag.InDegree[to]++
-}
+//func (pe *PipelineEngine) addEdgeWithDetail(dag *ConflictDAG, from, to int, address, conflictType string) {
+//	// 创建冲突边
+//	edge := &ConflictEdge{
+//		From:    from,
+//		To:      to,
+//		Address: address,
+//		Type:    conflictType,
+//	}
+//
+//	// 添加到 EdgeDetails
+//	//dag.EdgeDetails[from] = append(dag.EdgeDetails[from], edge)
+//	if _, ok := dag.EdgeDetails[from][to]; !ok {
+//		dag.EdgeDetails[from][to] = edge
+//	}
+//
+//	dag.InDegree[to]++
+//}
 
 // TxOperation 表示一个交易对某个地址的所有操作
 type TxOperation struct {
@@ -294,7 +338,8 @@ func (pe *PipelineEngine) constructDAGForAddress(state *BatchState, rwTable1, rw
 						panic(fmt.Errorf("dag.Nodes[%d].rwSet is nil", txOp.TxID))
 					}
 					dag.Nodes[txOp.TxID] = rwset // 添加节点
-					dag.EdgeDetails[txOp.TxID] = make([]*ConflictEdge, 0)
+					//dag.EdgeDetails[txOp.TxID] = make(map[int]*ConflictEdge)
+					dag.Edges[txOp.TxID] = make(map[int]struct{})
 					dag.InDegree[txOp.TxID] = 0
 				}
 			}
@@ -319,13 +364,24 @@ func (pe *PipelineEngine) mergeTwoDags(state *BatchState, pairDag *ConflictDAG, 
 		// 如果节点尚未添加到DAG中
 		if _, exists := dag.Nodes[nodeID]; !exists {
 			dag.Nodes[nodeID] = rwset // 添加节点
-			dag.EdgeDetails[nodeID] = pairDag.EdgeDetails[nodeID]
+			dag.Edges[nodeID] = pairDag.Edges[nodeID]
+			//dag.EdgeDetails[nodeID] = pairDag.EdgeDetails[nodeID]
 			dag.InDegree[nodeID] = pairDag.InDegree[nodeID]
 			continue
 		}
 		// 节点已存在，合并边和入度
-		dag.EdgeDetails[nodeID] = append(dag.EdgeDetails[nodeID], pairDag.EdgeDetails[nodeID]...)
-		dag.InDegree[nodeID] += pairDag.InDegree[nodeID]
+		// 【修改】节点已存在，合并边集合
+		// 遍历pairDag中该节点的所有出边
+		for toNodeID := range pairDag.Edges[nodeID] {
+			// 如果边不存在，添加边并增加入度
+			if _, edgeExists := dag.Edges[nodeID][toNodeID]; !edgeExists {
+				dag.Edges[nodeID][toNodeID] = struct{}{}
+				dag.InDegree[toNodeID]++
+			}
+			// 如果边已存在，无需任何操作（避免重复增加入度）
+		}
+		//dag.EdgeDetails[nodeID] = append(dag.EdgeDetails[nodeID], pairDag.EdgeDetails[nodeID]...)
+		//dag.InDegree[nodeID] += pairDag.InDegree[nodeID]
 	}
 	if pairDag.totalMerges != -1 {
 		dag.totalMerges = pairDag.totalMerges

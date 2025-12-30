@@ -427,8 +427,9 @@ func (pe *PipelineEngine) tryConstructDAG(state *BatchState, workerID int) (pair
 		// ok == true，抢一个 slot
 		if state.constructDAG.dags[workerID] == nil {
 			state.constructDAG.dags[workerID] = &ConflictDAG{
-				Nodes:       make(map[int]*ReadWriteSet),
-				EdgeDetails: make(map[int][]*ConflictEdge),
+				Nodes: make(map[int]*ReadWriteSet),
+				//EdgeDetails: make(map[int][]*ConflictEdge),
+				Edges:       make(map[int]map[int]struct{}),
 				InDegree:    make(map[int]int),
 				totalMerges: -1,
 			}

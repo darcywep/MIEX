@@ -5,7 +5,7 @@
       <webServer id="2f516b40-809d-4084-aef4-5dec2b14137f" name="bcds73">
         <fileTransfer rootFolder="/root" accessType="SFTP" host="10.1.101.73" port="22" sshConfigId="1ec36a4c-007b-4a93-a3ef-046099aad433" sshConfig="bcds73">
           <advancedOptions>
-            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
           </advancedOptions>
         </fileTransfer>
       </webServer>
