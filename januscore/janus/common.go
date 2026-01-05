@@ -1,15 +1,25 @@
 package janus
 
 import (
-	"sync"
+	"sync/atomic"
 )
 
-func waitHere(workerID int, mu *sync.Mutex, cond *sync.Cond, done *bool) (isWait bool) {
-	mu.Lock()
-	for !(*done) {
+//func waitHere(workerID int, mu *sync.Mutex, cond *sync.Cond, done *bool) (isWait bool) {
+//	mu.Lock()
+//	for !(*done) {
+//		isWait = true
+//		cond.Wait()
+//	}
+//	mu.Unlock()
+//	return isWait
+//}
+
+func waitHere(done *atomic.Bool) (isWait bool) {
+	//mu.Lock()
+	for !done.Load() {
 		isWait = true
-		cond.Wait()
+		//cond.Wait()
 	}
-	mu.Unlock()
+	//mu.Unlock()
 	return isWait
 }

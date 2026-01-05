@@ -7,7 +7,6 @@ import (
 	"math/bits"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 // TaskType 任务类型
@@ -69,7 +68,8 @@ type ThreadStateTableForMerge struct {
 	totalMerges         int // 需要合并的总次数 (n-1)
 	completedMergeCount int // 已完成的合并次数
 
-	done bool
+	//done bool
+	done atomic.Bool
 }
 
 func (tstfm *ThreadStateTableForMerge) awakeOrWaitThreadStateTableForMerge(state *BatchState, completedMergeCount int, workerID int) (isWait bool) {
@@ -78,29 +78,33 @@ func (tstfm *ThreadStateTableForMerge) awakeOrWaitThreadStateTableForMerge(state
 		// 需要等待
 		if completedMergeCount < tstfm.totalMerges {
 			// 不是最后一次合并，等待
-			fmt.Printf("[Worker %d] [Merging] Batch %d: merge %d/%d waiting...\n", workerID, state.BatchID, completedMergeCount, tstfm.totalMerges)
-			startWait := time.Now()
-			tstfm.condMu.Lock()
-			for !tstfm.done {
-				tstfm.cond.Wait()
-			}
-			tstfm.condMu.Unlock()
-			elapsed := time.Since(startWait)
-			fmt.Printf("[Worker %d] [Merging] Batch %d: merge %d/%d resumed after waiting %s\n",
-				workerID, state.BatchID, completedMergeCount, tstfm.totalMerges, elapsed)
+			//fmt.Printf("[Worker %d] [Merging] Batch %d: merge %d/%d waiting...\n", workerID, state.BatchID, completedMergeCount, tstfm.totalMerges)
+			//startWait := time.Now()
+			//for !tstfm.done.Load() {
+			//	// busy wait
+			//}
+			//tstfm.condMu.Lock()
+			//for !tstfm.done {
+			//	tstfm.cond.Wait()
+			//}
+			//tstfm.condMu.Unlock()
+			//elapsed := time.Since(startWait)
+			//fmt.Printf("[Worker %d] [Merging] Batch %d: merge %d/%d resumed after waiting %s\n",
+			//	workerID, state.BatchID, completedMergeCount, tstfm.totalMerges, elapsed)
 		} else {
 			// 最后一次合并，唤醒所有等待的
-			fmt.Printf("[Worker %d] [Merging] Batch %d: merge %d/%d completed, broadcasting to all waiting...\n",
-				workerID, state.BatchID, completedMergeCount, tstfm.totalMerges)
-			fmt.Printf("[Worker %d] [Merging] Batch %d have access %d address\n", workerID, state.BatchID, len(tstfm.stateTablesQueue[0]))
-
 			for _, rwTable := range tstfm.stateTablesQueue[0] {
 				state.constructDAG.stateTables = append(state.constructDAG.stateTables, rwTable)
 			}
-			tstfm.condMu.Lock()
-			tstfm.done = true
-			tstfm.cond.Broadcast()
-			tstfm.condMu.Unlock()
+			tstfm.done.Store(true)
+			//fmt.Printf("[Worker %d] [Merging] Batch %d: merge %d/%d completed, broadcasting to all waiting...\n",
+			//	workerID, state.BatchID, completedMergeCount, tstfm.totalMerges)
+			//fmt.Printf("[Worker %d] [Merging] Batch %d have access %d address\n", workerID, state.BatchID, len(tstfm.stateTablesQueue[0]))
+
+			//tstfm.condMu.Lock()
+			//tstfm.done = true
+			//tstfm.cond.Broadcast()
+			//tstfm.condMu.Unlock()
 		}
 		return true // 可以先休息一会，休息完继续做牛马
 	}
@@ -211,7 +215,8 @@ type constructDAGResult struct {
 	//totalMerges         int // 需要合并的总次数 (n-1)
 	completedMergeCount int // 已完成的合并次数
 
-	done bool
+	//done bool
+	done atomic.Bool
 }
 
 func (cdr *constructDAGResult) awakeOrWaitConstructDAG(state *BatchState, completedMergeCount, totalMerges int, workerID int) (isWait bool) {
@@ -221,27 +226,27 @@ func (cdr *constructDAGResult) awakeOrWaitConstructDAG(state *BatchState, comple
 		// 需要等待
 		if completedMergeCount != totalMerges {
 			// 不是最后一次合并，等待
-			fmt.Printf("[Worker %d] [Merging] Batch %d: construct DAG %d/%d waiting...\n", workerID, state.BatchID, completedMergeCount, totalMerges)
-			startWait := time.Now()
-			cdr.condMu.Lock()
-			for !cdr.done {
-				cdr.cond.Wait()
+			//fmt.Printf("[Worker %d] [Merging] Batch %d: construct DAG %d/%d waiting...\n", workerID, state.BatchID, completedMergeCount, totalMerges)
+			//startWait := time.Now()
+			//cdr.condMu.Lock()
+			for !cdr.done.Load() {
+				//cdr.cond.Wait()
 			}
-			cdr.condMu.Unlock()
-			elapsed := time.Since(startWait)
-			fmt.Printf("[Worker %d] [Merging] Batch %d: construct DAG %d/%d resumed after waiting %s\n",
-				workerID, state.BatchID, completedMergeCount, totalMerges, elapsed)
+			//cdr.condMu.Unlock()
+			//elapsed := time.Since(startWait)
+			//fmt.Printf("[Worker %d] [Merging] Batch %d: construct DAG %d/%d resumed after waiting %s\n",
+			//	workerID, state.BatchID, completedMergeCount, totalMerges, elapsed)
 		} else {
 			// 最后一次合并，唤醒所有等待的
 			fmt.Printf("[Worker %d] [Merging] Batch %d: construct DAG %d/%d completed, broadcasting to all waiting...\n",
 				workerID, state.BatchID, completedMergeCount, totalMerges)
 			//
 			// TODO: 唤醒之前需要先找到所有的弱连通分量
-
-			cdr.condMu.Lock()
-			cdr.done = true
-			cdr.cond.Broadcast()
-			cdr.condMu.Unlock()
+			cdr.done.Store(true)
+			//cdr.condMu.Lock()
+			//cdr.done = true
+			//cdr.cond.Broadcast()
+			//cdr.condMu.Unlock()
 		}
 		return true // 可以先休息一会，休息完继续做牛马
 	}

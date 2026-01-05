@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"runtime"
 	"sync/atomic"
-	"time"
 )
 
 // NewPipelineEngine 创建流水线引擎
@@ -129,6 +128,9 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 		}
 
 		if pe.workerStaties[workerID].Phase == ConstructDAGPhase {
+			for !state.MergeThreadStateTables.done.Load() {
+				// busy wait
+			}
 			// 尝试获取合并任务
 			pairDag := pe.tryConstructDAG(state, workerID)
 			for pairDag != nil {
@@ -272,16 +274,19 @@ func (pe *PipelineEngine) nextTask(workerID int) (task *Task, pairWorkerID int) 
 	// 1. 下一批也无任务，或无下一批
 	fmt.Printf("[Worker %d]  Batch %d: Not Next Batch or Next Batch is all Executed,  waiting...\n", workerID, state.BatchID)
 
-	startWait := time.Now()
-	isWait := false
-	state.MergeThreadStateTables.condMu.Lock()
-	for !state.MergeThreadStateTables.done {
-		isWait = true
-		state.MergeThreadStateTables.cond.Wait()
-	}
-	state.MergeThreadStateTables.condMu.Unlock()
-	elapsed := time.Since(startWait)
-	fmt.Printf("[Woker %d] Batch %d: Waiting %t, Entry new phase resumed after waiting %s\n", workerID, state.BatchID, isWait, elapsed)
+	//startWait := time.Now()
+	//isWait := false
+	//for !state.MergeThreadStateTables.done.Load() {
+	//	isWait = true
+	//}
+	////state.MergeThreadStateTables.condMu.Lock()
+	////for !state.MergeThreadStateTables.done {
+	////	isWait = true
+	////	state.MergeThreadStateTables.cond.Wait()
+	////}
+	////state.MergeThreadStateTables.condMu.Unlock()
+	//elapsed := time.Since(startWait)
+	//fmt.Printf("[Woker %d] Batch %d: Waiting %t, Entry new phase resumed after waiting %s\n", workerID, state.BatchID, isWait, elapsed)
 	return nil, -1
 }
 
@@ -392,11 +397,14 @@ func (pe *PipelineEngine) tryConstructDAG(state *BatchState, workerID int) (pair
 		idx, ok := state.constructDAG.tryGetTaskAndActiveWorker(workerID)
 		if !ok { // 队列已完成，等价于 idx >= len(state.constructDAG.stateTables)
 			if state.constructDAG.dags[workerID] == nil { // 当前线程没有构建任何 DAG，说明没有任务可做，等待
-				fmt.Printf("[Worker %d] Batch %d: New join thread, but no more StateTables to construct DAG, waiting...\n", workerID, state.BatchID)
-				startWait := time.Now()
-				isWait := waitHere(workerID, &state.constructDAG.condMu, state.constructDAG.cond, &state.constructDAG.done)
-				elapsed := time.Since(startWait)
-				fmt.Printf("[Woker %d] Batch %d: New join thread, waiting %t, entry new phase resumed after waiting %s\n", workerID, state.BatchID, isWait, elapsed)
+				//fmt.Printf("[Worker %d] Batch %d: New join thread, but no more StateTables to construct DAG, waiting...\n", workerID, state.BatchID)
+				//startWait := time.Now()
+				//isWait := waitHere(workerID, &state.constructDAG.condMu, state.constructDAG.cond, &state.constructDAG.done)
+				for !state.constructDAG.done.Load() {
+					//isWait = true
+				}
+				//elapsed := time.Since(startWait)
+				//fmt.Printf("[Woker %d] Batch %d: New join thread, waiting %t, entry new phase resumed after waiting %s\n", workerID, state.BatchID, isWait, elapsed)
 				pe.workerStaties[workerID].Phase = CommitMaximumValidationPhase // 被唤醒之后进入下一阶段
 
 			} else { // 当前线程已经构建了 DAG，需要判断是否为第一个完成的线程，以及是否需要睡眠或唤醒所有线程
