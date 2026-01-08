@@ -231,27 +231,24 @@ func (pe *PipelineEngine) buildConflictEdges(txOps []*TxOperation, addr string, 
 				fromTxID := txOps[i].TxID
 				toTxID := txOps[j].TxID
 
-				// 【修改】检查边是否已存在，避免重复添加
+				// 检查边是否已存在，避免重复添加
 				if !pe.hasEdge(dag, fromTxID, toTxID) {
 					pe.addEdge(dag, fromTxID, toTxID)
 				}
-
 			}
 		}
 	}
 }
 
-// ============================================================================
-// 【修改2】hasEdge - 检查两个交易之间是否已存在边
-// ============================================================================
-// hasEdge 检查两个交易之间是否已存在边
+// hasEdge 检查两个节点之间是否已存在边（无向）
 func (pe *PipelineEngine) hasEdge(dag *ConflictDAG, from, to int) bool {
-	toSet, exists := dag.Edges[from]
-	if !exists {
-		return false
+	// 只需检查一个方向，因为无向图是对称的
+	if toSet, exists := dag.Edges[from]; exists {
+		if _, hasEdge := toSet[to]; hasEdge {
+			return true
+		}
 	}
-	_, hasEdge := toSet[to]
-	return hasEdge
+	return false
 }
 
 // ============================================================================
@@ -262,16 +259,33 @@ func (pe *PipelineEngine) hasEdge(dag *ConflictDAG, from, to int) bool {
 //   - from: 源交易ID
 //   - to: 目标交易ID
 func (pe *PipelineEngine) addEdge(dag *ConflictDAG, from, to int) {
+	//// 初始化 from 的边集合（如果不存在）
+	//if dag.Edges[from] == nil {
+	//	dag.Edges[from] = make(map[int]struct{})
+	//}
+	//
+	//// 添加边 from -> to
+	//dag.Edges[from][to] = struct{}{}
+	//
+	//// 增加 to 的入度
+	//dag.InDegree[to]++
+
 	// 初始化 from 的边集合（如果不存在）
 	if dag.Edges[from] == nil {
 		dag.Edges[from] = make(map[int]struct{})
 	}
+	// 初始化 to 的边集合（如果不存在）
+	if dag.Edges[to] == nil {
+		dag.Edges[to] = make(map[int]struct{})
+	}
 
-	// 添加边 from -> to
+	// 添加双向边 from <-> to
 	dag.Edges[from][to] = struct{}{}
+	dag.Edges[to][from] = struct{}{}
 
-	// 增加 to 的入度
-	dag.InDegree[to]++
+	// 无向图：增加两个节点的度数
+	dag.Degree[from]++
+	dag.Degree[to]++
 }
 
 // addEdgeWithDetail 添加边到DAG，并记录冲突详情
@@ -340,7 +354,7 @@ func (pe *PipelineEngine) constructDAGForAddress(state *BatchState, rwTable1, rw
 					dag.Nodes[txOp.TxID] = rwset // 添加节点
 					//dag.EdgeDetails[txOp.TxID] = make(map[int]*ConflictEdge)
 					dag.Edges[txOp.TxID] = make(map[int]struct{})
-					dag.InDegree[txOp.TxID] = 0
+					dag.Degree[txOp.TxID] = 0
 				}
 			}
 
@@ -365,23 +379,27 @@ func (pe *PipelineEngine) mergeTwoDags(state *BatchState, pairDag *ConflictDAG, 
 		if _, exists := dag.Nodes[nodeID]; !exists {
 			dag.Nodes[nodeID] = rwset // 添加节点
 			dag.Edges[nodeID] = pairDag.Edges[nodeID]
-			//dag.EdgeDetails[nodeID] = pairDag.EdgeDetails[nodeID]
-			dag.InDegree[nodeID] = pairDag.InDegree[nodeID]
+			dag.Degree[nodeID] = pairDag.Degree[nodeID]
 			continue
 		}
-		// 节点已存在，合并边和入度
-		// 【修改】节点已存在，合并边集合
-		// 遍历pairDag中该节点的所有出边
+
+		// 节点已存在，合并边集合（无向图）
+		// 遍历pairDag中该节点的所有邻接边
 		for toNodeID := range pairDag.Edges[nodeID] {
-			// 如果边不存在，添加边并增加入度
-			if _, edgeExists := dag.Edges[nodeID][toNodeID]; !edgeExists {
+			// 如果边不存在，添加双向边
+			if !pe.hasEdge(dag, nodeID, toNodeID) {
+				// 确保目标节点的边集合已初始化
+				if dag.Edges[toNodeID] == nil {
+					dag.Edges[toNodeID] = make(map[int]struct{})
+				}
+				// 添加双向边
 				dag.Edges[nodeID][toNodeID] = struct{}{}
-				dag.InDegree[toNodeID]++
+				dag.Edges[toNodeID][nodeID] = struct{}{}
+				// 增加度数
+				dag.Degree[nodeID]++
+				dag.Degree[toNodeID]++
 			}
-			// 如果边已存在，无需任何操作（避免重复增加入度）
 		}
-		//dag.EdgeDetails[nodeID] = append(dag.EdgeDetails[nodeID], pairDag.EdgeDetails[nodeID]...)
-		//dag.InDegree[nodeID] += pairDag.InDegree[nodeID]
 	}
 	if pairDag.totalMerges != -1 {
 		dag.totalMerges = pairDag.totalMerges

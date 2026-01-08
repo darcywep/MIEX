@@ -315,8 +315,10 @@ type ConflictEdge struct {
 type ConflictDAG struct {
 	Nodes map[int]*ReadWriteSet // 节点：交易ID -> 读写集
 	//EdgeDetails map[int][]*ConflictEdge // 边的详细信息：交易ID -> 从该交易出发的所有冲突边
-	Edges       map[int]map[int]struct{} // 【简化】边：from -> {to1: {}, to2: {}}，使用 map[int]struct{} 去重
-	InDegree    map[int]int              // 入度
+	//Edges       map[int]map[int]struct{} // 【简化】边：from -> {to1: {}, to2: {}}，使用 map[int]struct{} 去重
+	//InDegree    map[int]int              // 入度
+	Edges       map[int]map[int]struct{} // 【简化】边：nodeA -> {nodeB:  {}, nodeC: {}}，无向边
+	Degree      map[int]int              // 度数（每个节点的邻接边数量）
 	totalMerges int                      // 需要合并的总次数 (n-1)
 }
 
