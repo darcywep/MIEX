@@ -242,6 +242,18 @@ func (cdr *constructDAGResult) awakeOrWaitConstructDAG(state *BatchState, comple
 				workerID, state.BatchID, completedMergeCount, totalMerges)
 			//
 			// TODO: 唤醒之前需要先找到所有的弱连通分量
+			 // 🆕 日志：打印最终的连通分量结果
+            finalDag := cdr.dagQueue[0]
+            components := finalDag.GetConnectedComponents()
+            fmt.Printf("\n========== 最终 DAG 连通分量结果 ==========\n")
+            fmt.Printf("总节点数: %d\n", len(finalDag.Nodes))
+            fmt.Printf("总边数: %d\n", countEdges(finalDag))
+            fmt.Printf("连通分量数: %d\n", len(components))
+            for root, nodes := range components {
+                fmt.Printf("  连通分量 (root=%d): %v (大小=%d)\n", root, nodes, len(nodes))
+            }
+            fmt.Printf("============================================\n\n")
+
 			cdr.done.Store(true)
 			//cdr.condMu.Lock()
 			//cdr.done = true
@@ -251,6 +263,15 @@ func (cdr *constructDAGResult) awakeOrWaitConstructDAG(state *BatchState, comple
 		return true // 可以先休息一会，休息完继续做牛马
 	}
 	return false // 需要继续做牛马
+}
+
+// 统计边数
+func countEdges(dag *ConflictDAG) int {
+    count := 0
+    for _, neighbors := range dag.Edges {
+        count += len(neighbors)
+    }
+    return count / 2 // 无向图，每条边被计算两次
 }
 
 // tryGetTaskAndActiveWorker 原子地获取 slot 并标记 worker 为活跃
@@ -320,6 +341,51 @@ type ConflictDAG struct {
 	Edges       map[int]map[int]struct{} // 【简化】边：nodeA -> {nodeB:  {}, nodeC: {}}，无向边
 	Degree      map[int]int              // 度数（每个节点的邻接边数量）
 	totalMerges int                      // 需要合并的总次数 (n-1)
+
+	// 并查集，用于维护连通分量
+	parent map[int]int // 并查集的父节点映射 parent[x] = x 的父节点
+	rank   map[int]int // 并查集的秩映射 rank[x] = x 的秩（用于按秩合并优化
+}
+
+func (dag *ConflictDAG) Find(x int) int {
+	// 初始化
+	if _, exists := dag.parent[x]; !exists {
+		dag.parent[x] = x
+		dag.rank[x] = 0
+	}
+	// 路径压缩
+	if dag.parent[x] != x {
+		dag.parent[x] = dag.Find(dag.parent[x]) // 路径压缩
+	}
+	return dag.parent[x]
+}
+
+// 并查集按秩合并
+func (dag *ConflictDAG) Union(x, y int) {
+	rootX := dag.Find(x)
+	rootY := dag.Find(y)
+
+	if rootX != rootY {
+		// 按秩合并
+		if dag.rank[rootX] < dag.rank[rootY] {
+			dag.parent[rootX] = rootY
+		} else if dag.rank[rootX] > dag.rank[rootY] {
+			dag.parent[rootY] = rootX
+		} else {
+			dag.parent[rootY] = rootX
+			dag.rank[rootX]++
+		}
+	}
+}
+
+// 获取所有连通分量
+func (dag *ConflictDAG) GetConnectedComponents() map[int][]int {
+	components := make(map[int][]int)
+	for node := range dag.Nodes {
+		root := dag.Find(node)
+		components[root] = append(components[root], node)
+	}
+	return components
 }
 
 // StateTable 状态读写表

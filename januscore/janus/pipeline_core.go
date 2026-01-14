@@ -105,7 +105,7 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 		if pe.workerStaties[workerID].Phase == ExecuteTaskPhase {
 			task, pairWorkerID := pe.nextTask(workerID)
 			if task != nil {
-				// 执行任务
+				// 执行任务/交易
 				pe.executeTask(task, workerID)
 				continue
 			}
@@ -131,7 +131,7 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 			for !state.MergeThreadStateTables.done.Load() {
 				// busy wait
 			}
-			// 尝试获取合并任务
+			// todo:尝试获取合并任务,寻找弱连通分量
 			pairDag := pe.tryConstructDAG(state, workerID)
 			for pairDag != nil {
 				pairDag = pe.tryMergeDag(state, pairDag, workerID)
@@ -139,7 +139,7 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 			continue
 		}
 		if pe.workerStaties[workerID].Phase == CommitMaximumValidationPhase {
-
+			// todo: 提交最大验证
 		}
 	}
 }
@@ -441,6 +441,8 @@ func (pe *PipelineEngine) tryConstructDAG(state *BatchState, workerID int) (pair
 				//InDegree:    make(map[int]int),
 				Degree:      make(map[int]int),
 				totalMerges: -1,
+				parent: make(map[int]int),
+				rank: make(map[int]int),
 			}
 		}
 		// 如果是偶数，idx可能越界，但会在上面的判断中break掉
