@@ -242,17 +242,21 @@ func (cdr *constructDAGResult) awakeOrWaitConstructDAG(state *BatchState, comple
 				workerID, state.BatchID, completedMergeCount, totalMerges)
 			//
 			// TODO: 唤醒之前需要先找到所有的弱连通分量
-			 // 🆕 日志：打印最终的连通分量结果
-            finalDag := cdr.dagQueue[0]
-            components := finalDag.GetConnectedComponents()
-            fmt.Printf("\n========== 最终 DAG 连通分量结果 ==========\n")
-            fmt.Printf("总节点数: %d\n", len(finalDag.Nodes))
-            fmt.Printf("总边数: %d\n", countEdges(finalDag))
-            fmt.Printf("连通分量数: %d\n", len(components))
-            for root, nodes := range components {
-                fmt.Printf("  连通分量 (root=%d): %v (大小=%d)\n", root, nodes, len(nodes))
-            }
-            fmt.Printf("============================================\n\n")
+			// 🆕 日志：打印最终的连通分量结果
+			finalDag := cdr.dagQueue[0]
+			components := finalDag.GetConnectedComponents()
+			fmt.Printf("\n========== 最终 DAG 连通分量结果 ==========\n")
+			fmt.Printf("总节点数: %d\n", len(finalDag.Nodes))
+			fmt.Printf("总边数: %d\n", countEdges(finalDag))
+			fmt.Printf("连通分量数: %d\n", len(components))
+			for root, nodes := range components {
+				fmt.Printf("  连通分量 (root=%d): %v (大小=%d)\n", root, nodes, len(nodes))
+				for _, node := range nodes {
+					fmt.Println(finalDag.Nodes[node].ReadSet, finalDag.Nodes[node].WriteSet)
+				}
+				fmt.Println()
+			}
+			fmt.Printf("============================================\n\n")
 
 			cdr.done.Store(true)
 			//cdr.condMu.Lock()
@@ -267,11 +271,11 @@ func (cdr *constructDAGResult) awakeOrWaitConstructDAG(state *BatchState, comple
 
 // 统计边数
 func countEdges(dag *ConflictDAG) int {
-    count := 0
-    for _, neighbors := range dag.Edges {
-        count += len(neighbors)
-    }
-    return count / 2 // 无向图，每条边被计算两次
+	count := 0
+	for _, neighbors := range dag.Edges {
+		count += len(neighbors)
+	}
+	return count / 2 // 无向图，每条边被计算两次
 }
 
 // tryGetTaskAndActiveWorker 原子地获取 slot 并标记 worker 为活跃

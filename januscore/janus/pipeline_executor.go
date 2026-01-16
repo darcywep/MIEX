@@ -17,10 +17,7 @@ func (pe *PipelineEngine) executeTask(task *Task, workerID int) {
 	switch task.Type {
 	case TaskExecLong, TaskExecShort:
 		// 执行当前批次交易
-		tools.LoadTxCost = true
-		tools.TxCost = 0.0
 		rwset := pe.executeTransaction(task, workerID)
-		task.Tx.ExecutionCost = tools.TxCost
 
 		peCurrentBatchID := pe.currentBatchID.Load()
 		state := pe.batchStates[peCurrentBatchID]
@@ -46,7 +43,6 @@ func (pe *PipelineEngine) executeTask(task *Task, workerID int) {
 
 	case TaskExecNext:
 		// 执行下一批交易（水位线间并发）
-		tools.LoadTxCost = false
 		pe.executeTransaction(task, workerID)
 	}
 }
@@ -57,8 +53,10 @@ func (pe *PipelineEngine) executeTransaction(task *Task, workerID int) *ReadWrit
 	writeSet := make(map[string]struct{})
 	tx := task.Tx.Tx
 
+	tools.InitTxCost()
 	_, err := pe.levms[workerID].CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
 	tools.PanicError("Janus Tx Execute", err)
+	task.Tx.ExecutionCost = tools.TxCost
 
 	if tx.TxType == janusConfig.IOTx {
 		key1 := tx.From().String()

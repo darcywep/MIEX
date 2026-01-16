@@ -19,6 +19,7 @@ type InstructionTiming struct {
 }
 
 var InstructionTimers map[OpCode]*InstructionTiming
+var InstructionAverageTime = float64(50 / 100)
 
 func init() {
 	timings, err := LoadTimings(config.InstructionTimingFilePath)

@@ -188,7 +188,11 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 		// enough stack items available to perform the operation.
 		op = contract.GetOp(pc)
 		if tools.LoadTxCost {
-			tools.TxCost += InstructionTimers[op].AverageTime
+			if timer := GetTimingByOpCode(op); timer != nil {
+				tools.TxCost += timer.AverageTime
+			} else {
+				tools.TxCost += InstructionAverageTime
+			}
 		}
 		operation := jumpTable[op]
 		cost = operation.constantGas // For tracing
