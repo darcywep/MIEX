@@ -139,9 +139,162 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 			continue
 		}
 		if pe.workerStaties[workerID].Phase == CommitMaximumValidationPhase {
-			// todo: 提交最大验证
+			// 并发求解最大权重独立集
+			pe.solveComponentMWIS(state, workerID)
+			continue
 		}
 	}
+}
+
+// solveComponentMWIS 并发求解连通分量的最大权重独立集
+func (pe *PipelineEngine) solveComponentMWIS(state *BatchState, workerID int) {
+    cdr := state.constructDAG
+
+    // 第一个进入该阶段的线程负责初始化
+    cdr.componentsMu.Lock()
+    if len(cdr.componentsQueue) == 0 && cdr.totalComponents == 0 {
+        // 获取最终的 DAG
+        finalDag := cdr.dagQueue[0]
+        
+        // 获取所有连通分量
+        components := finalDag.GetConnectedComponents()
+        
+        // 初始化连通分量队列
+        for _, nodes := range components {
+            cdr.componentsQueue = append(cdr.componentsQueue, nodes)
+        }
+        cdr.totalComponents = len(cdr.componentsQueue)
+        
+        fmt.Printf("[Worker %d] [MWIS] 初始化连通分量队列，共 %d 个连通分量\n", 
+            workerID, cdr.totalComponents)
+    }
+    cdr.componentsMu.Unlock()
+
+    // 获取最终的 DAG（用于求解）
+    finalDag := cdr.dagQueue[0]
+
+    // 循环抢任务求解
+    for {
+        // 尝试获取一个连通分量
+        idx := int(cdr.componentsIndex.Add(1) - 1)
+        if idx >= cdr.totalComponents {
+            // 没有更多任务，等待所有求解完成
+            break
+        }
+
+        // 获取该连通分量的节点
+        nodes := cdr.componentsQueue[idx]
+
+        // 求解该连通分量的最大权重独立集
+        var independentSet []int
+        var err error
+
+        if len(nodes) == 1 {
+            // 单节点直接提交
+            independentSet = nodes
+            fmt.Printf("[Worker %d] [MWIS] 连通分量 %d: 单节点 %v，直接提交\n", 
+                workerID, idx, nodes)
+        } else {
+            // 多节点，调用 ILP 求解
+            fmt.Printf("[Worker %d] [MWIS] 连通分量 %d: 节点=%v，开始求解...\n", 
+                workerID, idx, nodes)
+            
+            independentSet, err = SolveMWIS(finalDag, nodes)
+            if err != nil {
+                fmt.Printf("[Worker %d] [MWIS] 连通分量 %d 求解失败: %v\n", 
+                    workerID, idx, err)
+                // 求解失败，保守策略：不提交任何交易
+                independentSet = []int{}
+            } else {
+                // 计算总权重
+                totalWeight := 0.0
+                for _, nodeID := range independentSet {
+                    if rwset, exists := finalDag.Nodes[nodeID]; exists && rwset != nil {
+                        totalWeight += rwset.Cost
+                    }
+                }
+                fmt.Printf("[Worker %d] [MWIS] 连通分量 %d: 独立集=%v, 总权重=%.2f\n", 
+                    workerID, idx, independentSet, totalWeight)
+            }
+        }
+
+        // 将结果加入提交集合
+        cdr.resultsMu.Lock()
+        for _, txID := range independentSet {
+            cdr.commitTxs[txID] = true
+        }
+        cdr.resultsMu.Unlock()
+
+        // 增加已完成计数
+        solved := cdr.solvedCount.Add(1)
+
+        // 检查是否所有连通分量都已求解
+        if int(solved) == cdr.totalComponents {
+            // 最后一个完成的线程负责汇总结果
+            pe.finalizeMWISResults(state, workerID)
+        }
+    }
+
+    // 等待 MWIS 阶段完成
+    for !cdr.mwisDone.Load() {
+        // busy wait
+    }
+
+    // 进入下一阶段或完成批次
+    pe.workerStaties[workerID].Phase = WaitingTaskPhase
+}
+
+// finalizeMWISResults 汇总 MWIS 求解结果
+func (pe *PipelineEngine) finalizeMWISResults(state *BatchState, workerID int) {
+    cdr := state.constructDAG
+    finalDag := cdr.dagQueue[0]
+
+    // 收集提交和中止的交易
+    committedTxs := make([]*ReadWriteSet, 0)
+    abortedTxs := make([]*ReadWriteSet, 0)
+
+    cdr.resultsMu.Lock()
+    for nodeID, rwset := range finalDag.Nodes {
+        if cdr.commitTxs[nodeID] {
+            committedTxs = append(committedTxs, rwset)
+        } else {
+            abortedTxs = append(abortedTxs, rwset)
+        }
+    }
+    cdr.resultsMu.Unlock()
+
+    // 更新批次状态
+    state.mu.Lock()
+    state.CommittedTxs = committedTxs
+    state.AbortedTxs = abortedTxs
+    state.mu.Unlock()
+
+    // 打印最终结果
+    fmt.Printf("\n========== MWIS 求解结果 (Batch %d) ==========\n", state.BatchID)
+    fmt.Printf("总交易数: %d\n", len(finalDag.Nodes))
+    fmt.Printf("提交交易数: %d\n", len(committedTxs))
+    fmt.Printf("中止交易数: %d\n", len(abortedTxs))
+    
+    // 打印提交的交易ID
+    commitIDs := make([]int, 0, len(committedTxs))
+    for _, rwset := range committedTxs {
+        commitIDs = append(commitIDs, rwset.TxID)
+    }
+    fmt.Printf("提交交易: %v\n", commitIDs)
+    
+    // 打印中止的交易ID
+    abortIDs := make([]int, 0, len(abortedTxs))
+    for _, rwset := range abortedTxs {
+        abortIDs = append(abortIDs, rwset.TxID)
+    }
+    fmt.Printf("中止交易: %v\n", abortIDs)
+    fmt.Printf("==============================================\n\n")
+
+    // 标记 MWIS 阶段完成
+    cdr.mwisDone.Store(true)
+
+    // 完成批次
+    pe.completeBatch(state)
 }
 
 func (pe *PipelineEngine) searchNextTask(atomicIdx *atomic.Int32, txs []*janusTransaction, workerID int, state *BatchState) *Task {

@@ -217,6 +217,20 @@ type constructDAGResult struct {
 
 	//done bool
 	done atomic.Bool
+
+	// 最大权重独立集相关
+	// 连通分量队列（待求解）
+	componentsMu sync.Mutex
+	componentsQueue [][]int
+	componentsIndex atomic.Int32
+
+	// 求解结果
+	resultsMu sync.Mutex
+	commitTxs map[int]bool   //应该提交的交易ID
+	solvedCount atomic.Int32  //已求解的连通分量数量
+	totalComponents int 	 //总连通分量数量
+
+	mwisDone atomic.Bool
 }
 
 func (cdr *constructDAGResult) awakeOrWaitConstructDAG(state *BatchState, completedMergeCount, totalMerges int, workerID int) (isWait bool) {
@@ -320,6 +334,8 @@ func newConstructDAGResult(threadNumber int) *constructDAGResult {
 		//completedThreads: make(map[int]struct{}),
 		//initialCount:     -1,
 		//totalMerges:      -1,
+		componentsQueue: make([][]int, 0),
+		commitTxs: make(map[int]bool),
 	}
 	//for i := 0; i < threadNumber; i++ {
 	//	cdr.constructThreads[i] = &atomic.Bool{}
