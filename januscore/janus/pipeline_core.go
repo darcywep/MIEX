@@ -249,6 +249,11 @@ func (pe *PipelineEngine) finalizeMWISResults(state *BatchState, workerID int) {
     cdr := state.constructDAG
     finalDag := cdr.dagQueue[0]
 
+	// ========== 性能测试 ==========
+    if EnableMWISBenchmark {
+        BenchmarkMWIS(finalDag)
+    }
+
     // 收集提交和中止的交易
     committedTxs := make([]*ReadWriteSet, 0)
     abortedTxs := make([]*ReadWriteSet, 0)

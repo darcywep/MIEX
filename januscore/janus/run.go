@@ -13,6 +13,8 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 	fmt.Println("╔════════════════════════════════════════════════════╗")
 	fmt.Println("║   Janus Hybrid Transaction Execution Engine        ║")
 	fmt.Println("╚════════════════════════════════════════════════════╝")
+	SetMWISSolver(SolverILP)
+	SetMWISBenchmark(true)
 	fmt.Printf("Thread Pool Size: %d\n", janusConfig.AllThreadNum)
 	fmt.Printf("Water Mark Alpha: %.1f\n", janusConfig.WaterMarkAlpha)
 	fmt.Printf("Water Mark Beta: %.1f\n\n", janusConfig.WaterMarkBeta)
