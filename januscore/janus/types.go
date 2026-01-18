@@ -20,6 +20,38 @@ const (
 	TaskReExecute                 // 重执行任务
 )
 
+// ReExecuteState 重执行状态
+type ReExecuteState struct {
+    // 阶段一：并发重执行
+    phase1Queue      []*ReadWriteSet  // 待重执行的交易队列
+    phase1Index      atomic.Int32     // 当前处理索引
+    phase1Committed  []*ReadWriteSet  // 读写集未变，可提交
+    phase1Aborted    []*ReadWriteSet  // 读写集变化，需串行执行
+    phase1Mu         sync.Mutex       // 保护 phase1Committed 和 phase1Aborted
+    phase1Total      int              // 阶段一总交易数
+    phase1Completed  atomic.Int32     // 阶段一已完成数
+    phase1Done       atomic.Bool      // 阶段一完成标志
+
+    // 阶段二：串行执行
+    phase2Queue      []*ReadWriteSet  // 待串行执行的交易队列
+    phase2Committed  []*ReadWriteSet  // 串行执行完成的交易
+    phase2Done       atomic.Bool      // 阶段二完成标志
+    phase2Executor   atomic.Int32     // 执行串行的线程ID（-1表示未分配）
+}
+
+// newReExecuteState 创建重执行状态
+func newReExecuteState() *ReExecuteState {
+    res := &ReExecuteState{
+        phase1Queue:     make([]*ReadWriteSet, 0),
+        phase1Committed: make([]*ReadWriteSet, 0),
+        phase1Aborted:   make([]*ReadWriteSet, 0),
+        phase2Queue:     make([]*ReadWriteSet, 0),
+        phase2Committed: make([]*ReadWriteSet, 0),
+    }
+    res.phase2Executor.Store(-1)
+    return res
+}
+
 type janusTransaction struct {
 	Tx            *types.Transaction
 	rwSet         *ReadWriteSet
@@ -171,8 +203,9 @@ type BatchState struct {
 	AbortedTxs        []*ReadWriteSet
 
 	// 构图相关
-
 	constructDAG *constructDAGResult
+	// 重执行相关
+	reExecute *ReExecuteState
 
 	// 保护批次状态的锁
 
@@ -457,6 +490,8 @@ const (
 	MergeStateTablePhase                // 合并StateTables
 	ConstructDAGPhase                   // 构建DAG
 	CommitMaximumValidationPhase        // 最大可提交集
+	ReExecutePhase                      // 重执行阶段
+	SerialExecutePhase                  // 串行执行
 	// 搜索弱连通分量
 	//TaskExecNext           // 执行下一批次
 	//TaskValidate           // 验证任务
