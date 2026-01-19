@@ -146,439 +146,426 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 		}
 
 		// ========== 重执行阶段一（并发重执行） ==========
-        if pe.workerStaties[workerID].Phase == ReExecutePhase {
-            pe.reExecutePhase1(state, workerID)
-            continue
-        }
+		if pe.workerStaties[workerID].Phase == ReExecutePhase {
+			pe.reExecutePhase1(state, workerID)
+			continue
+		}
 
-        // ========== 重执行阶段二（串行执行） ==========
-        if pe.workerStaties[workerID].Phase == SerialExecutePhase {
-            pe.reExecutePhase2(state, workerID)
-            continue
-        }
+		// ========== 重执行阶段二（串行执行） ==========
+		if pe.workerStaties[workerID].Phase == SerialExecutePhase {
+			pe.reExecutePhase2(state, workerID)
+			continue
+		}
 	}
 }
 
 // solveComponentMWIS 并发求解连通分量的最大权重独立集
 func (pe *PipelineEngine) solveComponentMWIS(state *BatchState, workerID int) {
-    cdr := state.constructDAG
+	cdr := state.constructDAG
 
-    // 第一个进入该阶段的线程负责初始化
-    cdr.componentsMu.Lock()
-    if len(cdr.componentsQueue) == 0 && cdr.totalComponents == 0 {
-        // 获取最终的 DAG
-        finalDag := cdr.dagQueue[0]
-        
-        // 获取所有连通分量
-        components := finalDag.GetConnectedComponents()
-        
-        // 初始化连通分量队列
-        for _, nodes := range components {
-            cdr.componentsQueue = append(cdr.componentsQueue, nodes)
-        }
-        cdr.totalComponents = len(cdr.componentsQueue)
-        
-        fmt.Printf("[Worker %d] [MWIS] 初始化连通分量队列，共 %d 个连通分量\n", 
-            workerID, cdr.totalComponents)
-    }
-    cdr.componentsMu.Unlock()
+	// 获取最终的 DAG（用于求解）
+	finalDag := cdr.dagQueue[0]
 
-    // 获取最终的 DAG（用于求解）
-    finalDag := cdr.dagQueue[0]
+	// 循环抢任务求解
+	for {
+		// 尝试获取一个连通分量
+		idx := int(cdr.componentsIndex.Add(1) - 1)
+		if idx >= cdr.totalComponents {
+			// 没有更多任务，等待所有求解完成
+			break
+		}
 
-    // 循环抢任务求解
-    for {
-        // 尝试获取一个连通分量
-        idx := int(cdr.componentsIndex.Add(1) - 1)
-        if idx >= cdr.totalComponents {
-            // 没有更多任务，等待所有求解完成
-            break
-        }
+		// 获取该连通分量的节点
+		nodes := cdr.componentsQueue[idx]
 
-        // 获取该连通分量的节点
-        nodes := cdr.componentsQueue[idx]
+		// 求解该连通分量的最大权重独立集
+		var independentSet []int
+		var err error
 
-        // 求解该连通分量的最大权重独立集
-        var independentSet []int
-        var err error
+		if len(nodes) == 1 {
+			// 单节点直接提交
+			independentSet = nodes
+			fmt.Printf("[Worker %d] [MWIS] 连通分量 %d: 单节点 %v，直接提交\n",
+				workerID, idx, nodes)
+		} else {
+			// 多节点，调用 ILP 求解
+			fmt.Printf("[Worker %d] [MWIS] 连通分量 %d: 节点=%v，开始求解...\n",
+				workerID, idx, nodes)
 
-        if len(nodes) == 1 {
-            // 单节点直接提交
-            independentSet = nodes
-            fmt.Printf("[Worker %d] [MWIS] 连通分量 %d: 单节点 %v，直接提交\n", 
-                workerID, idx, nodes)
-        } else {
-            // 多节点，调用 ILP 求解
-            fmt.Printf("[Worker %d] [MWIS] 连通分量 %d: 节点=%v，开始求解...\n", 
-                workerID, idx, nodes)
-            
-            independentSet, err = SolveMWIS(finalDag, nodes)
-            if err != nil {
-                fmt.Printf("[Worker %d] [MWIS] 连通分量 %d 求解失败: %v\n", 
-                    workerID, idx, err)
-                // 求解失败，保守策略：不提交任何交易
-                independentSet = []int{}
-            } else {
-                // 计算总权重
-                totalWeight := 0.0
-                for _, nodeID := range independentSet {
-                    if rwset, exists := finalDag.Nodes[nodeID]; exists && rwset != nil {
-                        totalWeight += rwset.Cost
-                    }
-                }
-                fmt.Printf("[Worker %d] [MWIS] 连通分量 %d: 独立集=%v, 总权重=%.2f\n", 
-                    workerID, idx, independentSet, totalWeight)
-            }
-        }
+			independentSet, err = SolveMWIS(finalDag, nodes)
+			if err != nil {
+				fmt.Printf("[Worker %d] [MWIS] 连通分量 %d 求解失败: %v\n",
+					workerID, idx, err)
+				// 求解失败，保守策略：不提交任何交易
+				independentSet = []int{}
+			} else {
+				// 计算总权重
+				totalWeight := 0.0
+				for _, nodeID := range independentSet {
+					if rwset, exists := finalDag.Nodes[nodeID]; exists && rwset != nil {
+						totalWeight += rwset.Cost
+					}
+				}
+				fmt.Printf("[Worker %d] [MWIS] 连通分量 %d: 独立集=%v, 总权重=%.2f\n",
+					workerID, idx, independentSet, totalWeight)
+			}
+		}
 
-        // 将结果加入提交集合
-        cdr.resultsMu.Lock()
-        for _, txID := range independentSet {
-            cdr.commitTxs[txID] = true
-        }
-        cdr.resultsMu.Unlock()
+		// 将结果加入提交集合
+		if cdr.commitTxs[workerID] == nil {
+			cdr.commitTxs[workerID] = make([]int, 0)
+		}
+		for _, txID := range independentSet {
+			cdr.commitTxs[workerID] = append(cdr.commitTxs[workerID], txID)
+		}
 
-        // 增加已完成计数
-        solved := cdr.solvedCount.Add(1)
+		// 增加已完成计数
+		solved := cdr.solvedCount.Add(1)
 
-        // 检查是否所有连通分量都已求解
-        if int(solved) == cdr.totalComponents {
-            // 最后一个完成的线程负责汇总结果
-            pe.finalizeMWISResults(state, workerID)
-        }
-    }
+		// 检查是否所有连通分量都已求解
+		if int(solved) == cdr.totalComponents {
+			// 最后一个完成的线程负责汇总结果
+			pe.finalizeMWISResults(state, workerID)
+		}
+	}
 
-    // 等待 MWIS 阶段完成
-    for !cdr.mwisDone.Load() {
-        // busy wait
-    }
+	// 等待 MWIS 阶段完成
+	for !cdr.mwisDone.Load() {
+		// busy wait
+	}
 
-    // 进入下一阶段或完成批次
-    // ========== 根据是否有重执行决定下一阶段 ==========
-    if state.reExecute != nil && state.reExecute.phase1Total > 0 {
-        // 有需要重执行的交易，进入重执行阶段
-        pe.workerStaties[workerID].Phase = ReExecutePhase
-    } else {
-        // 没有需要重执行的交易，进入等待阶段
-        pe.workerStaties[workerID].Phase = WaitingTaskPhase
-    }
+	// 进入下一阶段或完成批次
+	// ========== 根据是否有重执行决定下一阶段 ==========
+	if state.reExecute != nil && state.reExecute.phase1Total > 0 {
+		// 有需要重执行的交易，进入重执行阶段
+		pe.workerStaties[workerID].Phase = ReExecutePhase
+	} else {
+		// 没有需要重执行的交易，进入等待阶段
+		pe.workerStaties[workerID].Phase = WaitingTaskPhase
+	}
 }
 
 // finalizeMWISResults 汇总 MWIS 求解结果
 func (pe *PipelineEngine) finalizeMWISResults(state *BatchState, workerID int) {
-    cdr := state.constructDAG
-    finalDag := cdr.dagQueue[0]
+	cdr := state.constructDAG
+	finalDag := cdr.dagQueue[0]
 
 	// ========== 性能测试 ==========
-    if EnableMWISBenchmark {
-        BenchmarkMWIS(finalDag)
-    }
+	if EnableMWISBenchmark {
+		BenchmarkMWIS(finalDag)
+	}
 
-    // 收集提交和中止的交易
-    committedTxs := make([]*ReadWriteSet, 0)
-    abortedTxs := make([]*ReadWriteSet, 0)
+	// 收集提交和中止的交易
+	committedTxs := make([]*ReadWriteSet, 0)
+	abortedTxs := make([]*ReadWriteSet, 0)
 
-    cdr.resultsMu.Lock()
-    for nodeID, rwset := range finalDag.Nodes {
-        if cdr.commitTxs[nodeID] {
-            committedTxs = append(committedTxs, rwset)
-        } else {
-            abortedTxs = append(abortedTxs, rwset)
-        }
-    }
-    cdr.resultsMu.Unlock()
+	for _, commitTxs := range cdr.commitTxs {
+		if commitTxs != nil {
+			for _, commitTx := range commitTxs {
+				cdr.committedTxs[commitTx] = struct{}{}
+			}
+		}
+	}
 
-    // 更新批次状态
-    state.mu.Lock()
-    state.CommittedTxs = committedTxs
-    state.AbortedTxs = abortedTxs
-    state.mu.Unlock()
+	for nodeID, rwset := range finalDag.Nodes {
+		if _, exist := cdr.committedTxs[nodeID]; exist {
+			committedTxs = append(committedTxs, rwset)
+		} else {
+			abortedTxs = append(abortedTxs, rwset)
+		}
+	}
 
-    // 打印最终结果
-    fmt.Printf("\n========== MWIS 求解结果 (Batch %d) ==========\n", state.BatchID)
-    fmt.Printf("总交易数: %d\n", len(finalDag.Nodes))
-    fmt.Printf("提交交易数: %d\n", len(committedTxs))
-    fmt.Printf("中止交易数: %d\n", len(abortedTxs))
-    
-    // 打印提交的交易ID
-    commitIDs := make([]int, 0, len(committedTxs))
-    for _, rwset := range committedTxs {
-        commitIDs = append(commitIDs, rwset.TxID)
-    }
-    fmt.Printf("提交交易: %v\n", commitIDs)
-    
-    // 打印中止的交易ID
-    abortIDs := make([]int, 0, len(abortedTxs))
-    for _, rwset := range abortedTxs {
-        abortIDs = append(abortIDs, rwset.TxID)
-    }
-    fmt.Printf("中止交易: %v\n", abortIDs)
-    fmt.Printf("==============================================\n\n")
+	// 更新批次状态
+	state.mu.Lock()
+	state.CommittedTxs = committedTxs
+	state.AbortedTxs = abortedTxs
+	state.mu.Unlock()
+
+	// 打印最终结果
+	fmt.Printf("\n========== MWIS 求解结果 (Batch %d) ==========\n", state.BatchID)
+	fmt.Printf("总交易数: %d\n", len(finalDag.Nodes))
+	fmt.Printf("提交交易数: %d\n", len(committedTxs))
+	fmt.Printf("中止交易数: %d\n", len(abortedTxs))
+
+	// 打印提交的交易ID
+	commitIDs := make([]int, 0, len(committedTxs))
+	for _, rwset := range committedTxs {
+		commitIDs = append(commitIDs, rwset.TxID)
+	}
+	fmt.Printf("提交交易: %v\n", commitIDs)
+
+	// 打印中止的交易ID
+	abortIDs := make([]int, 0, len(abortedTxs))
+	for _, rwset := range abortedTxs {
+		abortIDs = append(abortIDs, rwset.TxID)
+	}
+	fmt.Printf("中止交易: %v\n", abortIDs)
+	fmt.Printf("==============================================\n\n")
 	// ========== 判断是否需要重执行 ==========
-    if len(abortedTxs) > 0 {
-        // 初始化重执行状态
-        state.reExecute = newReExecuteState()
-        
-        // 按原始交易顺序排序中止的交易
-        sortedAborted := make([]*ReadWriteSet, len(abortedTxs))
-        copy(sortedAborted, abortedTxs)
-        sortByTxID(sortedAborted)
-        
-        state.reExecute.phase1Queue = sortedAborted
-        state.reExecute.phase1Total = len(sortedAborted)
+	if len(abortedTxs) > 0 {
+		// 初始化重执行状态
+		state.reExecute = newReExecuteState()
+
+		// 按原始交易顺序排序中止的交易
+		sortedAborted := make([]*ReadWriteSet, len(abortedTxs))
+		copy(sortedAborted, abortedTxs)
+		sortByTxID(sortedAborted)
+
+		state.reExecute.phase1Queue = sortedAborted
+		state.reExecute.phase1Total = len(sortedAborted)
 
 		// 简单日志
-        // fmt.Printf("\n[ReExecute] 初始化重执行，待重执行交易数: %d\n", len(sortedAborted))
-        // fmt.Printf("[ReExecute] 待重执行交易ID: ")
-        // for _, rwset := range sortedAborted {
-        //     fmt.Printf("%d ", rwset.TxID)
-        // }
-        // fmt.Println()
+		// fmt.Printf("\n[ReExecute] 初始化重执行，待重执行交易数: %d\n", len(sortedAborted))
+		// fmt.Printf("[ReExecute] 待重执行交易ID: ")
+		// for _, rwset := range sortedAborted {
+		//     fmt.Printf("%d ", rwset.TxID)
+		// }
+		// fmt.Println()
 
 		// 详细日志
 		pe.printAbortedTxDependencyGraph(finalDag, sortedAborted, state.BatchID)
 
 		// 标记 MWIS 阶段完成
-    	cdr.mwisDone.Store(true)
+		cdr.mwisDone.Store(true)
 	} else {
 		// 没有需要重执行的交易，直接完成批次
-        cdr.mwisDone.Store(true)
-        pe.completeBatch(state)
+		cdr.mwisDone.Store(true)
+		pe.completeBatch(state)
 	}
 }
 
 // printAbortedTxDependencyGraph 打印丢弃交易构成的依赖图
 func (pe *PipelineEngine) printAbortedTxDependencyGraph(dag *ConflictDAG, abortedTxs []*ReadWriteSet, batchID int) {
-    fmt.Printf("\n╔══════════════════════════════════════════════════════════════════╗\n")
-    fmt.Printf("║         丢弃交易依赖图 (Batch %d)                                 ║\n", batchID)
-    fmt.Printf("╠══════════════════════════════════════════════════════════════════╣\n")
+	fmt.Printf("\n╔══════════════════════════════════════════════════════════════════╗\n")
+	fmt.Printf("║         丢弃交易依赖图 (Batch %d)                                 ║\n", batchID)
+	fmt.Printf("╠══════════════════════════════════════════════════════════════════╣\n")
 
-    // 构建丢弃交易的ID集合
-    abortedSet := make(map[int]bool)
-    for _, rwset := range abortedTxs {
-        abortedSet[rwset.TxID] = true
-    }
+	// 构建丢弃交易的ID集合
+	abortedSet := make(map[int]bool)
+	for _, rwset := range abortedTxs {
+		abortedSet[rwset.TxID] = true
+	}
 
-    // 提取丢弃交易之间的边
-    abortedEdges := make([][2]int, 0)
-    edgeSet := make(map[string]bool)
+	// 提取丢弃交易之间的边
+	abortedEdges := make([][2]int, 0)
+	edgeSet := make(map[string]bool)
 
-    for _, rwset := range abortedTxs {
-        txID := rwset.TxID
-        if dag.Edges[txID] == nil {
-            continue
-        }
-        for neighborID := range dag.Edges[txID] {
-            // 只保留丢弃交易之间的边
-            if !abortedSet[neighborID] {
-                continue
-            }
-            // 边去重：只保留 (小, 大) 形式
-            u, v := txID, neighborID
-            if u > v {
-                u, v = v, u
-            }
-            edgeKey := fmt.Sprintf("%d-%d", u, v)
-            if !edgeSet[edgeKey] {
-                edgeSet[edgeKey] = true
-                abortedEdges = append(abortedEdges, [2]int{u, v})
-            }
-        }
-    }
+	for _, rwset := range abortedTxs {
+		txID := rwset.TxID
+		if dag.Edges[txID] == nil {
+			continue
+		}
+		for neighborID := range dag.Edges[txID] {
+			// 只保留丢弃交易之间的边
+			if !abortedSet[neighborID] {
+				continue
+			}
+			// 边去重：只保留 (小, 大) 形式
+			u, v := txID, neighborID
+			if u > v {
+				u, v = v, u
+			}
+			edgeKey := fmt.Sprintf("%d-%d", u, v)
+			if !edgeSet[edgeKey] {
+				edgeSet[edgeKey] = true
+				abortedEdges = append(abortedEdges, [2]int{u, v})
+			}
+		}
+	}
 
-    // 打印基本信息
-    fmt.Printf("║ 丢弃交易数: %-53d ║\n", len(abortedTxs))
-    fmt.Printf("║ 依赖边数:   %-53d ║\n", len(abortedEdges))
-    fmt.Printf("╠══════════════════════════════════════════════════════════════════╣\n")
+	// 打印基本信息
+	fmt.Printf("║ 丢弃交易数: %-53d ║\n", len(abortedTxs))
+	fmt.Printf("║ 依赖边数:   %-53d ║\n", len(abortedEdges))
+	fmt.Printf("╠══════════════════════════════════════════════════════════════════╣\n")
 
-    // 打印丢弃交易的ID和权重
-    fmt.Printf("║ 丢弃交易详情:                                                    ║\n")
-    for _, rwset := range abortedTxs {
-        fmt.Printf("║   tx%-3d: 权重=%-8.2f 读集=%v 写集=%v\n",
-            rwset.TxID, rwset.Cost, getKeys(rwset.ReadSet), getKeys(rwset.WriteSet))
-    }
-    fmt.Printf("╠══════════════════════════════════════════════════════════════════╣\n")
+	// 打印丢弃交易的ID和权重
+	fmt.Printf("║ 丢弃交易详情:                                                    ║\n")
+	for _, rwset := range abortedTxs {
+		fmt.Printf("║   tx%-3d: 权重=%-8.2f 读集=%v 写集=%v\n",
+			rwset.TxID, rwset.Cost, getKeys(rwset.ReadSet), getKeys(rwset.WriteSet))
+	}
+	fmt.Printf("╠══════════════════════════════════════════════════════════════════╣\n")
 
-    // 打印依赖边
-    fmt.Printf("║ 依赖边（冲突关系）:                                              ║\n")
-    if len(abortedEdges) == 0 {
-        fmt.Printf("║   （无依赖边，所有丢弃交易相互独立）                             ║\n")
-    } else {
-        for _, edge := range abortedEdges {
-            u, v := edge[0], edge[1]
-            // 找出冲突的地址
-            conflictAddrs := pe.findConflictAddresses(dag.Nodes[u], dag.Nodes[v])
-            fmt.Printf("║   tx%-3d ←→ tx%-3d  冲突地址: %v\n", u, v, conflictAddrs)
-        }
-    }
-    fmt.Printf("╠══════════════════════════════════════════════════════════════════╣\n")
+	// 打印依赖边
+	fmt.Printf("║ 依赖边（冲突关系）:                                              ║\n")
+	if len(abortedEdges) == 0 {
+		fmt.Printf("║   （无依赖边，所有丢弃交易相互独立）                             ║\n")
+	} else {
+		for _, edge := range abortedEdges {
+			u, v := edge[0], edge[1]
+			// 找出冲突的地址
+			conflictAddrs := pe.findConflictAddresses(dag.Nodes[u], dag.Nodes[v])
+			fmt.Printf("║   tx%-3d ←→ tx%-3d  冲突地址: %v\n", u, v, conflictAddrs)
+		}
+	}
+	fmt.Printf("╠══════════════════════════════════════════════════════════════════╣\n")
 
-    // 构建丢弃交易的子图并查找连通分量
-    abortedComponents := pe.findAbortedComponents(abortedTxs, dag)
-    fmt.Printf("║ 丢弃交易连通分量数: %-45d ║\n", len(abortedComponents))
-    for i, component := range abortedComponents {
-        fmt.Printf("║   分量%d: %v (大小=%d)\n", i+1, component, len(component))
-    }
-    fmt.Printf("╠══════════════════════════════════════════════════════════════════╣\n")
+	// 构建丢弃交易的子图并查找连通分量
+	abortedComponents := pe.findAbortedComponents(abortedTxs, dag)
+	fmt.Printf("║ 丢弃交易连通分量数: %-45d ║\n", len(abortedComponents))
+	for i, component := range abortedComponents {
+		fmt.Printf("║   分量%d: %v (大小=%d)\n", i+1, component, len(component))
+	}
+	fmt.Printf("╠══════════════════════════════════════════════════════════════════╣\n")
 
-    // 打印每个丢弃交易的邻接关系
-    fmt.Printf("║ 邻接表（仅丢弃交易内部）:                                        ║\n")
-    for _, rwset := range abortedTxs {
-        txID := rwset.TxID
-        neighbors := make([]int, 0)
-        if dag.Edges[txID] != nil {
-            for neighborID := range dag.Edges[txID] {
-                if abortedSet[neighborID] {
-                    neighbors = append(neighbors, neighborID)
-                }
-            }
-        }
-        if len(neighbors) > 0 {
-            fmt.Printf("║   tx%-3d → %v\n", txID, neighbors)
-        } else {
-            fmt.Printf("║   tx%-3d → （无邻接丢弃交易）\n", txID)
-        }
-    }
+	// 打印每个丢弃交易的邻接关系
+	fmt.Printf("║ 邻接表（仅丢弃交易内部）:                                        ║\n")
+	for _, rwset := range abortedTxs {
+		txID := rwset.TxID
+		neighbors := make([]int, 0)
+		if dag.Edges[txID] != nil {
+			for neighborID := range dag.Edges[txID] {
+				if abortedSet[neighborID] {
+					neighbors = append(neighbors, neighborID)
+				}
+			}
+		}
+		if len(neighbors) > 0 {
+			fmt.Printf("║   tx%-3d → %v\n", txID, neighbors)
+		} else {
+			fmt.Printf("║   tx%-3d → （无邻接丢弃交易）\n", txID)
+		}
+	}
 
-    fmt.Printf("╚══════════════════════════════════════════════════════════════════╝\n\n")
+	fmt.Printf("╚══════════════════════════════════════════════════════════════════╝\n\n")
 }
 
 // findConflictAddresses 找出两个交易之间冲突的地址
 func (pe *PipelineEngine) findConflictAddresses(rw1, rw2 *ReadWriteSet) []string {
-    if rw1 == nil || rw2 == nil {
-        return []string{}
-    }
+	if rw1 == nil || rw2 == nil {
+		return []string{}
+	}
 
-    conflicts := make([]string, 0)
-    seen := make(map[string]bool)
+	conflicts := make([]string, 0)
+	seen := make(map[string]bool)
 
-    // Write-Write 冲突
-    for addr := range rw1.WriteSet {
-        if _, exists := rw2.WriteSet[addr]; exists {
-            if !seen[addr] {
-                conflicts = append(conflicts, addr)
-                seen[addr] = true
-            }
-        }
-    }
+	// Write-Write 冲突
+	for addr := range rw1.WriteSet {
+		if _, exists := rw2.WriteSet[addr]; exists {
+			if !seen[addr] {
+				conflicts = append(conflicts, addr)
+				seen[addr] = true
+			}
+		}
+	}
 
-    // Read-Write 冲突
-    for addr := range rw1.ReadSet {
-        if _, exists := rw2.WriteSet[addr]; exists {
-            if !seen[addr] {
-                conflicts = append(conflicts, addr)
-                seen[addr] = true
-            }
-        }
-    }
+	// Read-Write 冲突
+	for addr := range rw1.ReadSet {
+		if _, exists := rw2.WriteSet[addr]; exists {
+			if !seen[addr] {
+				conflicts = append(conflicts, addr)
+				seen[addr] = true
+			}
+		}
+	}
 
-    // Write-Read 冲突
-    for addr := range rw1.WriteSet {
-        if _, exists := rw2.ReadSet[addr]; exists {
-            if !seen[addr] {
-                conflicts = append(conflicts, addr)
-                seen[addr] = true
-            }
-        }
-    }
+	// Write-Read 冲突
+	for addr := range rw1.WriteSet {
+		if _, exists := rw2.ReadSet[addr]; exists {
+			if !seen[addr] {
+				conflicts = append(conflicts, addr)
+				seen[addr] = true
+			}
+		}
+	}
 
-    return conflicts
+	return conflicts
 }
 
 // findAbortedComponents 找出丢弃交易的连通分量
 func (pe *PipelineEngine) findAbortedComponents(abortedTxs []*ReadWriteSet, dag *ConflictDAG) [][]int {
-    // 构建丢弃交易的ID集合
-    abortedSet := make(map[int]bool)
-    for _, rwset := range abortedTxs {
-        abortedSet[rwset.TxID] = true
-    }
+	// 构建丢弃交易的ID集合
+	abortedSet := make(map[int]bool)
+	for _, rwset := range abortedTxs {
+		abortedSet[rwset.TxID] = true
+	}
 
-    // 使用并查集找连通分量
-    parent := make(map[int]int)
-    rank := make(map[int]int)
+	// 使用并查集找连通分量
+	parent := make(map[int]int)
+	rank := make(map[int]int)
 
-    var find func(x int) int
-    find = func(x int) int {
-        if _, exists := parent[x]; !exists {
-            parent[x] = x
-            rank[x] = 0
-        }
-        if parent[x] != x {
-            parent[x] = find(parent[x])
-        }
-        return parent[x]
-    }
+	var find func(x int) int
+	find = func(x int) int {
+		if _, exists := parent[x]; !exists {
+			parent[x] = x
+			rank[x] = 0
+		}
+		if parent[x] != x {
+			parent[x] = find(parent[x])
+		}
+		return parent[x]
+	}
 
-    union := func(x, y int) {
-        rootX := find(x)
-        rootY := find(y)
-        if rootX != rootY {
-            if rank[rootX] < rank[rootY] {
-                parent[rootX] = rootY
-            } else if rank[rootX] > rank[rootY] {
-                parent[rootY] = rootX
-            } else {
-                parent[rootY] = rootX
-                rank[rootX]++
-            }
-        }
-    }
+	union := func(x, y int) {
+		rootX := find(x)
+		rootY := find(y)
+		if rootX != rootY {
+			if rank[rootX] < rank[rootY] {
+				parent[rootX] = rootY
+			} else if rank[rootX] > rank[rootY] {
+				parent[rootY] = rootX
+			} else {
+				parent[rootY] = rootX
+				rank[rootX]++
+			}
+		}
+	}
 
-    // 初始化所有丢弃交易
-    for _, rwset := range abortedTxs {
-        find(rwset.TxID)
-    }
+	// 初始化所有丢弃交易
+	for _, rwset := range abortedTxs {
+		find(rwset.TxID)
+	}
 
-    // 根据边合并
-    for _, rwset := range abortedTxs {
-        txID := rwset.TxID
-        if dag.Edges[txID] == nil {
-            continue
-        }
-        for neighborID := range dag.Edges[txID] {
-            if abortedSet[neighborID] {
-                union(txID, neighborID)
-            }
-        }
-    }
+	// 根据边合并
+	for _, rwset := range abortedTxs {
+		txID := rwset.TxID
+		if dag.Edges[txID] == nil {
+			continue
+		}
+		for neighborID := range dag.Edges[txID] {
+			if abortedSet[neighborID] {
+				union(txID, neighborID)
+			}
+		}
+	}
 
-    // 收集连通分量
-    components := make(map[int][]int)
-    for _, rwset := range abortedTxs {
-        root := find(rwset.TxID)
-        components[root] = append(components[root], rwset.TxID)
-    }
+	// 收集连通分量
+	components := make(map[int][]int)
+	for _, rwset := range abortedTxs {
+		root := find(rwset.TxID)
+		components[root] = append(components[root], rwset.TxID)
+	}
 
-    // 转换为切片
-    result := make([][]int, 0, len(components))
-    for _, nodes := range components {
-        // 排序
-        sortIntSlice(nodes)
-        result = append(result, nodes)
-    }
+	// 转换为切片
+	result := make([][]int, 0, len(components))
+	for _, nodes := range components {
+		// 排序
+		sortIntSlice(nodes)
+		result = append(result, nodes)
+	}
 
-    return result
+	return result
 }
 
 // getKeys 获取 map 的键列表
 func getKeys(m map[string]struct{}) []string {
-    keys := make([]string, 0, len(m))
-    for k := range m {
-        keys = append(keys, k)
-    }
-    return keys
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // sortIntSlice 对整数切片排序
 func sortIntSlice(s []int) {
-    n := len(s)
-    for i := 0; i < n-1; i++ {
-        for j := i + 1; j < n; j++ {
-            if s[i] > s[j] {
-                s[i], s[j] = s[j], s[i]
-            }
-        }
-    }
+	n := len(s)
+	for i := 0; i < n-1; i++ {
+		for j := i + 1; j < n; j++ {
+			if s[i] > s[j] {
+				s[i], s[j] = s[j], s[i]
+			}
+		}
+	}
 }
 
 func (pe *PipelineEngine) searchNextTask(atomicIdx *atomic.Int32, txs []*janusTransaction, workerID int, state *BatchState) *Task {
@@ -878,8 +865,8 @@ func (pe *PipelineEngine) tryConstructDAG(state *BatchState, workerID int) (pair
 				//InDegree:    make(map[int]int),
 				Degree:      make(map[int]int),
 				totalMerges: -1,
-				parent: make(map[int]int),
-				rank: make(map[int]int),
+				parent:      make(map[int]int),
+				rank:        make(map[int]int),
 			}
 		}
 		// 如果是偶数，idx可能越界，但会在上面的判断中break掉
@@ -949,234 +936,234 @@ func (pe *PipelineEngine) completeBatch(state *BatchState) {
 // 根据原始冲突图的依赖关系，多线程并发重执行被丢弃的交易
 // 重执行后比较读写集，读写集未变的可以提交，读写集变化的进入阶段二串行执行
 func (pe *PipelineEngine) reExecutePhase1(state *BatchState, workerID int) {
-    reExec := state.reExecute
-    if reExec == nil {
-        // 没有需要重执行的交易，进入等待
-        pe.workerStaties[workerID].Phase = WaitingTaskPhase
-        return
-    }
+	reExec := state.reExecute
+	if reExec == nil {
+		// 没有需要重执行的交易，进入等待
+		pe.workerStaties[workerID].Phase = WaitingTaskPhase
+		return
+	}
 
-    // 循环抢任务重执行
-    for {
-        // 尝试获取一个待重执行的交易
-        idx := int(reExec.phase1Index.Add(1) - 1)
-        if idx >= reExec.phase1Total {
-            // 没有更多任务
-            break
-        }
+	// 循环抢任务重执行
+	for {
+		// 尝试获取一个待重执行的交易
+		idx := int(reExec.phase1Index.Add(1) - 1)
+		if idx >= reExec.phase1Total {
+			// 没有更多任务
+			break
+		}
 
-        // 获取原始读写集
-        oldRWSet := reExec.phase1Queue[idx]
+		// 获取原始读写集
+		oldRWSet := reExec.phase1Queue[idx]
 
-        fmt.Printf("[Worker %d] [ReExecute Phase1] 重执行交易 %d\n", workerID, oldRWSet.TxID)
+		fmt.Printf("[Worker %d] [ReExecute Phase1] 重执行交易 %d\n", workerID, oldRWSet.TxID)
 
-        // 重执行交易，获取新的读写集
-        newRWSet := pe.reExecuteTransaction(oldRWSet, workerID)
+		// 重执行交易，获取新的读写集
+		newRWSet := pe.reExecuteTransaction(oldRWSet, workerID)
 
-        // 比较读写集是否变化
-        rwSetChanged := !pe.compareRWSet(oldRWSet, newRWSet)
+		// 比较读写集是否变化
+		rwSetChanged := !pe.compareRWSet(oldRWSet, newRWSet)
 
-        reExec.phase1Mu.Lock()
-        if rwSetChanged {
-            // 读写集变化，加入阶段二队列
-            fmt.Printf("[Worker %d] [ReExecute Phase1] 交易 %d 读写集变化，进入阶段二\n", workerID, oldRWSet.TxID)
-            reExec.phase1Aborted = append(reExec.phase1Aborted, newRWSet)
-        } else {
-            // 读写集未变，可以提交
-            fmt.Printf("[Worker %d] [ReExecute Phase1] 交易 %d 读写集未变，提交成功\n", workerID, oldRWSet.TxID)
-            reExec.phase1Committed = append(reExec.phase1Committed, newRWSet)
-        }
-        reExec.phase1Mu.Unlock()
+		reExec.phase1Mu.Lock()
+		if rwSetChanged {
+			// 读写集变化，加入阶段二队列
+			fmt.Printf("[Worker %d] [ReExecute Phase1] 交易 %d 读写集变化，进入阶段二\n", workerID, oldRWSet.TxID)
+			reExec.phase1Aborted = append(reExec.phase1Aborted, newRWSet)
+		} else {
+			// 读写集未变，可以提交
+			fmt.Printf("[Worker %d] [ReExecute Phase1] 交易 %d 读写集未变，提交成功\n", workerID, oldRWSet.TxID)
+			reExec.phase1Committed = append(reExec.phase1Committed, newRWSet)
+		}
+		reExec.phase1Mu.Unlock()
 
-        // 增加已完成计数
-        completed := reExec.phase1Completed.Add(1)
+		// 增加已完成计数
+		completed := reExec.phase1Completed.Add(1)
 
-        // 检查是否所有交易都已处理
-        if int(completed) == reExec.phase1Total {
-            // 最后一个完成的线程负责初始化阶段二
-            pe.finalizeReExecutePhase1(state, workerID)
-        }
-    }
+		// 检查是否所有交易都已处理
+		if int(completed) == reExec.phase1Total {
+			// 最后一个完成的线程负责初始化阶段二
+			pe.finalizeReExecutePhase1(state, workerID)
+		}
+	}
 
-    // 等待阶段一完成
-    for !reExec.phase1Done.Load() {
-        // busy wait
-    }
+	// 等待阶段一完成
+	for !reExec.phase1Done.Load() {
+		// busy wait
+	}
 
-    // 进入阶段二
-    pe.workerStaties[workerID].Phase = SerialExecutePhase
+	// 进入阶段二
+	pe.workerStaties[workerID].Phase = SerialExecutePhase
 }
 
 // finalizeReExecutePhase1 完成重执行阶段一，初始化阶段二
 func (pe *PipelineEngine) finalizeReExecutePhase1(state *BatchState, workerID int) {
-    reExec := state.reExecute
+	reExec := state.reExecute
 
-    // 打印阶段一结果
-    fmt.Printf("\n========== 重执行阶段一完成 (Batch %d) ==========\n", state.BatchID)
-    fmt.Printf("重执行总数: %d\n", reExec.phase1Total)
-    fmt.Printf("读写集未变（提交）: %d\n", len(reExec.phase1Committed))
-    fmt.Printf("读写集变化（进入阶段二）: %d\n", len(reExec.phase1Aborted))
+	// 打印阶段一结果
+	fmt.Printf("\n========== 重执行阶段一完成 (Batch %d) ==========\n", state.BatchID)
+	fmt.Printf("重执行总数: %d\n", reExec.phase1Total)
+	fmt.Printf("读写集未变（提交）: %d\n", len(reExec.phase1Committed))
+	fmt.Printf("读写集变化（进入阶段二）: %d\n", len(reExec.phase1Aborted))
 
-    // 打印提交的交易ID
-    if len(reExec.phase1Committed) > 0 {
-        fmt.Printf("阶段一提交交易: ")
-        for _, rwset := range reExec.phase1Committed {
-            fmt.Printf("%d ", rwset.TxID)
-        }
-        fmt.Println()
-    }
+	// 打印提交的交易ID
+	if len(reExec.phase1Committed) > 0 {
+		fmt.Printf("阶段一提交交易: ")
+		for _, rwset := range reExec.phase1Committed {
+			fmt.Printf("%d ", rwset.TxID)
+		}
+		fmt.Println()
+	}
 
-    // 打印进入阶段二的交易ID
-    if len(reExec.phase1Aborted) > 0 {
-        fmt.Printf("阶段二待执行交易: ")
-        for _, rwset := range reExec.phase1Aborted {
-            fmt.Printf("%d ", rwset.TxID)
-        }
-        fmt.Println()
-    }
-    fmt.Printf("================================================\n\n")
+	// 打印进入阶段二的交易ID
+	if len(reExec.phase1Aborted) > 0 {
+		fmt.Printf("阶段二待执行交易: ")
+		for _, rwset := range reExec.phase1Aborted {
+			fmt.Printf("%d ", rwset.TxID)
+		}
+		fmt.Println()
+	}
+	fmt.Printf("================================================\n\n")
 
-    // 将阶段一提交的交易加入最终提交列表
-    state.mu.Lock()
-    state.CommittedTxs = append(state.CommittedTxs, reExec.phase1Committed...)
-    state.mu.Unlock()
+	// 将阶段一提交的交易加入最终提交列表
+	state.mu.Lock()
+	state.CommittedTxs = append(state.CommittedTxs, reExec.phase1Committed...)
+	state.mu.Unlock()
 
-    // 准备阶段二队列（按原始顺序排序）
-    if len(reExec.phase1Aborted) > 0 {
-        sortedAborted := make([]*ReadWriteSet, len(reExec.phase1Aborted))
-        copy(sortedAborted, reExec.phase1Aborted)
-        sortByTxID(sortedAborted)
-        reExec.phase2Queue = sortedAborted
-    }
+	// 准备阶段二队列（按原始顺序排序）
+	if len(reExec.phase1Aborted) > 0 {
+		sortedAborted := make([]*ReadWriteSet, len(reExec.phase1Aborted))
+		copy(sortedAborted, reExec.phase1Aborted)
+		sortByTxID(sortedAborted)
+		reExec.phase2Queue = sortedAborted
+	}
 
-    // 标记阶段一完成
-    reExec.phase1Done.Store(true)
+	// 标记阶段一完成
+	reExec.phase1Done.Store(true)
 }
 
 // compareRWSet 比较两个读写集是否相同（只比较涉及冲突的部分）
 func (pe *PipelineEngine) compareRWSet(old, new *ReadWriteSet) bool {
-    // 比较读集
-    if len(old.ReadSet) != len(new.ReadSet) {
-        return false
-    }
-    for addr := range old.ReadSet {
-        if _, exists := new.ReadSet[addr]; !exists {
-            return false
-        }
-    }
+	// 比较读集
+	if len(old.ReadSet) != len(new.ReadSet) {
+		return false
+	}
+	for addr := range old.ReadSet {
+		if _, exists := new.ReadSet[addr]; !exists {
+			return false
+		}
+	}
 
-    // 比较写集
-    if len(old.WriteSet) != len(new.WriteSet) {
-        return false
-    }
-    for addr := range old.WriteSet {
-        if _, exists := new.WriteSet[addr]; !exists {
-            return false
-        }
-    }
+	// 比较写集
+	if len(old.WriteSet) != len(new.WriteSet) {
+		return false
+	}
+	for addr := range old.WriteSet {
+		if _, exists := new.WriteSet[addr]; !exists {
+			return false
+		}
+	}
 
-    return true
+	return true
 }
 
 // sortByTxID 按交易ID排序
 func sortByTxID(rwsets []*ReadWriteSet) {
-    n := len(rwsets)
-    for i := 0; i < n-1; i++ {
-        for j := i + 1; j < n; j++ {
-            if rwsets[i].TxID > rwsets[j].TxID {
-                rwsets[i], rwsets[j] = rwsets[j], rwsets[i]
-            }
-        }
-    }
+	n := len(rwsets)
+	for i := 0; i < n-1; i++ {
+		for j := i + 1; j < n; j++ {
+			if rwsets[i].TxID > rwsets[j].TxID {
+				rwsets[i], rwsets[j] = rwsets[j], rwsets[i]
+			}
+		}
+	}
 }
 
 // reExecutePhase2 重执行阶段二：串行执行
 // 单线程按原始顺序串行执行阶段一中读写集变化的交易
 func (pe *PipelineEngine) reExecutePhase2(state *BatchState, workerID int) {
-    reExec := state.reExecute
-    if reExec == nil {
-        pe.workerStaties[workerID].Phase = WaitingTaskPhase
-        return
-    }
+	reExec := state.reExecute
+	if reExec == nil {
+		pe.workerStaties[workerID].Phase = WaitingTaskPhase
+		return
+	}
 
-    // 如果没有阶段二的交易，直接完成
-    if len(reExec.phase2Queue) == 0 {
-        // 尝试成为完成批次的线程
-        if reExec.phase2Executor.CompareAndSwap(-1, int32(workerID)) {
-            pe.finalizeReExecutePhase2(state, workerID)
-        }
-        
-        // 等待阶段二完成
-        for !reExec.phase2Done.Load() {
-            // busy wait
-        }
-        pe.workerStaties[workerID].Phase = WaitingTaskPhase
-        return
-    }
+	// 如果没有阶段二的交易，直接完成
+	if len(reExec.phase2Queue) == 0 {
+		// 尝试成为完成批次的线程
+		if reExec.phase2Executor.CompareAndSwap(-1, int32(workerID)) {
+			pe.finalizeReExecutePhase2(state, workerID)
+		}
 
-    // 尝试成为串行执行的线程（只有一个线程能执行）
-    if !reExec.phase2Executor.CompareAndSwap(-1, int32(workerID)) {
-        // 不是执行线程，等待阶段二完成
-        for !reExec.phase2Done.Load() {
-            // busy wait
-        }
-        pe.workerStaties[workerID].Phase = WaitingTaskPhase
-        return
-    }
+		// 等待阶段二完成
+		for !reExec.phase2Done.Load() {
+			// busy wait
+		}
+		pe.workerStaties[workerID].Phase = WaitingTaskPhase
+		return
+	}
 
-    // 当前线程负责串行执行
-    fmt.Printf("\n[Worker %d] [ReExecute Phase2] 开始串行执行 %d 笔交易\n", workerID, len(reExec.phase2Queue))
+	// 尝试成为串行执行的线程（只有一个线程能执行）
+	if !reExec.phase2Executor.CompareAndSwap(-1, int32(workerID)) {
+		// 不是执行线程，等待阶段二完成
+		for !reExec.phase2Done.Load() {
+			// busy wait
+		}
+		pe.workerStaties[workerID].Phase = WaitingTaskPhase
+		return
+	}
 
-    for i, oldRWSet := range reExec.phase2Queue {
-        fmt.Printf("[Worker %d] [ReExecute Phase2] 串行执行交易 %d (%d/%d)\n", 
-            workerID, oldRWSet.TxID, i+1, len(reExec.phase2Queue))
+	// 当前线程负责串行执行
+	fmt.Printf("\n[Worker %d] [ReExecute Phase2] 开始串行执行 %d 笔交易\n", workerID, len(reExec.phase2Queue))
 
-        // 串行执行交易
-        newRWSet := pe.reExecuteTransaction(oldRWSet, workerID)
-        reExec.phase2Committed = append(reExec.phase2Committed, newRWSet)
-    }
+	for i, oldRWSet := range reExec.phase2Queue {
+		fmt.Printf("[Worker %d] [ReExecute Phase2] 串行执行交易 %d (%d/%d)\n",
+			workerID, oldRWSet.TxID, i+1, len(reExec.phase2Queue))
 
-    // 完成阶段二
-    pe.finalizeReExecutePhase2(state, workerID)
+		// 串行执行交易
+		newRWSet := pe.reExecuteTransaction(oldRWSet, workerID)
+		reExec.phase2Committed = append(reExec.phase2Committed, newRWSet)
+	}
+
+	// 完成阶段二
+	pe.finalizeReExecutePhase2(state, workerID)
 }
 
 // finalizeReExecutePhase2 完成重执行阶段二，完成整个批次
 func (pe *PipelineEngine) finalizeReExecutePhase2(state *BatchState, workerID int) {
-    reExec := state.reExecute
+	reExec := state.reExecute
 
-    // 打印阶段二结果
-    fmt.Printf("\n========== 重执行阶段二完成 (Batch %d) ==========\n", state.BatchID)
-    fmt.Printf("串行执行交易数: %d\n", len(reExec.phase2Committed))
+	// 打印阶段二结果
+	fmt.Printf("\n========== 重执行阶段二完成 (Batch %d) ==========\n", state.BatchID)
+	fmt.Printf("串行执行交易数: %d\n", len(reExec.phase2Committed))
 
-    if len(reExec.phase2Committed) > 0 {
-        fmt.Printf("阶段二提交交易: ")
-        for _, rwset := range reExec.phase2Committed {
-            fmt.Printf("%d ", rwset.TxID)
-        }
-        fmt.Println()
-    }
-    fmt.Printf("================================================\n\n")
+	if len(reExec.phase2Committed) > 0 {
+		fmt.Printf("阶段二提交交易: ")
+		for _, rwset := range reExec.phase2Committed {
+			fmt.Printf("%d ", rwset.TxID)
+		}
+		fmt.Println()
+	}
+	fmt.Printf("================================================\n\n")
 
-    // 将阶段二提交的交易加入最终提交列表
-    state.mu.Lock()
-    state.CommittedTxs = append(state.CommittedTxs, reExec.phase2Committed...)
-    // 清空中止列表（所有交易都已处理）
-    state.AbortedTxs = []*ReadWriteSet{}
-    state.mu.Unlock()
+	// 将阶段二提交的交易加入最终提交列表
+	state.mu.Lock()
+	state.CommittedTxs = append(state.CommittedTxs, reExec.phase2Committed...)
+	// 清空中止列表（所有交易都已处理）
+	state.AbortedTxs = []*ReadWriteSet{}
+	state.mu.Unlock()
 
-    // 打印最终结果
-    state.mu.Lock()
-    totalCommitted := len(state.CommittedTxs)
-    state.mu.Unlock()
+	// 打印最终结果
+	state.mu.Lock()
+	totalCommitted := len(state.CommittedTxs)
+	state.mu.Unlock()
 
-    fmt.Printf("\n========== 批次 %d 最终结果 ==========\n", state.BatchID)
-    fmt.Printf("最终提交交易数: %d\n", totalCommitted)
-    fmt.Printf("最终中止交易数: 0\n")
-    fmt.Printf("========================================\n\n")
+	fmt.Printf("\n========== 批次 %d 最终结果 ==========\n", state.BatchID)
+	fmt.Printf("最终提交交易数: %d\n", totalCommitted)
+	fmt.Printf("最终中止交易数: 0\n")
+	fmt.Printf("========================================\n\n")
 
-    // 标记阶段二完成
-    reExec.phase2Done.Store(true)
+	// 标记阶段二完成
+	reExec.phase2Done.Store(true)
 
-    // 完成批次
-    pe.completeBatch(state)
+	// 完成批次
+	pe.completeBatch(state)
 }

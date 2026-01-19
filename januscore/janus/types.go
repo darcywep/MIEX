@@ -22,34 +22,34 @@ const (
 
 // ReExecuteState 重执行状态
 type ReExecuteState struct {
-    // 阶段一：并发重执行
-    phase1Queue      []*ReadWriteSet  // 待重执行的交易队列
-    phase1Index      atomic.Int32     // 当前处理索引
-    phase1Committed  []*ReadWriteSet  // 读写集未变，可提交
-    phase1Aborted    []*ReadWriteSet  // 读写集变化，需串行执行
-    phase1Mu         sync.Mutex       // 保护 phase1Committed 和 phase1Aborted
-    phase1Total      int              // 阶段一总交易数
-    phase1Completed  atomic.Int32     // 阶段一已完成数
-    phase1Done       atomic.Bool      // 阶段一完成标志
+	// 阶段一：并发重执行
+	phase1Queue     []*ReadWriteSet // 待重执行的交易队列
+	phase1Index     atomic.Int32    // 当前处理索引
+	phase1Committed []*ReadWriteSet // 读写集未变，可提交
+	phase1Aborted   []*ReadWriteSet // 读写集变化，需串行执行
+	phase1Mu        sync.Mutex      // 保护 phase1Committed 和 phase1Aborted
+	phase1Total     int             // 阶段一总交易数
+	phase1Completed atomic.Int32    // 阶段一已完成数
+	phase1Done      atomic.Bool     // 阶段一完成标志
 
-    // 阶段二：串行执行
-    phase2Queue      []*ReadWriteSet  // 待串行执行的交易队列
-    phase2Committed  []*ReadWriteSet  // 串行执行完成的交易
-    phase2Done       atomic.Bool      // 阶段二完成标志
-    phase2Executor   atomic.Int32     // 执行串行的线程ID（-1表示未分配）
+	// 阶段二：串行执行
+	phase2Queue     []*ReadWriteSet // 待串行执行的交易队列
+	phase2Committed []*ReadWriteSet // 串行执行完成的交易
+	phase2Done      atomic.Bool     // 阶段二完成标志
+	phase2Executor  atomic.Int32    // 执行串行的线程ID（-1表示未分配）
 }
 
 // newReExecuteState 创建重执行状态
 func newReExecuteState() *ReExecuteState {
-    res := &ReExecuteState{
-        phase1Queue:     make([]*ReadWriteSet, 0),
-        phase1Committed: make([]*ReadWriteSet, 0),
-        phase1Aborted:   make([]*ReadWriteSet, 0),
-        phase2Queue:     make([]*ReadWriteSet, 0),
-        phase2Committed: make([]*ReadWriteSet, 0),
-    }
-    res.phase2Executor.Store(-1)
-    return res
+	res := &ReExecuteState{
+		phase1Queue:     make([]*ReadWriteSet, 0),
+		phase1Committed: make([]*ReadWriteSet, 0),
+		phase1Aborted:   make([]*ReadWriteSet, 0),
+		phase2Queue:     make([]*ReadWriteSet, 0),
+		phase2Committed: make([]*ReadWriteSet, 0),
+	}
+	res.phase2Executor.Store(-1)
+	return res
 }
 
 type janusTransaction struct {
@@ -252,16 +252,15 @@ type constructDAGResult struct {
 	done atomic.Bool
 
 	// 最大权重独立集相关
-	// 连通分量队列（待求解）
-	componentsMu sync.Mutex
-	componentsQueue [][]int
+
+	componentsQueue [][]int // 连通分量队列（待求解）
 	componentsIndex atomic.Int32
+	totalComponents int //总连通分量数量
 
 	// 求解结果
-	resultsMu sync.Mutex
-	commitTxs map[int]bool   //应该提交的交易ID
-	solvedCount atomic.Int32  //已求解的连通分量数量
-	totalComponents int 	 //总连通分量数量
+	committedTxs map[int]struct{} // 完成提交的交易 // txID ->
+	commitTxs    [][]int          // 按线程顺序存储的可提交交易列表，所有线程完成之后需要合并到 committedTxs
+	solvedCount  atomic.Int32     //已求解的连通分量数量
 
 	mwisDone atomic.Bool
 }
@@ -292,6 +291,17 @@ func (cdr *constructDAGResult) awakeOrWaitConstructDAG(state *BatchState, comple
 			// 🆕 日志：打印最终的连通分量结果
 			finalDag := cdr.dagQueue[0]
 			components := finalDag.GetConnectedComponents()
+
+			// 初始化连通分量队列
+			for _, nodes := range components {
+				if len(nodes) == 1 {
+					cdr.committedTxs[nodes[0]] = struct{}{}
+				} else {
+					cdr.componentsQueue = append(cdr.componentsQueue, nodes)
+				}
+			}
+			cdr.totalComponents = len(cdr.componentsQueue)
+
 			fmt.Printf("\n========== 最终 DAG 连通分量结果 ==========\n")
 			fmt.Printf("总节点数: %d\n", len(finalDag.Nodes))
 			fmt.Printf("总边数: %d\n", countEdges(finalDag))
@@ -368,7 +378,8 @@ func newConstructDAGResult(threadNumber int) *constructDAGResult {
 		//initialCount:     -1,
 		//totalMerges:      -1,
 		componentsQueue: make([][]int, 0),
-		commitTxs: make(map[int]bool),
+		committedTxs:    make(map[int]struct{}),
+		commitTxs:       make([][]int, threadNumber),
 	}
 	//for i := 0; i < threadNumber; i++ {
 	//	cdr.constructThreads[i] = &atomic.Bool{}

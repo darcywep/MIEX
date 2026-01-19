@@ -288,13 +288,13 @@ func (pe *PipelineEngine) addEdge(dag *ConflictDAG, from, to int) {
 	dag.Degree[to]++
 
 	rootFromBefore := dag.Find(from)
-    rootToBefore := dag.Find(to)
+	rootToBefore := dag.Find(to)
 	// 合并连通分量
-	dag.Union(from,to)
+	dag.Union(from, to)
 
 	rootAfter := dag.Find(from)
-    fmt.Printf("[AddEdge] 添加边 (%d, %d), 合并前: root(%d)=%d, root(%d)=%d, 合并后: root=%d\n",
-        from, to, from, rootFromBefore, to, rootToBefore, rootAfter)
+	fmt.Printf("[AddEdge] 添加边 (%d, %d), 合并前: root(%d)=%d, root(%d)=%d, 合并后: root=%d\n",
+		from, to, from, rootFromBefore, to, rootToBefore, rootAfter)
 }
 
 // addEdgeWithDetail 添加边到DAG，并记录冲突详情
@@ -380,18 +380,18 @@ func (pe *PipelineEngine) constructDAGForAddress(state *BatchState, rwTable1, rw
 	constructDAG(rwTable2)
 
 	// 日志：当前 DAG 状态
-    components := dag.GetConnectedComponents()
-    fmt.Printf("[Worker %d] [ConstructDAG] 当前DAG: 节点数=%d, 连通分量数=%d\n",
-        workerID, len(dag.Nodes), len(components))
+	components := dag.GetConnectedComponents()
+	fmt.Printf("[Worker %d] [ConstructDAG] 当前DAG: 节点数=%d, 连通分量数=%d\n",
+		workerID, len(dag.Nodes), len(components))
 }
 
 func (pe *PipelineEngine) mergeTwoDags(state *BatchState, pairDag *ConflictDAG, workerID int) (newPairDag *ConflictDAG) {
 	// 获取当前工作线程的DAG
 	dag := state.constructDAG.dags[workerID]
 	// 日志：合并前的状态
-    fmt.Printf("[Worker %d] [MergeDag] 开始合并, myDag节点数=%d, pairDag节点数=%d\n",
-        workerID, len(dag.Nodes), len(pairDag.Nodes))
-	
+	fmt.Printf("[Worker %d] [MergeDag] 开始合并, myDag节点数=%d, pairDag节点数=%d\n",
+		workerID, len(dag.Nodes), len(pairDag.Nodes))
+
 	for nodeID, rwset := range pairDag.Nodes {
 		// 如果节点尚未添加到DAG中
 		if _, exists := dag.Nodes[nodeID]; !exists {
@@ -417,7 +417,7 @@ func (pe *PipelineEngine) mergeTwoDags(state *BatchState, pairDag *ConflictDAG, 
 				dag.Degree[nodeID]++
 				dag.Degree[toNodeID]++
 				// 合并连通分量
-				dag.Union(nodeID, toNodeID)
+				//dag.Union(nodeID, toNodeID)
 			}
 		}
 	}
@@ -430,12 +430,12 @@ func (pe *PipelineEngine) mergeTwoDags(state *BatchState, pairDag *ConflictDAG, 
 		}
 	}
 	// 日志：合并后的连通分量
-    components := dag.GetConnectedComponents()
-    fmt.Printf("[Worker %d] [MergeDag] 合并完成, 总节点数=%d, 连通分量数=%d\n",
-        workerID, len(dag.Nodes), len(components))
-    for root, nodes := range components {
-        fmt.Printf("[Worker %d] [MergeDag]   连通分量 root=%d: %v\n", workerID, root, nodes)
-    }
+	components := dag.GetConnectedComponents()
+	fmt.Printf("[Worker %d] [MergeDag] 合并完成, 总节点数=%d, 连通分量数=%d\n",
+		workerID, len(dag.Nodes), len(components))
+	for root, nodes := range components {
+		fmt.Printf("[Worker %d] [MergeDag]   连通分量 root=%d: %v\n", workerID, root, nodes)
+	}
 
 	if pairDag.totalMerges != -1 {
 		dag.totalMerges = pairDag.totalMerges
