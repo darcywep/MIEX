@@ -60,6 +60,8 @@ func (pe *PipelineEngine) SubmitBlockBatches(batches []*Batch, jtxs []*janusTran
 			NextBatch:              nextBatch,
 			LongTxs:                batch.LongTxs,
 			ShortTxs:               batch.ShortTxs,
+			threadWriteSet:         make([]map[string]struct{}, pe.numThreads), // ThreadID -> [writeKey1, writeKey2, ...]
+			writeSet:               make(map[string]struct{}),
 			ThreadRWSets:           make([][]*ReadWriteSet, pe.numThreads),
 			ThreadStateTables:      make([]map[string]*StateTable, pe.numThreads),
 			MergeThreadStateTables: newThreadStateTableForMerge(pe.numThreads),
@@ -67,6 +69,7 @@ func (pe *PipelineEngine) SubmitBlockBatches(batches []*Batch, jtxs []*janusTran
 			reExecute:              nil,
 			CompletionOrder:        make([]int, 0),
 			TotalTxs:               len(batch.AllTxs),
+			threadNumber:           int32(pe.numThreads),
 		}
 
 		pe.batchStates[i] = state // 设置批次切片
@@ -91,6 +94,9 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 			return
 		default:
 		}
+		if pe.currentBatchID.Load() >= int32(len(pe.batchStates)) {
+			return // 完成所有批次
+		}
 
 		if pe.currentBatchID.Load() == -1 { // 尚未有批次
 			continue
@@ -98,12 +104,12 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 		// 切换到新的批次状态
 		if pe.currentBatchID.Load() > pe.workerStaties[workerID].currentBatchID {
 			pe.workerStaties[workerID].currentBatchID = pe.currentBatchID.Load()
-			pe.workerStaties[workerID].Phase = ExecuteTaskPhase
+			pe.workerStaties[workerID].Phase = ExecuteCurrentBatchPhase
 			fmt.Printf("[Worker %d] Switched to Batch %d\n", workerID, pe.workerStaties[workerID].currentBatchID)
 		}
 
 		state := pe.batchStates[pe.currentBatchID.Load()]
-		if pe.workerStaties[workerID].Phase == ExecuteTaskPhase {
+		if pe.workerStaties[workerID].Phase == ExecuteCurrentBatchPhase || pe.workerStaties[workerID].Phase == PreExecuteNextBatchPhase {
 			task, pairWorkerID := pe.nextTask(workerID)
 			if task != nil {
 				// 执行任务/交易
@@ -123,6 +129,7 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 			}
 			if pairWorkerID == -1 {
 				// 无任务可执行，继续循环获取任务
+				fmt.Printf("[Worker %d] Btach %d Skipping task execution phase, Entry ConstructDAGPhase\n", workerID, state.BatchID)
 				pe.workerStaties[workerID].Phase = ConstructDAGPhase
 				continue
 			}
@@ -131,12 +138,14 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 		if pe.workerStaties[workerID].Phase == ConstructDAGPhase {
 			for !state.MergeThreadStateTables.done.Load() {
 				// busy wait
+				//fmt.Printf("[Worker %d] Skipping task execution phase, merge=%t\n", workerID, state.MergeThreadStateTables.done.Load())
 			}
 			// todo:尝试获取合并任务,寻找弱连通分量
 			pairDag := pe.tryConstructDAG(state, workerID)
 			for pairDag != nil {
 				pairDag = pe.tryMergeDag(state, pairDag, workerID)
 			}
+			fmt.Printf("[Worker %d] Finished ConstructDAGPhase, Entry CommitMaximumValidationPhase\n", workerID)
 			continue
 		}
 		if pe.workerStaties[workerID].Phase == CommitMaximumValidationPhase {
@@ -241,7 +250,7 @@ func (pe *PipelineEngine) solveComponentMWIS(state *BatchState, workerID int) {
 		pe.workerStaties[workerID].Phase = ReExecutePhase
 	} else {
 		// 没有需要重执行的交易，进入等待阶段
-		pe.workerStaties[workerID].Phase = WaitingTaskPhase
+		pe.reEntryWaitingTaskPhase(state, workerID)
 	}
 }
 
@@ -330,7 +339,6 @@ func (pe *PipelineEngine) finalizeMWISResults(state *BatchState, workerID int) {
 	} else {
 		// 没有需要重执行的交易，直接完成批次
 		cdr.mwisDone.Store(true)
-		pe.completeBatch(state)
 	}
 }
 
@@ -633,7 +641,7 @@ func (pe *PipelineEngine) searchNextBatchTask(atomicIdx *atomic.Int32, txs []*ja
 func (pe *PipelineEngine) nextTask(workerID int) (task *Task, pairWorkerID int) {
 	peCurrentBatchID := pe.currentBatchID.Load() // 仍然处于当前批次
 	state := pe.batchStates[peCurrentBatchID]
-	if peCurrentBatchID == pe.workerStaties[workerID].currentBatchID { // 尚未切换批次
+	if pe.workerStaties[workerID].Phase == ExecuteCurrentBatchPhase { // 执行当前批次的任务
 		// 1. 优先执行长交易
 		task = pe.searchNextTask(&state.LongTxIndex, state.LongTxs, workerID, state)
 		if task != nil { // 找到任务
@@ -649,7 +657,7 @@ func (pe *PipelineEngine) nextTask(workerID int) (task *Task, pairWorkerID int) 
 		// 无法找到该批次的执行任务了，尝试部分线程进行下一批的执行
 		// 线程完成本批次的任务后，需要先构建自己的状态读写表
 		if state.ThreadStateTables[workerID] == nil {
-			state.ThreadStateTables[workerID] = pe.buildStateTable(state.ThreadRWSets[workerID])
+			state.ThreadStateTables[workerID] = pe.buildStateTable(state, workerID)
 		}
 
 		// 3. 尝试进入下一批执行（水位线间并发）
@@ -673,14 +681,14 @@ func (pe *PipelineEngine) nextTask(workerID int) (task *Task, pairWorkerID int) 
 			state.CompletionOrder = append(state.CompletionOrder, workerID) // 先加入完成队列，防止竞争
 			state.CompletionMu.Unlock()
 			if state.NextBatch != nil {
-				pe.workerStaties[workerID].currentBatchID++ // 成功增加线程数
+				pe.workerStaties[workerID].Phase = PreExecuteNextBatchPhase // 成功增加线程数
 			}
 			break
 		}
 	}
 
 	// 部分线程已切换到新批次
-	if peCurrentBatchID < pe.workerStaties[workerID].currentBatchID {
+	if pe.workerStaties[workerID].Phase == PreExecuteNextBatchPhase {
 		// 2. 执行下一批长交易（水位线间并发）
 		task = pe.searchNextBatchTask(&state.NextLongTxIndex, state.NextBatch.LongTxs, workerID, state)
 		if task != nil {
@@ -696,6 +704,7 @@ func (pe *PipelineEngine) nextTask(workerID int) (task *Task, pairWorkerID int) 
 
 	// 无任务可执行
 	// 1. 下一批也无任务，或无下一批
+	pe.workerStaties[workerID].Phase = ConstructDAGPhase // 进入下一阶段
 	fmt.Printf("[Worker %d]  Batch %d: Not Next Batch or Next Batch is all Executed,  waiting...\n", workerID, state.BatchID)
 
 	//startWait := time.Now()
@@ -819,11 +828,13 @@ func (pe *PipelineEngine) tryConstructDAG(state *BatchState, workerID int) (pair
 	// 循环尝试从队列中抢任务
 	for {
 		idx, ok := state.constructDAG.tryGetTaskAndActiveWorker(workerID)
+		fmt.Printf("[Woker %d, Batch %d] tryConstructDAG, idx=%d, ok=%t\n", workerID, state.BatchID, idx, ok)
 		if !ok { // 队列已完成，等价于 idx >= len(state.constructDAG.stateTables)
 			if state.constructDAG.dags[workerID] == nil { // 当前线程没有构建任何 DAG，说明没有任务可做，等待
 				//fmt.Printf("[Worker %d] Batch %d: New join thread, but no more StateTables to construct DAG, waiting...\n", workerID, state.BatchID)
 				//startWait := time.Now()
 				//isWait := waitHere(workerID, &state.constructDAG.condMu, state.constructDAG.cond, &state.constructDAG.done)
+				fmt.Printf("[Woker %d, Batch %d] watiting ConstructDAG finish, idx=%d, ok=%t\n", workerID, state.BatchID, idx, ok)
 				for !state.constructDAG.done.Load() {
 					//isWait = true
 				}
@@ -939,7 +950,7 @@ func (pe *PipelineEngine) reExecutePhase1(state *BatchState, workerID int) {
 	reExec := state.reExecute
 	if reExec == nil {
 		// 没有需要重执行的交易，进入等待
-		pe.workerStaties[workerID].Phase = WaitingTaskPhase
+		pe.reEntryWaitingTaskPhase(state, workerID)
 		return
 	}
 
@@ -1082,7 +1093,7 @@ func sortByTxID(rwsets []*ReadWriteSet) {
 func (pe *PipelineEngine) reExecutePhase2(state *BatchState, workerID int) {
 	reExec := state.reExecute
 	if reExec == nil {
-		pe.workerStaties[workerID].Phase = WaitingTaskPhase
+		pe.reEntryWaitingTaskPhase(state, workerID)
 		return
 	}
 
@@ -1097,7 +1108,7 @@ func (pe *PipelineEngine) reExecutePhase2(state *BatchState, workerID int) {
 		for !reExec.phase2Done.Load() {
 			// busy wait
 		}
-		pe.workerStaties[workerID].Phase = WaitingTaskPhase
+		pe.reEntryWaitingTaskPhase(state, workerID)
 		return
 	}
 
@@ -1107,7 +1118,7 @@ func (pe *PipelineEngine) reExecutePhase2(state *BatchState, workerID int) {
 		for !reExec.phase2Done.Load() {
 			// busy wait
 		}
-		pe.workerStaties[workerID].Phase = WaitingTaskPhase
+		pe.reEntryWaitingTaskPhase(state, workerID)
 		return
 	}
 
@@ -1161,9 +1172,7 @@ func (pe *PipelineEngine) finalizeReExecutePhase2(state *BatchState, workerID in
 	fmt.Printf("最终中止交易数: 0\n")
 	fmt.Printf("========================================\n\n")
 
+	pe.reEntryWaitingTaskPhase(state, workerID)
 	// 标记阶段二完成
 	reExec.phase2Done.Store(true)
-
-	// 完成批次
-	pe.completeBatch(state)
 }

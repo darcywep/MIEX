@@ -2,14 +2,14 @@ package janus
 
 import (
 	"fmt"
-	"sync"
 )
 
 // buildStateTable 构建单个线程的状态读写表
-func (pe *PipelineEngine) buildStateTable(rwsets []*ReadWriteSet) map[string]*StateTable {
+func (pe *PipelineEngine) buildStateTable(state *BatchState, workerID int) map[string]*StateTable {
 	stateMap := make(map[string]*StateTable)
+	state.threadWriteSet[workerID] = make(map[string]struct{})
 
-	for _, rwset := range rwsets {
+	for _, rwset := range state.ThreadRWSets[workerID] {
 		// 处理读集
 		for addr := range rwset.ReadSet {
 			if stateMap[addr] == nil {
@@ -31,6 +31,9 @@ func (pe *PipelineEngine) buildStateTable(rwsets []*ReadWriteSet) map[string]*St
 					Address:    addr,
 					Operations: make([]*Operation, 0),
 				}
+			}
+			if _, exist := state.threadWriteSet[workerID][addr]; !exist {
+				state.threadWriteSet[workerID][addr] = struct{}{}
 			}
 			stateMap[addr].Operations = append(stateMap[addr].Operations, &Operation{
 				TxID: rwset.TxID,
@@ -251,9 +254,6 @@ func (pe *PipelineEngine) hasEdge(dag *ConflictDAG, from, to int) bool {
 	return false
 }
 
-// ============================================================================
-// 【修改3】addEdge - 添加边（简化版，不记录冲突详情）
-// ============================================================================
 // addEdge 添加边到DAG
 // 参数：
 //   - from: 源交易ID
@@ -296,30 +296,6 @@ func (pe *PipelineEngine) addEdge(dag *ConflictDAG, from, to int) {
 	fmt.Printf("[AddEdge] 添加边 (%d, %d), 合并前: root(%d)=%d, root(%d)=%d, 合并后: root=%d\n",
 		from, to, from, rootFromBefore, to, rootToBefore, rootAfter)
 }
-
-// addEdgeWithDetail 添加边到DAG，并记录冲突详情
-// 参数：
-//   - from: 源交易ID
-//   - to: 目标交易ID
-//   - address: 冲突的状态地址
-//   - conflictType: 冲突类型 "WR" 或 "WRW"
-//func (pe *PipelineEngine) addEdgeWithDetail(dag *ConflictDAG, from, to int, address, conflictType string) {
-//	// 创建冲突边
-//	edge := &ConflictEdge{
-//		From:    from,
-//		To:      to,
-//		Address: address,
-//		Type:    conflictType,
-//	}
-//
-//	// 添加到 EdgeDetails
-//	//dag.EdgeDetails[from] = append(dag.EdgeDetails[from], edge)
-//	if _, ok := dag.EdgeDetails[from][to]; !ok {
-//		dag.EdgeDetails[from][to] = edge
-//	}
-//
-//	dag.InDegree[to]++
-//}
 
 // TxOperation 表示一个交易对某个地址的所有操作
 type TxOperation struct {
@@ -459,169 +435,4 @@ func (pe *PipelineEngine) mergeTwoDags(state *BatchState, pairDag *ConflictDAG, 
 	} // 完成之后，未睡眠，仍然在当前阶段
 
 	return newPairDag
-}
-
-// checkAndStartValidation 检查并启动验证
-func (pe *PipelineEngine) checkAndStartValidation(state *BatchState) {
-
-	// 只启动一次验证
-	if state.ValidationStarted.CompareAndSwap(0, 1) {
-		fmt.Printf("[Validation] Starting validation for batch %d\n", state.BatchID)
-		go pe.startValidation(state)
-	}
-}
-
-// startValidation 启动验证阶段
-func (pe *PipelineEngine) startValidation(state *BatchState) {
-
-	//completeDAG := pe.mergePairDAGs(pairDAGs)
-	//subDAGs := pe.extractSubDAGs(completeDAG)
-	//
-	//fmt.Printf("[Validation] Merged %d pair DAGs into %d sub-DAGs\n", len(pairDAGs), len(subDAGs))
-	//
-	//// 并发验证
-	//resultChan := make(chan []*ReadWriteSet, len(subDAGs))
-	//var wg sync.WaitGroup
-	//
-	//for _, subDAG := range subDAGs {
-	//	wg.Add(1)
-	//	go func(dag *ConflictDAG) {
-	//		defer wg.Done()
-	//		result := pe.solveSubDAG(dag)
-	//		resultChan <- result
-	//	}(subDAG)
-	//}
-	//
-	//wg.Wait()
-	//close(resultChan)
-	//
-	//committedTxs := make([]*ReadWriteSet, 0)
-	//for result := range resultChan {
-	//	committedTxs = append(committedTxs, result...)
-	//}
-	//
-	////state.ExecResultsMu.Lock()
-	////allRWSets := state.ExecResults
-	////state.ExecResultsMu.Unlock()
-	//
-	//committedSet := make(map[int]bool)
-	//for _, rwset := range committedTxs {
-	//	committedSet[rwset.TxID] = true
-	//}
-	//
-	//abortedTxs := make([]*ReadWriteSet, 0)
-	////for _, rwset := range allRWSets {
-	////	if !committedSet[rwset.TxID] {
-	////		abortedTxs = append(abortedTxs, rwset)
-	////	}
-	////}
-	//
-	//state.mu.Lock()
-	//state.CommittedTxs = committedTxs
-	//state.AbortedTxs = abortedTxs
-	//state.mu.Unlock()
-	//
-	//fmt.Printf("[Validation] Batch %d: %d committed, %d aborted\n",
-	//	state.BatchID, len(committedTxs), len(abortedTxs))
-	//
-	//if len(abortedTxs) > 0 {
-	//	go pe.startReExecution(state)
-	//} else {
-	//	pe.completeBatch(state)
-	//}
-}
-
-// startReExecution 启动重执行阶段
-func (pe *PipelineEngine) startReExecution(state *BatchState) {
-	state.mu.Lock()
-	abortedTxs := state.AbortedTxs
-	state.mu.Unlock()
-
-	fmt.Printf("[ReExecution] Starting re-execution for %d aborted transactions\n", len(abortedTxs))
-
-	groups := pe.partitionByConflict(abortedTxs)
-
-	var wg sync.WaitGroup
-	reExecResults := make([]*ReadWriteSet, 0)
-	var resultMu sync.Mutex
-
-	for _, group := range groups {
-		for _, rwset := range group {
-			wg.Add(1)
-			go func(oldRWSet *ReadWriteSet) {
-				defer wg.Done()
-				newRWSet := pe.reExecuteTransaction(oldRWSet, 0)
-				resultMu.Lock()
-				reExecResults = append(reExecResults, newRWSet)
-				resultMu.Unlock()
-			}(rwset)
-		}
-	}
-
-	wg.Wait()
-
-	state.mu.Lock()
-	state.CommittedTxs = append(state.CommittedTxs, reExecResults...)
-	state.AbortedTxs = []*ReadWriteSet{}
-	state.mu.Unlock()
-
-	fmt.Printf("[ReExecution] Batch %d: %d transactions re-executed\n", state.BatchID, len(reExecResults))
-
-	pe.completeBatch(state)
-}
-
-// partitionByConflict 根据冲突关系将交易分组
-func (pe *PipelineEngine) partitionByConflict(rwsets []*ReadWriteSet) [][]*ReadWriteSet {
-	n := len(rwsets)
-	if n == 0 {
-		return [][]*ReadWriteSet{}
-	}
-
-	// 使用并查集分组
-	parent := make([]int, n)
-	for i := range parent {
-		parent[i] = i
-	}
-
-	var find func(int) int
-	find = func(x int) int {
-		if parent[x] != x {
-			parent[x] = find(parent[x])
-		}
-		return parent[x]
-	}
-
-	union := func(x, y int) {
-		px, py := find(x), find(y)
-		if px != py {
-			parent[px] = py
-		}
-	}
-
-	// 检查所有交易对的冲突关系
-	for i := 0; i < n; i++ {
-		for j := i + 1; j < n; j++ {
-			if pe.hasConflict(rwsets[i], rwsets[j]) {
-				union(i, j)
-			}
-		}
-	}
-
-	// 按根节点分组
-	groups := make(map[int][]*ReadWriteSet)
-	for i, rwset := range rwsets {
-		root := find(i)
-		if groups[root] == nil {
-			groups[root] = make([]*ReadWriteSet, 0)
-		}
-		groups[root] = append(groups[root], rwset)
-	}
-
-	// 转换为切片
-	result := make([][]*ReadWriteSet, 0, len(groups))
-	for _, group := range groups {
-		result = append(result, group)
-	}
-
-	return result
 }

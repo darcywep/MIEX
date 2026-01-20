@@ -167,7 +167,6 @@ type BatchState struct {
 	// 交易队列
 	LongTxs  []*janusTransaction
 	ShortTxs []*janusTransaction
-	//NextBatchTxs []*janusTransaction
 
 	// 执行索引（原子操作）
 	LongTxIndex  atomic.Int32
@@ -175,6 +174,11 @@ type BatchState struct {
 
 	NextLongTxIndex  atomic.Int32
 	NextShortTxIndex atomic.Int32
+
+	// 本批次的写集, 会影响下一批的执行
+	// 即预执行是否需要丢弃
+	threadWriteSet []map[string]struct{} // ThreadID -> [writeKey1, writeKey2, ...]
+	writeSet       map[string]struct{}
 
 	// 每个线程的执行结果，用于验证阶段构图
 	// 第一个下标是线程，第二个下标是该线程执行的交易列表，按线程的执行顺序存储
@@ -206,6 +210,10 @@ type BatchState struct {
 	constructDAG *constructDAGResult
 	// 重执行相关
 	reExecute *ReExecuteState
+
+	// 切换到下一线程相关
+	threadNumber         int32
+	finishedThreadNumber atomic.Int32
 
 	// 保护批次状态的锁
 
@@ -345,7 +353,7 @@ func (cdr *constructDAGResult) tryGetTaskAndActiveWorker(workerID int) (int, boo
 		oldPacked := cdr.packedState.Load()
 		oldIndex := int32(oldPacked & 0xFFFFFFFF)
 		oldWorkers := uint32(oldPacked >> 32)
-
+		fmt.Printf("[Worker %d] tryGetTaskAndActiveWorker, workerID=%d\n", workerID, workerID)
 		if int(oldIndex) >= len(cdr.stateTables) {
 			return 0, false
 		}
@@ -496,18 +504,24 @@ type PipelineEngine struct {
 }
 
 const (
-	WaitingTaskPhase             = iota // 等待任务
-	ExecuteTaskPhase                    // 执行任务
-	MergeStateTablePhase                // 合并StateTables
+	WaitingPhase                 = iota // 等待任务
+	ExecuteCurrentBatchPhase            // 执行当前批次的交易
+	PreExecuteNextBatchPhase            // 预执行下一批的交易
 	ConstructDAGPhase                   // 构建DAG
 	CommitMaximumValidationPhase        // 最大可提交集
 	ReExecutePhase                      // 重执行阶段
 	SerialExecutePhase                  // 串行执行
-	// 搜索弱连通分量
-	//TaskExecNext           // 执行下一批次
-	//TaskValidate           // 验证任务
-	//TaskReExecute          // 重执行任务
 )
+
+func (pe *PipelineEngine) reEntryWaitingTaskPhase(state *BatchState, workerID int) {
+	pe.workerStaties[workerID].Phase = WaitingPhase
+	finishThreadNumber := state.finishedThreadNumber.Add(1)
+	fmt.Printf("[WorkerID %d] Finished batch %d, finishThreadNumber=%d\n", workerID, state.BatchID, finishThreadNumber)
+	if finishThreadNumber == state.threadNumber { // 所有线程切换到下一批次
+		pe.completeBatch(state) // 完成该批次
+		pe.currentBatchID.Add(1)
+	}
+}
 
 type WorkerStats struct {
 	currentBatchID int32
@@ -519,6 +533,6 @@ func NewWorkerStats(workerID int) *WorkerStats {
 	return &WorkerStats{
 		currentBatchID: -1,
 		workerID:       workerID,
-		Phase:          WaitingTaskPhase,
+		Phase:          WaitingPhase,
 	}
 }
