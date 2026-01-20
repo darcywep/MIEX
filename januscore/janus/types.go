@@ -92,7 +92,7 @@ type ThreadStateTableForMerge struct {
 	cond   *sync.Cond
 
 	queueMu          sync.Mutex
-	stateTablesQueue []map[string]*StateTable // 队列(状态地址 -> 状态读写表)
+	stateTablesQueue []*stateTableWithWriteSet // 队列(状态地址 -> 状态读写表)
 
 	// 核心：只需要这两个
 	initialCount        int // 初始切片数量（判断奇偶）
@@ -116,14 +116,15 @@ func (tstfm *ThreadStateTableForMerge) awakeOrWaitThreadStateTableForMerge(state
 			}
 		} else {
 			// 最后一次合并，唤醒所有等待的
-			for _, rwTable := range tstfm.stateTablesQueue[0] {
+			for _, rwTable := range tstfm.stateTablesQueue[0].stateTables {
 				state.constructDAG.stateTables = append(state.constructDAG.stateTables, rwTable)
 			}
+			state.writeSet = tstfm.stateTablesQueue[0].writeSet
 			tstfm.done.Store(true)
 			if enableLog {
 				fmt.Printf("[Worker %d] [batch %d]: merge state table %d/%d completed, broadcasting to all busy waiting...\n",
 					workerID, state.BatchID, completedMergeCount, tstfm.totalMerges)
-				fmt.Printf("[Worker %d] [batch %d] state table have access %d address\n", workerID, state.BatchID, len(tstfm.stateTablesQueue[0]))
+				fmt.Printf("[Worker %d] [batch %d] state table have access %d address\n", workerID, state.BatchID, len(tstfm.stateTablesQueue[0].stateTables))
 			}
 		}
 		return true // 可以先休息一会，休息完继续做牛马
@@ -133,7 +134,7 @@ func (tstfm *ThreadStateTableForMerge) awakeOrWaitThreadStateTableForMerge(state
 
 func newThreadStateTableForMerge(n int) *ThreadStateTableForMerge {
 	tstfm := &ThreadStateTableForMerge{
-		stateTablesQueue: make([]map[string]*StateTable, 0),
+		stateTablesQueue: make([]*stateTableWithWriteSet, 0),
 		initialCount:     n,
 		totalMerges:      n - 1,
 	}
@@ -148,6 +149,15 @@ func newThreadStateTableForMerge(n int) *ThreadStateTableForMerge {
 
 // 写集也需要像stateTable一样，进行合并
 type stateTableWithWriteSet struct {
+	stateTables map[string]*StateTable // 线程ID -> 状态地址 -> 状态读写表
+	writeSet    map[string]struct{}
+}
+
+func newStateTableWithWriteSet() *stateTableWithWriteSet {
+	return &stateTableWithWriteSet{
+		stateTables: make(map[string]*StateTable),
+		writeSet:    make(map[string]struct{}),
+	}
 }
 
 // BatchState 批次状态
@@ -169,15 +179,15 @@ type BatchState struct {
 
 	// 本批次的写集, 会影响下一批的执行
 	// 即预执行是否需要丢弃
-	threadWriteSet []map[string]struct{} // ThreadID -> [writeKey1, writeKey2, ...]
-	writeSet       map[string]struct{}
+	writeSet map[string]struct{}
 
 	// 每个线程的执行结果，用于验证阶段构图
 	// 第一个下标是线程，第二个下标是该线程执行的交易列表，按线程的执行顺序存储
 	ThreadRWSets [][]*ReadWriteSet
 
 	// threadStateTables 每个线程的状态读写表，该线程完成该批次的交易后，需要先构建自己的状态读写表
-	ThreadStateTables []map[string]*StateTable // 线程ID -> 状态地址 -> 状态读写表
+	ThreadStateTables []*stateTableWithWriteSet // 线程ID -> 状态地址 -> 状态读写表
+	//                                                    -> 写集
 
 	// 合并后的状态读写表，用于验证阶段构图，所有线程完成该批次后合并
 	// 当只有一个MergeThreadStateTables时，表示该线程完成了所有交易，无需合并

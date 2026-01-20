@@ -5,23 +5,22 @@ import (
 )
 
 // buildStateTable 构建单个线程的状态读写表
-func (pe *PipelineEngine) buildStateTable(state *BatchState, workerID int) map[string]*StateTable {
+func (pe *PipelineEngine) buildStateTable(state *BatchState, workerID int) *stateTableWithWriteSet {
 	if state.ThreadRWSets[workerID] == nil {
 		return nil
 	}
-	stateMap := make(map[string]*StateTable)
-	state.threadWriteSet[workerID] = make(map[string]struct{})
+	stateTableWriteSet := newStateTableWithWriteSet()
 
 	for _, rwset := range state.ThreadRWSets[workerID] {
 		// 处理读集
 		for addr := range rwset.ReadSet {
-			if stateMap[addr] == nil {
-				stateMap[addr] = &StateTable{
+			if stateTableWriteSet.stateTables[addr] == nil {
+				stateTableWriteSet.stateTables[addr] = &StateTable{
 					Address:    addr,
 					Operations: make([]*Operation, 0),
 				}
 			}
-			stateMap[addr].Operations = append(stateMap[addr].Operations, &Operation{
+			stateTableWriteSet.stateTables[addr].Operations = append(stateTableWriteSet.stateTables[addr].Operations, &Operation{
 				TxID: rwset.TxID,
 				Type: "r",
 			})
@@ -29,16 +28,16 @@ func (pe *PipelineEngine) buildStateTable(state *BatchState, workerID int) map[s
 
 		// 处理写集
 		for addr := range rwset.WriteSet {
-			if stateMap[addr] == nil {
-				stateMap[addr] = &StateTable{
+			if stateTableWriteSet.stateTables[addr] == nil {
+				stateTableWriteSet.stateTables[addr] = &StateTable{
 					Address:    addr,
 					Operations: make([]*Operation, 0),
 				}
 			}
-			if _, exist := state.threadWriteSet[workerID][addr]; !exist {
-				state.threadWriteSet[workerID][addr] = struct{}{}
+			if _, exist := stateTableWriteSet.writeSet[addr]; !exist { // 合并这个线程的所有写集
+				stateTableWriteSet.writeSet[addr] = struct{}{}
 			}
-			stateMap[addr].Operations = append(stateMap[addr].Operations, &Operation{
+			stateTableWriteSet.stateTables[addr].Operations = append(stateTableWriteSet.stateTables[addr].Operations, &Operation{
 				TxID: rwset.TxID,
 				Type: "w",
 			})
@@ -47,7 +46,7 @@ func (pe *PipelineEngine) buildStateTable(state *BatchState, workerID int) map[s
 
 	// 对每个地址的操作列表进行排序
 	// 排序规则：先按 TxID 排序，TxID 相同时 r 在前，w 在后
-	for _, table := range stateMap {
+	for _, table := range stateTableWriteSet.stateTables {
 		ops := table.Operations
 		// 冒泡排序
 		for i := 0; i < len(ops); i++ {
@@ -71,7 +70,7 @@ func (pe *PipelineEngine) buildStateTable(state *BatchState, workerID int) map[s
 		}
 	}
 
-	return stateMap
+	return stateTableWriteSet
 }
 
 // compareOperations 比较两个操作的顺序
@@ -133,38 +132,53 @@ func (pe *PipelineEngine) mergeTwoLists(lists [][]*Operation) []*Operation {
 	return result
 }
 
-func (pe *PipelineEngine) mergeStateTables(state *BatchState, threadStateTable1, threadStateTable2 map[string]*StateTable, workerID int) (mergeThreadStateTable, pairStateTable map[string]*StateTable, isMerge bool) {
+func (pe *PipelineEngine) mergeStateTables(state *BatchState, threadStateTable1, threadStateTable2 *stateTableWithWriteSet, workerID int) (mergeThreadStateTable, pairStateTable *stateTableWithWriteSet, isMerge bool) {
 	// 获取所有状态地址
-	mergeThreadStateTable = make(map[string]*StateTable)
+	mergeThreadStateTable = newStateTableWithWriteSet()
+	var stateTable1, stateTable2 map[string]*StateTable = make(map[string]*StateTable), make(map[string]*StateTable)
+	var writeSet1, writeSet2 map[string]struct{} = make(map[string]struct{}), make(map[string]struct{})
 	if threadStateTable1 != nil { // 可能为空
-		for addr := range threadStateTable1 {
-			mergeThreadStateTable[addr] = &StateTable{Address: addr}
+		stateTable1 = threadStateTable1.stateTables
+		writeSet1 = threadStateTable1.writeSet
+		for addr := range threadStateTable1.stateTables {
+			mergeThreadStateTable.stateTables[addr] = &StateTable{Address: addr}
 		}
 	}
 	if threadStateTable2 != nil { // 可能为空
-		for addr := range threadStateTable2 {
-			if mergeThreadStateTable[addr] == nil {
-				mergeThreadStateTable[addr] = &StateTable{Address: addr}
+		stateTable2 = threadStateTable2.stateTables
+		writeSet2 = threadStateTable2.writeSet
+		for addr := range threadStateTable2.stateTables {
+			if mergeThreadStateTable.stateTables[addr] == nil {
+				mergeThreadStateTable.stateTables[addr] = &StateTable{Address: addr}
 			}
 		}
 	}
 
+	// ========== 合并读写集 ================
+	if len(writeSet2) > len(writeSet1) {
+		writeSet1, writeSet2 = writeSet2, writeSet1
+	}
+	mergeThreadStateTable.writeSet = writeSet1
+	for addr := range writeSet2 {
+		mergeThreadStateTable.writeSet[addr] = struct{}{}
+	}
+
 	// 对每个状态地址进行合并，构建冲突边
-	for addr := range mergeThreadStateTable {
+	for addr := range mergeThreadStateTable.stateTables {
 		// 收集两个线程对该地址的操作列表
 		opLists := make([][]*Operation, 0)
-		if table1 := threadStateTable1[addr]; table1 != nil {
+		if table1 := stateTable1[addr]; table1 != nil {
 			opLists = append(opLists, table1.Operations)
 		}
-		if table2 := threadStateTable2[addr]; table2 != nil {
+		if table2 := stateTable2[addr]; table2 != nil {
 			opLists = append(opLists, table2.Operations)
 		}
 
 		// 使用归并排序合并两个已排序的操作列表
-		mergeThreadStateTable[addr].Operations = pe.mergeTwoLists(opLists)
+		mergeThreadStateTable.stateTables[addr].Operations = pe.mergeTwoLists(opLists)
 	}
 
-	if len(mergeThreadStateTable) == 0 { // 如果两个都为空，则合并之后的也置空
+	if len(mergeThreadStateTable.stateTables) == 0 { // 如果两个都为空，则合并之后的也置空
 		mergeThreadStateTable = nil
 	}
 	state.MergeThreadStateTables.queueMu.Lock()

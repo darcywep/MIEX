@@ -60,10 +60,9 @@ func (pe *PipelineEngine) SubmitBlockBatches(batches []*Batch, jtxs []*janusTran
 			NextBatch:              nextBatch,
 			LongTxs:                batch.LongTxs,
 			ShortTxs:               batch.ShortTxs,
-			threadWriteSet:         make([]map[string]struct{}, pe.numThreads), // ThreadID -> [writeKey1, writeKey2, ...]
 			writeSet:               make(map[string]struct{}),
 			ThreadRWSets:           make([][]*ReadWriteSet, pe.numThreads),
-			ThreadStateTables:      make([]map[string]*StateTable, pe.numThreads),
+			ThreadStateTables:      make([]*stateTableWithWriteSet, pe.numThreads),
 			MergeThreadStateTables: newThreadStateTableForMerge(pe.numThreads),
 			constructDAG:           newConstructDAGResult(pe.numThreads),
 			reExecute:              nil,
@@ -116,7 +115,7 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 				fmt.Printf("[Worker %d] entry execute current batch(%d) phase.\n", workerID, pe.workerStaties[workerID].currentBatchID)
 			}
 			pairStateTable, isMerge := pe.executeCurrentBatch(state, workerID)
-			var mergeThreadStateTable map[string]*StateTable = state.ThreadStateTables[workerID]
+			var mergeThreadStateTable *stateTableWithWriteSet = state.ThreadStateTables[workerID]
 			for isMerge {
 				mergeThreadStateTable, pairStateTable, isMerge = pe.mergeStateTables(state, mergeThreadStateTable, pairStateTable, workerID)
 			}
@@ -602,6 +601,8 @@ func (pe *PipelineEngine) executeNextTransaction(atomicIdx *atomic.Int32, txs *[
 		var needRun = false
 		if jtx.IsRuned { // 如果已经执行过, 需要检查是否要重新执行
 			preState := pe.batchStates[state.BatchID-1] // 如果已经执行过，那么之前必定有一个批次
+			//fmt.Printf("test write set\n")
+			//fmt.Println(preState.writeSet)
 			for readKey, _ := range jtx.rwSet.ReadSet {
 				if _, exist := preState.writeSet[readKey]; exist { // 读集和上一批的写集冲突，重执行
 					needRun = true // 需要重新执行
@@ -638,7 +639,7 @@ func (pe *PipelineEngine) executeNextTransaction(atomicIdx *atomic.Int32, txs *[
 // executeCurrentBatch 执行当前批次的交易
 // 优先级：长交易 > 短交易 > 下一批交易
 // pairWorkerID 返回配对的工作线程ID，用于构建DAG
-func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (pairStateTable map[string]*StateTable, isMerge bool) {
+func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (pairStateTable *stateTableWithWriteSet, isMerge bool) {
 	// ========= 1. 优先执行长交易 =========
 	pe.executeNextTransaction(&state.LongTxIndex, &state.LongTxs, workerID, state)
 
