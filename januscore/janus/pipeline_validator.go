@@ -6,6 +6,9 @@ import (
 
 // buildStateTable 构建单个线程的状态读写表
 func (pe *PipelineEngine) buildStateTable(state *BatchState, workerID int) map[string]*StateTable {
+	if state.ThreadRWSets[workerID] == nil {
+		return nil
+	}
 	stateMap := make(map[string]*StateTable)
 	state.threadWriteSet[workerID] = make(map[string]struct{})
 
@@ -130,15 +133,19 @@ func (pe *PipelineEngine) mergeTwoLists(lists [][]*Operation) []*Operation {
 	return result
 }
 
-func (pe *PipelineEngine) mergeStateTables(state *BatchState, threadStateTable1, threadStateTable2 map[string]*StateTable, workerID int) (mergeThreadStateTable, pairStateTable map[string]*StateTable) {
+func (pe *PipelineEngine) mergeStateTables(state *BatchState, threadStateTable1, threadStateTable2 map[string]*StateTable, workerID int) (mergeThreadStateTable, pairStateTable map[string]*StateTable, isMerge bool) {
 	// 获取所有状态地址
 	mergeThreadStateTable = make(map[string]*StateTable)
-	for addr := range threadStateTable1 {
-		mergeThreadStateTable[addr] = &StateTable{Address: addr}
-	}
-	for addr := range threadStateTable2 {
-		if mergeThreadStateTable[addr] == nil {
+	if threadStateTable1 != nil { // 可能为空
+		for addr := range threadStateTable1 {
 			mergeThreadStateTable[addr] = &StateTable{Address: addr}
+		}
+	}
+	if threadStateTable2 != nil { // 可能为空
+		for addr := range threadStateTable2 {
+			if mergeThreadStateTable[addr] == nil {
+				mergeThreadStateTable[addr] = &StateTable{Address: addr}
+			}
 		}
 	}
 
@@ -156,6 +163,10 @@ func (pe *PipelineEngine) mergeStateTables(state *BatchState, threadStateTable1,
 		// 使用归并排序合并两个已排序的操作列表
 		mergeThreadStateTable[addr].Operations = pe.mergeTwoLists(opLists)
 	}
+
+	if len(mergeThreadStateTable) == 0 { // 如果两个都为空，则合并之后的也置空
+		mergeThreadStateTable = nil
+	}
 	state.MergeThreadStateTables.queueMu.Lock()
 
 	state.MergeThreadStateTables.completedMergeCount++
@@ -172,8 +183,9 @@ func (pe *PipelineEngine) mergeStateTables(state *BatchState, threadStateTable1,
 	if isWait {
 		// 被唤醒之后进入下一阶段
 		pe.workerStaties[workerID].Phase = ConstructDAGPhase
+		return nil, nil, false
 	} // 完成之后，未睡眠，仍然在当前阶段
-	return mergeThreadStateTable, pairStateTable
+	return mergeThreadStateTable, pairStateTable, true
 }
 
 // groupOperationsByTx 将操作按交易分组
@@ -230,7 +242,6 @@ func (pe *PipelineEngine) buildConflictEdges(txOps []*TxOperation, addr string, 
 			// tx_i 有写，tx_j 有读，产生冲突
 			if txOps[j].HasRead {
 				// 所有边类型都标记为 WR（用于最大提交验证）
-				//pe.addEdgeWithDetail(dag, txOps[i].TxID, txOps[j].TxID, addr, "WR")
 				fromTxID := txOps[i].TxID
 				toTxID := txOps[j].TxID
 
@@ -259,17 +270,6 @@ func (pe *PipelineEngine) hasEdge(dag *ConflictDAG, from, to int) bool {
 //   - from: 源交易ID
 //   - to: 目标交易ID
 func (pe *PipelineEngine) addEdge(dag *ConflictDAG, from, to int) {
-	//// 初始化 from 的边集合（如果不存在）
-	//if dag.Edges[from] == nil {
-	//	dag.Edges[from] = make(map[int]struct{})
-	//}
-	//
-	//// 添加边 from -> to
-	//dag.Edges[from][to] = struct{}{}
-	//
-	//// 增加 to 的入度
-	//dag.InDegree[to]++
-
 	// 初始化 from 的边集合（如果不存在）
 	if dag.Edges[from] == nil {
 		dag.Edges[from] = make(map[int]struct{})
@@ -287,14 +287,14 @@ func (pe *PipelineEngine) addEdge(dag *ConflictDAG, from, to int) {
 	dag.Degree[from]++
 	dag.Degree[to]++
 
-	rootFromBefore := dag.Find(from)
-	rootToBefore := dag.Find(to)
+	//rootFromBefore := dag.Find(from)
+	//rootToBefore := dag.Find(to)
 	// 合并连通分量
 	dag.Union(from, to)
 
-	rootAfter := dag.Find(from)
-	fmt.Printf("[AddEdge] 添加边 (%d, %d), 合并前: root(%d)=%d, root(%d)=%d, 合并后: root=%d\n",
-		from, to, from, rootFromBefore, to, rootToBefore, rootAfter)
+	//rootAfter := dag.Find(from)
+	//fmt.Printf("[AddEdge] 添加边 (%d, %d), 合并前: root(%d)=%d, root(%d)=%d, 合并后: root=%d\n",
+	//	from, to, from, rootFromBefore, to, rootToBefore, rootAfter)
 }
 
 // TxOperation 表示一个交易对某个地址的所有操作
@@ -337,7 +337,6 @@ func (pe *PipelineEngine) constructDAGForAddress(state *BatchState, rwTable1, rw
 						panic(fmt.Errorf("dag.Nodes[%d].rwSet is nil", txOp.TxID))
 					}
 					dag.Nodes[txOp.TxID] = rwset // 添加节点
-					//dag.EdgeDetails[txOp.TxID] = make(map[int]*ConflictEdge)
 					dag.Edges[txOp.TxID] = make(map[int]struct{})
 					dag.Degree[txOp.TxID] = 0
 				}
@@ -356,17 +355,25 @@ func (pe *PipelineEngine) constructDAGForAddress(state *BatchState, rwTable1, rw
 	constructDAG(rwTable2)
 
 	// 日志：当前 DAG 状态
-	components := dag.GetConnectedComponents()
-	fmt.Printf("[Worker %d] [ConstructDAG] 当前DAG: 节点数=%d, 连通分量数=%d\n",
-		workerID, len(dag.Nodes), len(components))
+	//components := dag.GetConnectedComponents()
+	//fmt.Printf("[Worker %d] [ConstructDAG] 当前DAG: 节点数=%d, 连通分量数=%d\n",
+	//	workerID, len(dag.Nodes), len(components))
 }
 
 func (pe *PipelineEngine) mergeTwoDags(state *BatchState, pairDag *ConflictDAG, workerID int) (newPairDag *ConflictDAG) {
 	// 获取当前工作线程的DAG
 	dag := state.constructDAG.dags[workerID]
+
+	if len(pairDag.Nodes) > len(dag.Nodes) { // 优先将小图合并成大图
+		state.constructDAG.dags[workerID] = pairDag
+		pairDag = dag
+		dag = state.constructDAG.dags[workerID]
+	}
 	// 日志：合并前的状态
-	fmt.Printf("[Worker %d] [MergeDag] 开始合并, myDag节点数=%d, pairDag节点数=%d\n",
-		workerID, len(dag.Nodes), len(pairDag.Nodes))
+	//if enableLog{
+	//	fmt.Printf("[Worker %d] [MergeDag] 开始合并, myDag节点数=%d, pairDag节点数=%d\n",
+	//		workerID, len(dag.Nodes), len(pairDag.Nodes))
+	//}
 
 	for nodeID, rwset := range pairDag.Nodes {
 		// 如果节点尚未添加到DAG中
@@ -392,8 +399,6 @@ func (pe *PipelineEngine) mergeTwoDags(state *BatchState, pairDag *ConflictDAG, 
 				// 增加度数
 				dag.Degree[nodeID]++
 				dag.Degree[toNodeID]++
-				// 合并连通分量
-				//dag.Union(nodeID, toNodeID)
 			}
 		}
 	}
@@ -406,12 +411,14 @@ func (pe *PipelineEngine) mergeTwoDags(state *BatchState, pairDag *ConflictDAG, 
 		}
 	}
 	// 日志：合并后的连通分量
-	components := dag.GetConnectedComponents()
-	fmt.Printf("[Worker %d] [MergeDag] 合并完成, 总节点数=%d, 连通分量数=%d\n",
-		workerID, len(dag.Nodes), len(components))
-	for root, nodes := range components {
-		fmt.Printf("[Worker %d] [MergeDag]   连通分量 root=%d: %v\n", workerID, root, nodes)
-	}
+	//if enableLog {
+	//	components := dag.GetConnectedComponents()
+	//	fmt.Printf("[Worker %d] [MergeDag] 合并完成, 总节点数=%d, 连通分量数=%d\n",
+	//		workerID, len(dag.Nodes), len(components))
+	//	for root, nodes := range components {
+	//		fmt.Printf("[Worker %d] [MergeDag]   连通分量 root=%d: %v\n", workerID, root, nodes)
+	//	}
+	//}
 
 	if pairDag.totalMerges != -1 {
 		dag.totalMerges = pairDag.totalMerges

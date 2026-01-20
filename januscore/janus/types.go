@@ -109,34 +109,22 @@ func (tstfm *ThreadStateTableForMerge) awakeOrWaitThreadStateTableForMerge(state
 	if completedMergeCount%2 == tstfm.waitFlag { // 最后一次肯定是需要Wait的，所以这里需要判断是否为最后一次，如果是则唤醒
 		// 需要等待
 		if completedMergeCount < tstfm.totalMerges {
-			// 不是最后一次合并，等待
-			//fmt.Printf("[Worker %d] [Merging] Batch %d: merge %d/%d waiting...\n", workerID, state.BatchID, completedMergeCount, tstfm.totalMerges)
-			//startWait := time.Now()
-			//for !tstfm.done.Load() {
-			//	// busy wait
-			//}
-			//tstfm.condMu.Lock()
-			//for !tstfm.done {
-			//	tstfm.cond.Wait()
-			//}
-			//tstfm.condMu.Unlock()
-			//elapsed := time.Since(startWait)
-			//fmt.Printf("[Worker %d] [Merging] Batch %d: merge %d/%d resumed after waiting %s\n",
-			//	workerID, state.BatchID, completedMergeCount, tstfm.totalMerges, elapsed)
+			// 不是最后一次合并，直接返回，到下一阶段忙等待
+			if enableLog {
+				fmt.Printf("[Worker %d] [batch %d]: merge state table %d/%d, try entry next phase.\n",
+					workerID, state.BatchID, completedMergeCount, tstfm.totalMerges)
+			}
 		} else {
 			// 最后一次合并，唤醒所有等待的
 			for _, rwTable := range tstfm.stateTablesQueue[0] {
 				state.constructDAG.stateTables = append(state.constructDAG.stateTables, rwTable)
 			}
 			tstfm.done.Store(true)
-			//fmt.Printf("[Worker %d] [Merging] Batch %d: merge %d/%d completed, broadcasting to all waiting...\n",
-			//	workerID, state.BatchID, completedMergeCount, tstfm.totalMerges)
-			//fmt.Printf("[Worker %d] [Merging] Batch %d have access %d address\n", workerID, state.BatchID, len(tstfm.stateTablesQueue[0]))
-
-			//tstfm.condMu.Lock()
-			//tstfm.done = true
-			//tstfm.cond.Broadcast()
-			//tstfm.condMu.Unlock()
+			if enableLog {
+				fmt.Printf("[Worker %d] [batch %d]: merge state table %d/%d completed, broadcasting to all busy waiting...\n",
+					workerID, state.BatchID, completedMergeCount, tstfm.totalMerges)
+				fmt.Printf("[Worker %d] [batch %d] state table have access %d address\n", workerID, state.BatchID, len(tstfm.stateTablesQueue[0]))
+			}
 		}
 		return true // 可以先休息一会，休息完继续做牛马
 	}
@@ -156,6 +144,10 @@ func newThreadStateTableForMerge(n int) *ThreadStateTableForMerge {
 	}
 	tstfm.cond = sync.NewCond(&tstfm.condMu)
 	return tstfm
+}
+
+// 写集也需要像stateTable一样，进行合并
+type stateTableWithWriteSet struct {
 }
 
 // BatchState 批次状态
@@ -192,8 +184,7 @@ type BatchState struct {
 	MergeThreadStateTables *ThreadStateTableForMerge
 
 	// 执行计数
-	ExecCompleted atomic.Int32 // 已完成交易数
-	TotalTxs      int
+	TotalTxs int
 
 	// 线程完成顺序
 	CompletionOrder []int
@@ -245,15 +236,11 @@ type constructDAGResult struct {
 	stateTables []*StateTable  // 有序的状态读写列表
 	dags        []*ConflictDAG // 按线程顺序存储的DAG列表
 
-	//completedThreads map[int]struct{} // 避免遗漏构建过DAG的线程
-
 	queueMu  sync.Mutex
 	dagQueue []*ConflictDAG // 队列(待合并的DAG)
 
 	// 核心：只需要这两个
 	// 通过有多少个stateTable来判断所有线程是否完成
-	//initialCount        int // 初始切片数量
-	//totalMerges         int // 需要合并的总次数 (n-1)
 	completedMergeCount int // 已完成的合并次数
 
 	//done bool
@@ -279,22 +266,13 @@ func (cdr *constructDAGResult) awakeOrWaitConstructDAG(state *BatchState, comple
 	if completedMergeCount%2 == 1 { // 奇数次完成需要wait
 		// 需要等待
 		if completedMergeCount != totalMerges {
-			// 不是最后一次合并，等待
-			//fmt.Printf("[Worker %d] [Merging] Batch %d: construct DAG %d/%d waiting...\n", workerID, state.BatchID, completedMergeCount, totalMerges)
-			//startWait := time.Now()
-			//cdr.condMu.Lock()
-			for !cdr.done.Load() {
-				//cdr.cond.Wait()
+			// 不是最后一次合并，直接返回，到下一阶段忙等待
+			if enableLog {
+				fmt.Printf("[Worker %d] [batch %d]: construct DAG %d/%d, try entry next phase.\n",
+					workerID, state.BatchID, completedMergeCount, totalMerges)
 			}
-			//cdr.condMu.Unlock()
-			//elapsed := time.Since(startWait)
-			//fmt.Printf("[Worker %d] [Merging] Batch %d: construct DAG %d/%d resumed after waiting %s\n",
-			//	workerID, state.BatchID, completedMergeCount, totalMerges, elapsed)
 		} else {
 			// 最后一次合并，唤醒所有等待的
-			fmt.Printf("[Worker %d] [Merging] Batch %d: construct DAG %d/%d completed, broadcasting to all waiting...\n",
-				workerID, state.BatchID, completedMergeCount, totalMerges)
-			//
 			// TODO: 唤醒之前需要先找到所有的弱连通分量
 			// 🆕 日志：打印最终的连通分量结果
 			finalDag := cdr.dagQueue[0]
@@ -310,24 +288,22 @@ func (cdr *constructDAGResult) awakeOrWaitConstructDAG(state *BatchState, comple
 			}
 			cdr.totalComponents = len(cdr.componentsQueue)
 
-			fmt.Printf("\n========== 最终 DAG 连通分量结果 ==========\n")
-			fmt.Printf("总节点数: %d\n", len(finalDag.Nodes))
-			fmt.Printf("总边数: %d\n", countEdges(finalDag))
-			fmt.Printf("连通分量数: %d\n", len(components))
-			for root, nodes := range components {
-				fmt.Printf("  连通分量 (root=%d): %v (大小=%d)\n", root, nodes, len(nodes))
-				for _, node := range nodes {
-					fmt.Println(finalDag.Nodes[node].ReadSet, finalDag.Nodes[node].WriteSet)
-				}
-				fmt.Println()
-			}
-			fmt.Printf("============================================\n\n")
-
 			cdr.done.Store(true)
-			//cdr.condMu.Lock()
-			//cdr.done = true
-			//cdr.cond.Broadcast()
-			//cdr.condMu.Unlock()
+			if enableLog {
+				fmt.Printf("[Worker %d] [batch %d]: constrcut dag %d/%d completed, broadcasting to all busy waiting...\n",
+					workerID, state.BatchID, completedMergeCount, totalMerges)
+
+				//fmt.Printf("最终 DAG 连通分量结果: 总节点数=%d, 总边数=%d, 连通分量数=%d\n", len(finalDag.Nodes), countEdges(finalDag), len(components))
+				//fmt.Printf("=======================================================================\n\n")
+				//for root, nodes := range components {
+				//	fmt.Printf("  连通分量 (root=%d): %v (大小=%d)\n", root, nodes, len(nodes))
+				//	for _, node := range nodes {
+				//		fmt.Println(finalDag.Nodes[node].ReadSet, finalDag.Nodes[node].WriteSet)
+				//	}
+				//	fmt.Println()
+				//}
+				//fmt.Printf("=======================================================================\n\n")
+			}
 		}
 		return true // 可以先休息一会，休息完继续做牛马
 	}
@@ -353,9 +329,8 @@ func (cdr *constructDAGResult) tryGetTaskAndActiveWorker(workerID int) (int, boo
 		oldPacked := cdr.packedState.Load()
 		oldIndex := int32(oldPacked & 0xFFFFFFFF)
 		oldWorkers := uint32(oldPacked >> 32)
-		fmt.Printf("[Worker %d] tryGetTaskAndActiveWorker, workerID=%d\n", workerID, workerID)
 		if int(oldIndex) >= len(cdr.stateTables) {
-			return 0, false
+			return -1, false
 		}
 
 		// 新状态：index+2，并设置 workerID 的位
@@ -365,7 +340,7 @@ func (cdr *constructDAGResult) tryGetTaskAndActiveWorker(workerID int) (int, boo
 
 		// 一个原子操作完成两个更新
 		if cdr.packedState.CompareAndSwap(oldPacked, newPacked) {
-			return int(oldIndex), true
+			return int(oldIndex), true // 这里是从0开始返回的
 		}
 	}
 }
@@ -378,21 +353,13 @@ func (cdr *constructDAGResult) CountActiveWorkersFast() int {
 
 func newConstructDAGResult(threadNumber int) *constructDAGResult {
 	cdr := &constructDAGResult{
-		stateTables: make([]*StateTable, 0),
-		dags:        make([]*ConflictDAG, threadNumber),
-		dagQueue:    make([]*ConflictDAG, 0),
-		//constructThreads: make([]*atomic.Bool, threadNumber),
-		//completedThreads: make(map[int]struct{}),
-		//initialCount:     -1,
-		//totalMerges:      -1,
+		stateTables:     make([]*StateTable, 0),
+		dags:            make([]*ConflictDAG, threadNumber),
+		dagQueue:        make([]*ConflictDAG, 0),
 		componentsQueue: make([][]int, 0),
 		committedTxs:    make(map[int]struct{}),
 		commitTxs:       make([][]int, threadNumber),
 	}
-	//for i := 0; i < threadNumber; i++ {
-	//	cdr.constructThreads[i] = &atomic.Bool{}
-	//}
-	cdr.cond = sync.NewCond(&cdr.condMu)
 	return cdr
 }
 
@@ -406,10 +373,7 @@ type ConflictEdge struct {
 
 // ConflictDAG 冲突有向无环图
 type ConflictDAG struct {
-	Nodes map[int]*ReadWriteSet // 节点：交易ID -> 读写集
-	//EdgeDetails map[int][]*ConflictEdge // 边的详细信息：交易ID -> 从该交易出发的所有冲突边
-	//Edges       map[int]map[int]struct{} // 【简化】边：from -> {to1: {}, to2: {}}，使用 map[int]struct{} 去重
-	//InDegree    map[int]int              // 入度
+	Nodes       map[int]*ReadWriteSet    // 节点：交易ID -> 读写集
 	Edges       map[int]map[int]struct{} // 【简化】边：nodeA -> {nodeB:  {}, nodeC: {}}，无向边
 	Degree      map[int]int              // 度数（每个节点的邻接边数量）
 	totalMerges int                      // 需要合并的总次数 (n-1)
@@ -492,12 +456,6 @@ type PipelineEngine struct {
 	// 批次管理（使用切片）
 	batchStates    []*BatchState
 	currentBatchID atomic.Int32 // 当前批次索引
-	//currentBatch   *BatchState
-	//currentBatchMu sync.RWMutex
-	//
-	//// 批次切换控制
-	//switchingBatch atomic.Int32 // 是否正在切换批次
-	//needSwitch     atomic.Int32 // 是否需要切换（通知其他线程）
 
 	// 完成通知
 	completeChan chan int
@@ -516,7 +474,7 @@ const (
 func (pe *PipelineEngine) reEntryWaitingTaskPhase(state *BatchState, workerID int) {
 	pe.workerStaties[workerID].Phase = WaitingPhase
 	finishThreadNumber := state.finishedThreadNumber.Add(1)
-	fmt.Printf("[WorkerID %d] Finished batch %d, finishThreadNumber=%d\n", workerID, state.BatchID, finishThreadNumber)
+	fmt.Printf("[Worker %d] Finished batch %d, finishThreadNumber=%d\n", workerID, state.BatchID, finishThreadNumber)
 	if finishThreadNumber == state.threadNumber { // 所有线程切换到下一批次
 		pe.completeBatch(state) // 完成该批次
 		pe.currentBatchID.Add(1)
