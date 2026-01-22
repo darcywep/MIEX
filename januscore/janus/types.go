@@ -9,46 +9,33 @@ import (
 	"sync/atomic"
 )
 
-// TaskType 任务类型
-type TaskType int
-
-const (
-	TaskExecLong  TaskType = iota // 执行长交易
-	TaskExecShort                 // 执行短交易
-	TaskExecNext                  // 执行下一批次
-	TaskValidate                  // 验证任务
-	TaskReExecute                 // 重执行任务
-)
-
 // ReExecuteState 重执行状态
 type ReExecuteState struct {
-	// 阶段一：并发重执行
-	phase1Queue     []*ReadWriteSet // 待重执行的交易队列
-	phase1Index     atomic.Int32    // 当前处理索引
-	phase1Committed []*ReadWriteSet // 读写集未变，可提交
-	phase1Aborted   []*ReadWriteSet // 读写集变化，需串行执行
-	phase1Mu        sync.Mutex      // 保护 phase1Committed 和 phase1Aborted
-	phase1Total     int             // 阶段一总交易数
-	phase1Completed atomic.Int32    // 阶段一已完成数
-	phase1Done      atomic.Bool     // 阶段一完成标志
+	// ============== 阶段一：并发重执行 ==================
+	cg                       *ConflictDAG
+	abortedTxComponents      [][]int // 按连通分量划分的丢交易 连通分量 -> 丢弃集
+	abortedTxComponentsIndex atomic.Int32
+	totalAbortedTxComponents int //总连通分量数量
 
-	// 阶段二：串行执行
-	phase2Queue     []*ReadWriteSet // 待串行执行的交易队列
-	phase2Committed []*ReadWriteSet // 串行执行完成的交易
-	phase2Done      atomic.Bool     // 阶段二完成标志
-	phase2Executor  atomic.Int32    // 执行串行的线程ID（-1表示未分配）
+	// 求解结果
+	threadCommittedTxs [][]int // 按线程顺序存储的可提交交易列表，所有线程完成之后需要合并到 state.CommittedTxs
+
+	abortedTxs       []int   // txId
+	threadAbortedTxs [][]int // 线程 -> txId
+
+	done atomic.Bool
 }
 
 // newReExecuteState 创建重执行状态
-func newReExecuteState() *ReExecuteState {
+func newReExecuteState(cg *ConflictDAG, abortedTxComponents [][]int, threadNumber int) *ReExecuteState {
 	res := &ReExecuteState{
-		phase1Queue:     make([]*ReadWriteSet, 0),
-		phase1Committed: make([]*ReadWriteSet, 0),
-		phase1Aborted:   make([]*ReadWriteSet, 0),
-		phase2Queue:     make([]*ReadWriteSet, 0),
-		phase2Committed: make([]*ReadWriteSet, 0),
+		cg:                       cg,
+		abortedTxComponents:      abortedTxComponents,
+		totalAbortedTxComponents: len(abortedTxComponents),
+		threadCommittedTxs:       make([][]int, threadNumber),
+		abortedTxs:               make([]int, 0),
+		threadAbortedTxs:         make([][]int, threadNumber),
 	}
-	res.phase2Executor.Store(-1)
 	return res
 }
 
@@ -62,15 +49,6 @@ type janusTransaction struct {
 	EarlyAbort    bool
 	CheckConflict bool
 	IsRuned       bool
-}
-
-// Task 任务
-type Task struct {
-	Type    TaskType
-	BatchID int
-	TxID    int
-	Tx      *janusTransaction
-	Data    interface{} // 验证或重执行的额外数据
 }
 
 // ThreadStateTableForMerge
@@ -202,23 +180,15 @@ type BatchState struct {
 	CompletionMu    sync.Mutex
 
 	// 验证相关
-	ValidationStarted atomic.Int32
-	ValidationDone    atomic.Int32
-	CommittedTxs      []*ReadWriteSet
-	AbortedTxs        []*ReadWriteSet
+	CommittedTxs []int
 
 	// 构图相关
 	constructDAG *constructDAGResult
 	// 重执行相关
 	reExecute *ReExecuteState
 
-	// 切换到下一线程相关
-	threadNumber         int32
-	finishedThreadNumber atomic.Int32
-
-	// 保护批次状态的锁
-
-	mu sync.Mutex
+	// 切换到下一批
+	finished atomic.Bool // 本批次是否完成
 }
 
 // ReadWriteSet 交易的读写集
@@ -263,9 +233,10 @@ type constructDAGResult struct {
 	totalComponents int //总连通分量数量
 
 	// 求解结果
-	committedTxs map[int]struct{} // 完成提交的交易 // txID ->
-	commitTxs    [][]int          // 按线程顺序存储的可提交交易列表，所有线程完成之后需要合并到 committedTxs
-	solvedCount  atomic.Int32     //已求解的连通分量数量
+	threadCommittedTxs [][]int // 按线程顺序存储的可提交交易列表，所有线程完成之后需要合并到 state.CommittedTxs
+
+	abortedTxs       [][]int   // 按连通分量划分的丢交易 连通分量 -> 丢弃集
+	threadAbortedTxs [][][]int // 线程 -> 连通分量 -> 丢弃集
 
 	mwisDone atomic.Bool
 }
@@ -291,7 +262,7 @@ func (cdr *constructDAGResult) awakeOrWaitConstructDAG(state *BatchState, comple
 			// 初始化连通分量队列
 			for _, nodes := range components {
 				if len(nodes) == 1 {
-					cdr.committedTxs[nodes[0]] = struct{}{}
+					state.CommittedTxs = append(state.CommittedTxs, nodes[0])
 				} else {
 					cdr.componentsQueue = append(cdr.componentsQueue, nodes)
 				}
@@ -363,12 +334,13 @@ func (cdr *constructDAGResult) CountActiveWorkersFast() int {
 
 func newConstructDAGResult(threadNumber int) *constructDAGResult {
 	cdr := &constructDAGResult{
-		stateTables:     make([]*StateTable, 0),
-		dags:            make([]*ConflictDAG, threadNumber),
-		dagQueue:        make([]*ConflictDAG, 0),
-		componentsQueue: make([][]int, 0),
-		committedTxs:    make(map[int]struct{}),
-		commitTxs:       make([][]int, threadNumber),
+		stateTables:        make([]*StateTable, 0),
+		dags:               make([]*ConflictDAG, threadNumber),
+		dagQueue:           make([]*ConflictDAG, 0),
+		componentsQueue:    make([][]int, 0),
+		threadCommittedTxs: make([][]int, threadNumber),
+		abortedTxs:         make([][]int, 0),
+		threadAbortedTxs:   make([][][]int, threadNumber),
 	}
 	return cdr
 }
@@ -446,17 +418,10 @@ type Operation struct {
 	Type string // "r" for read, "w" for write
 }
 
-// ValidationResult 验证结果
-type ValidationResult struct {
-	CommittedTxs []*ReadWriteSet
-	AbortedTxs   []*ReadWriteSet
-}
-
 // PipelineEngine 流水线引擎
 type PipelineEngine struct {
-	levms             []*lvm.LEVM
-	numThreads        int
-	janusTransactions []*janusTransaction
+	levms      []*lvm.LEVM
+	numThreads int
 
 	// 工作线程控制
 	stopChan      chan struct{}
@@ -464,10 +429,13 @@ type PipelineEngine struct {
 	workerStaties []*WorkerStats
 
 	// 批次管理（使用切片）
-	batchStates    []*BatchState
-	currentBatchID atomic.Int32 // 当前批次索引
+	janusTransactions []*janusTransaction
+	batchStates       []*BatchState
+	currentBatchID    atomic.Int32 // 当前批次索引
+	currentBlockID    atomic.Int32
 
 	// 完成通知
+
 	completeChan chan int
 }
 
@@ -478,21 +446,36 @@ const (
 	ConstructDAGPhase                   // 构建DAG
 	CommitMaximumValidationPhase        // 最大可提交集
 	ReExecutePhase                      // 重执行阶段
-	SerialExecutePhase                  // 串行执行
 )
 
-func (pe *PipelineEngine) reEntryWaitingTaskPhase(state *BatchState, workerID int) {
+func (pe *PipelineEngine) tryEntryNextBatch(state *BatchState, workerID int) {
 	pe.workerStaties[workerID].Phase = WaitingPhase
-	finishThreadNumber := state.finishedThreadNumber.Add(1)
-	fmt.Printf("[Worker %d] Finished batch %d, finishThreadNumber=%d\n", workerID, state.BatchID, finishThreadNumber)
-	if finishThreadNumber == state.threadNumber { // 所有线程切换到下一批次
+	ok := state.finished.CompareAndSwap(false, true)
+	if ok {
 		pe.completeBatch(state) // 完成该批次
 		pe.currentBatchID.Add(1)
 	}
+	if enableLog {
+		fmt.Printf("[Worker %d] [batch %d] Finished batch %d, entry new batch %d\n",
+			workerID, pe.workerStaties[workerID].currentBatchID, pe.workerStaties[workerID].currentBatchID, pe.currentBatchID.Load())
+	}
+}
+
+func (pe *PipelineEngine) changeToNextBatch(state *BatchState, workerID int) bool {
+	if state.finished.Load() {
+		pe.workerStaties[workerID].Phase = WaitingPhase
+		//if enableLog {
+		//fmt.Printf("[WARNNING] [Worker %d] pipeline engine was entried next batch(%d), "+
+		//	"this worker is entring waiting phase.\n", workerID, pe.currentBatchID.Load())
+		//}
+		return true
+	}
+	return false
 }
 
 type WorkerStats struct {
 	currentBatchID int32
+	CurrentBlockID int32
 	workerID       int
 	Phase          int
 }
@@ -500,6 +483,7 @@ type WorkerStats struct {
 func NewWorkerStats(workerID int) *WorkerStats {
 	return &WorkerStats{
 		currentBatchID: -1,
+		CurrentBlockID: -1,
 		workerID:       workerID,
 		Phase:          WaitingPhase,
 	}

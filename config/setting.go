@@ -1,9 +1,10 @@
 package config
 
 import (
-	"github.com/syndtr/goleveldb/leveldb/opt"
 	"path/filepath"
 	"runtime"
+
+	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
 var Options = &opt.Options{
@@ -23,9 +24,9 @@ var (
 
 // 交易生成相关配置
 const (
-	BlockSize = 64
+	BlockSize = 2000
 
-	AddressNumberRate    = 1 // 总共生成多少个地址, 按单个区块交易数量的（比例）来生成
+	AddressNumberRate    = 10 // 总共生成多少个地址, 按单个区块交易数量的（比例）来生成
 	CompetingTxCountRate = 0.5
 	IoTxCountRate        = 0.5
 
