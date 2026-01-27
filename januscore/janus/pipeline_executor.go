@@ -14,10 +14,12 @@ func (pe *PipelineEngine) executeTransaction(jtx *janusTransaction, workerID int
 	writeSet := make(map[string]struct{})
 	tx := jtx.Tx
 
-	tools.InitTxCost()
+	tools.OpenTxCost(workerID)
+	//fmt.Println("inputs:", common.Bytes2Hex(tx.Data()))
 	_, err := pe.levms[workerID].CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
-	tools.PanicError("Janus Tx Execute", err)
-	jtx.ExecutionCost = tools.TxCost
+	tools.PanicError("Janus Tx Execute ", err)
+	jtx.ExecutionCost = tools.TxCost[workerID]
+	tools.CloseTxCost(workerID)
 
 	if tx.TxType == janusConfig.IOTx {
 		key1 := tx.From().String()
@@ -49,8 +51,6 @@ func (pe *PipelineEngine) reExecuteTransaction(oldRWSet *ReadWriteSet, workerID 
 	readSet := make(map[string]struct{})
 	writeSet := make(map[string]struct{})
 	tx := oldRWSet.Tx.Tx
-
-	tools.LoadTxCost = false
 
 	_, err := pe.levms[workerID].CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
 	tools.PanicError("Janus Tx ReExecute", err)

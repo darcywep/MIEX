@@ -26,7 +26,7 @@ var (
 const (
 	BlockSize = 2000
 
-	AddressNumberRate    = 10 // 总共生成多少个地址, 按单个区块交易数量的（比例）来生成
+	AddressNumberRate    = 4 // 总共生成多少个地址, 按单个区块交易数量的（比例）来生成
 	CompetingTxCountRate = 0.5
 	IoTxCountRate        = 0.5
 
@@ -37,7 +37,8 @@ const (
 // 斐波那契计算相关配置
 const (
 	FibonacciN                  = 10
-	RecursiveCalculateFibonacci = true // 是否使用递归计算斐波那契
+	FibonacciM                  = 500
+	RecursiveCalculateFibonacci = false // 是否使用递归计算斐波那契
 )
 
 const (
@@ -48,7 +49,7 @@ const (
 	BlockSum     = 200   // 执行多少个区块
 	ChanLen      = 20000 // 每个区块有多少笔交易
 	TxSum        = 20000 // 每个区块有多少笔交易
-	OpenReadFile = false
+	OpenReadFile = true
 )
 
 const (

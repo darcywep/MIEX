@@ -19,8 +19,8 @@ const totalAccounts = 10_000_000 // 2000W
 
 var (
 	basePath = "/root/Janus/contract_example/"
-	abiFile  = path.Join(basePath, "smallbank_fibonacci.abi")
-	binFile  = path.Join(basePath, "smallbank_fibonacci.bin")
+	abiFile  = path.Join(basePath, "smallbank_m_fibonacci.abi")
+	binFile  = path.Join(basePath, "smallbank_m_fibonacci.bin")
 
 	// ========= 初始化状态数据库 =========
 	stateConfig = &database.StateDBConfig{
@@ -126,16 +126,31 @@ func TestSmallBankWithExistDB() {
 
 	evm := levm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
 	defer evm.AllDB().Close()
-	//tools.CatStorageState = true
+
 	for i := 1; i <= totalAccounts; i++ {
 		user := intToAddress(i)
 		//fmt.Println(evm.AllDB().StateDB.GetBalance(user))
+		tools.CatStorageState = false
 		_, err := evm.CallContractABI(user, tools.ContractAddress, new(uint256.Int).SetUint64(0), abiObject,
 			"getBalance", user)
-		fmt.Println()
 		if err != nil {
-			fmt.Printf("Account #%d balance error: %v\n", i, err)
+			fmt.Printf("Account #%d getBalance error: %v\n", i, err)
 		}
+		fmt.Println()
+		tools.CatStorageState = true
+		//to := intToAddress(i + 10)
+		//_, err = evm.CallContractABI(user, tools.ContractAddress, new(uint256.Int).SetUint64(0), abiObject,
+		//	"transfer", to,
+		//	big.NewInt(0).SetUint64(10),
+		//	big.NewInt(0).SetUint64(10),
+		//	big.NewInt(0).SetUint64(1000000),
+		//	false)
+		_, err = evm.CallContractABI(user, tools.ContractAddress, new(uint256.Int).SetUint64(0), abiObject,
+			"fibonacciCalculate", user,
+			big.NewInt(0).SetUint64(10),
+			big.NewInt(0).SetUint64(10000),
+			true)
+		fmt.Println("\n")
 		if i >= 10 {
 			return
 		}
@@ -180,3 +195,6 @@ func ChangeContractCode() {
 	tools.PanicError("ChangeContractCode evm.AllDB().StateDB.Database().TrieDB().Commit ", err)
 	fmt.Println("🌳 Final state root:", stateRoot.Hex())
 }
+
+// 28e0e1a20000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000000001570000000000000000000000000000000000000000000000000000000000000000
+// 28e0e1a20000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000000027100000000000000000000000000000000000000000000000000000000000000001

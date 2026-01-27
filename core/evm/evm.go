@@ -57,6 +57,11 @@ func New(stateDBConfig *database.StateDBConfig, blockNumber *big.Int, stateRoot 
 
 	return &lvm
 }
+
+func (lvm *LEVM) SetEVMWorkerID(workerID int) {
+	lvm.evm.WorkerID = workerID
+}
+
 func (lvm *LEVM) NewAllDB(stateDBConfig *database.StateDBConfig, blockNumber *big.Int, stateRoot common.Hash) {
 	var err error
 	lvm.allDBForState.Close()
@@ -156,7 +161,7 @@ func (lvm *LEVM) DeployContract(fromAddr common.Address, contractCode []byte) ([
 // lvm.CallContractABI()
 func (lvm *LEVM) CallContract(callerAddr, contractAddr common.Address, inputs []byte, value *uint256.Int) ([]byte, error) {
 	// Get reference to the transaction sender
-	lvm.evm.Context.GasLimit = uint64(1e19) // 每次执行都重置gas limit
+	lvm.evm.Context.GasLimit = tools.Uint64 // 每次执行都重置gas limit
 	gas := lvm.evm.Context.GasLimit
 
 	output, gas, err := lvm.evm.Call(
@@ -182,6 +187,7 @@ func (lvm *LEVM) CallContractABI(callerAddr, contractAddr common.Address, value 
 		fmt.Println(err)
 		return nil, err
 	}
+	//fmt.Printf("inputs: %v\n", common.Bytes2Hex(inputs))
 
 	balance := lvm.allDBForState.StateDB.GetBalance(callerAddr)
 	output, _, err := lvm.evm.Call(
@@ -210,7 +216,7 @@ func (lvm *LEVM) CallContractUseStateDB(callerAddr, contractAddr common.Address,
 }
 
 func PreReadState(txs []*types.Transaction, levm *LEVM) {
-	abiObject, _, err := tools.LoadContract(tools.ContractBasePath+"smallbank_fibonacci.abi", tools.ContractBasePath+"smallbank_fibonacci.bin")
+	abiObject, _, err := tools.LoadContract(tools.ContractBasePath+"smallbank_m_fibonacci.abi", tools.ContractBasePath+"smallbank_m_fibonacci.bin")
 	tools.PanicError("GenerateSmallBankTxs LoadContract ", err)
 	_ = levm.AllDB().StateDB.GetOrNewStateObject(tools.ContractAddress)
 	_ = levm.AllDB().StateDB.GetCode(tools.ContractAddress)

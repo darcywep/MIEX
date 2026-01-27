@@ -452,8 +452,8 @@ func (pe *PipelineEngine) tryEntryNextBatch(state *BatchState, workerID int) {
 	pe.workerStaties[workerID].Phase = WaitingPhase
 	ok := state.finished.CompareAndSwap(false, true)
 	if ok {
-		pe.completeBatch(state) // 完成该批次
 		pe.currentBatchID.Add(1)
+		pe.completeBatch(state) // 完成该批次
 	}
 	if enableLog {
 		fmt.Printf("[Worker %d] [batch %d] Finished batch %d, entry new batch %d\n",

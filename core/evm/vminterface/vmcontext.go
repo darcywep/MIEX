@@ -4,6 +4,7 @@ import (
 	"Janus/ethereum/core"
 	"Janus/ethereum/core/tracing"
 	"Janus/ethereum/core/vm"
+	"Janus/tools"
 	"crypto/rand"
 	"crypto/sha256"
 	"math/big"
@@ -34,7 +35,7 @@ func NewVMContext(coinbase common.Address, blockNum *big.Int, chainContext *Chai
 		Difficulty:  new(big.Int).SetInt64(1),
 		BaseFee:     big.NewInt(1),
 		BlobBaseFee: big.NewInt(1),
-		GasLimit:    uint64(1e19),
+		GasLimit:    tools.Uint64,
 		Random:      &random,
 	}
 }

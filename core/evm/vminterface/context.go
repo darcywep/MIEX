@@ -4,6 +4,7 @@ import (
 	"Janus/ethereum/config"
 	"Janus/ethereum/consensus"
 	"Janus/ethereum/core/types"
+	"Janus/tools"
 	"math/big"
 	"time"
 
@@ -25,7 +26,7 @@ func NewChainContext(coinbase common.Address) *ChainContext {
 			Coinbase:   coinbase,
 			Difficulty: big.NewInt(1),
 			Number:     big.NewInt(0),
-			GasLimit:   uint64(1e19),
+			GasLimit:   tools.Uint64,
 			GasUsed:    uint64(0),
 			Time:       uint64(time.Now().Unix()),
 			Extra:      nil,

@@ -104,7 +104,7 @@ func run(baseline, baseFileName string, tpss *[]float64, signalChan chan struct{
 }
 
 func main() {
-	baseline := flag.String("baseline", "janus",
+	baseline := flag.String("baseline", "all",
 		"baseline: (default all)\n"+
 			"\t\"all\" is run all baseline\n"+
 			"\t\"schain\" is run schain\n"+
@@ -130,6 +130,12 @@ func main() {
 	janusConfig.AllThreadNum, _ = strconv.Atoi(*threadNumber)
 	janusConfig.Skew, _ = strconv.ParseFloat(*skew, 64)
 	janusConfig.TxNum, _ = strconv.Atoi(*txNumber)
+
+	if janusConfig.AllThreadNum == 0 {
+		tools.InitTxCost(1)
+	} else {
+		tools.InitTxCost(janusConfig.AllThreadNum)
+	}
 
 	runtime.GOMAXPROCS(janusConfig.AllThreadNum + 2)
 	var (

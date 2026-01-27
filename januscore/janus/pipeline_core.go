@@ -13,6 +13,7 @@ func NewPipelineEngine(levm *lvm.LEVM, numThreads int) *PipelineEngine {
 	levms := make([]*lvm.LEVM, numThreads)
 	for i := 0; i < numThreads; i++ {
 		levms[i] = levm.Copy()
+		levms[i].SetEVMWorkerID(i)
 	}
 	pl := &PipelineEngine{
 		levms:         levms,
@@ -128,6 +129,9 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 		}
 
 		state := pe.batchStates[stateID]
+		if state == nil {
+			continue
+		}
 		if pe.workerStaties[workerID].Phase == ExecuteCurrentBatchPhase {
 			if enableLog {
 				fmt.Printf("[Worker %d] entry execute current batch(%d) phase.\n", workerID, pe.workerStaties[workerID].currentBatchID)
@@ -451,6 +455,7 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 		pairIndex := state.pairIndex // 取一个配对的 threadStateTable
 		state.pairIndex++            // 放行
 		state.CompletionMu.Unlock()
+		//fmt.Printf("test [Worker %d] [batch %d] len(state.CompletionOrder)=%d, pairIndex=%d\n", workerID, state.BatchID, len(state.CompletionOrder), pairIndex)
 
 		if pairIndex == 0 && pe.numThreads%2 == 1 { // 奇数线程时，最后一个线程无需配对
 			lastWorkerID := state.CompletionOrder[threadNextNumber-1]

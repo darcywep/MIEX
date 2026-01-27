@@ -90,6 +90,7 @@ type TxContext struct {
 //
 // The EVM should never be reused and is not thread safe.
 type EVM struct {
+	WorkerID int // 并发使用
 	// Context provides auxiliary blockchain related information
 	Context BlockContext
 	TxContext

@@ -77,7 +77,7 @@ func testFibonacci() {
 func main() {
 	//testExample()
 	//testFibonacci()
-	//init_smallbank_contract.TestSmallBank()
-	init_smallbank_contract.TestSmallBankWithExistDB()
+	init_smallbank_contract.TestSmallBank()
+	//init_smallbank_contract.TestSmallBankWithExistDB()
 	//init_smallbank_contract.ChangeContractCode()
 }
