@@ -16,6 +16,12 @@ import (
 
 var enableLog = true
 
+var (
+	committedTxsNum       int32
+	enableReExecutePhase1 = false
+	enableReExecutePhase2 = false
+)
+
 func appendThreadRWSets(state *BatchState, jtx *janusTransaction, workerID int) {
 	if state.ThreadRWSets[workerID] == nil {
 		state.ThreadRWSets[workerID] = make([]*ReadWriteSet, 0)

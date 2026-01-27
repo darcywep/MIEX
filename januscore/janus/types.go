@@ -453,6 +453,7 @@ func (pe *PipelineEngine) tryEntryNextBatch(state *BatchState, workerID int) {
 	ok := state.finished.CompareAndSwap(false, true)
 	if ok {
 		pe.currentBatchID.Add(1)
+		committedTxsNum += int32(len(state.CommittedTxs))
 		pe.completeBatch(state) // 完成该批次
 	}
 	if enableLog {

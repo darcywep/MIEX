@@ -323,6 +323,10 @@ func (pe *PipelineEngine) finalizeMWISResults(state *BatchState, workerID int) {
 			state.CommittedTxs = append(state.CommittedTxs, commitTxs...)
 		}
 	}
+	if !enableReExecutePhase1 {
+		cdr.mwisDone.Store(true) // 标记 MWIS 阶段完成
+		return
+	}
 
 	// 合并各线程丢弃的交易，以连通分量的形式
 	for _, threadAbortedTxs := range cdr.threadAbortedTxs {
@@ -717,6 +721,10 @@ func (pe *PipelineEngine) finalizeReExecute(state *BatchState, workerID int) {
 		if commitTxs != nil {
 			state.CommittedTxs = append(state.CommittedTxs, commitTxs...)
 		}
+	}
+	if !enableReExecutePhase2 { // 不支持第二阶段的重执行
+		reExec.done.Store(true)
+		return
 	}
 
 	// 合并各线程丢弃的交易，以连通分量的形式
