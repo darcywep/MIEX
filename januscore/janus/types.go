@@ -175,9 +175,7 @@ type BatchState struct {
 	TotalTxs int
 
 	// 线程完成顺序
-	CompletionOrder []int
-	pairIndex       int // 用于记录当前线程应该和CompletionOrder中的哪个位置配对，按序
-	CompletionMu    sync.Mutex
+	finishedNumber atomic.Int32
 
 	// 验证相关
 	CommittedTxs []int
