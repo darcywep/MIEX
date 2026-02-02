@@ -16,6 +16,8 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 	SetMWISSolver(SolverGreedy)
 	SetMWISBenchmark(false)
 	enableLog = false
+	enableReExecutePhase1 = true
+	enableReExecutePhase2 = true
 	fmt.Printf("Thread Pool Size: %d\n", janusConfig.AllThreadNum)
 	fmt.Printf("Water Mark Alpha: %.1f\n", janusConfig.WaterMarkAlpha)
 	fmt.Printf("Water Mark Beta: %.1f\n\n", janusConfig.WaterMarkBeta)
@@ -84,6 +86,11 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 	fmt.Println("╠════════════════════════════════════════════════════╣")
 	fmt.Printf("║ Thread Pool Size:         %-22d ║\n", numThreads)
 	fmt.Printf("║ Total Execution Time:     %-22v ║\n", elapsed)
+	fmt.Printf("║ Execute Current Batch Time:     %-22v ║\n", pipeline.timeOfReExecutePhase)
+	fmt.Printf("║ Merge State Table Time:     %-22v ║\n", pipeline.timeOfMergeStateTablePhase)
+	fmt.Printf("║ Construct DAG Time:     %-22v ║\n", pipeline.timeOfConstructDAGPhase)
+	fmt.Printf("║ Commit Maximum Validation Time:     %-22v ║\n", pipeline.timeOfCommitMaximumValidationPhase)
+	fmt.Printf("║ Re-Execute Time:     %-22v ║\n", pipeline.timeOfReExecutePhase)
 	fmt.Printf("║ Blocks Processed:         %-22d ║\n", blockNum)
 	fmt.Printf("║ Batches Processed:        %-22d ║\n", totalBatches)
 	fmt.Printf("║ Total Transactions:       %-22d ║\n", janusConfig.TxNum)

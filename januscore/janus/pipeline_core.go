@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"sort"
 	"sync/atomic"
+	"time"
 )
 
 // NewPipelineEngine 创建流水线引擎
@@ -77,6 +78,7 @@ func (pe *PipelineEngine) SubmitBlockBatches(batches []*Batch, jtxs []*janusTran
 
 		pe.batchStates[i] = state // 设置批次切片
 		if i == 0 {
+			pe.batchStates[i].startTimeOfExecuteCurrentBatchPhase = time.Now() // 进入批次一的执行阶段
 			pe.currentBlockID.Add(1)
 			pe.currentBatchID.Store(0) // 重置为 -1，第一次加载时会变成 0
 			//fmt.Printf("pe.currentBatchID.Load()=%d\n", pe.currentBatchID.Load())
@@ -223,7 +225,7 @@ func (pe *PipelineEngine) solveComponentMWIS(state *BatchState, workerID int) {
 	finalDag := cdr.dagQueue[0]
 
 	if cdr.totalComponents == 0 { // TODO：全部都可以提交，直接进入下一批
-		pe.tryEntryNextBatch(state, workerID)
+		pe.tryEntryNextBatch(state, workerID, &state.startTimeOfCommitMaximumValidationPhase, &pe.timeOfCommitMaximumValidationPhase)
 		return
 	}
 
@@ -324,6 +326,7 @@ func (pe *PipelineEngine) finalizeMWISResults(state *BatchState, workerID int) {
 		}
 	}
 	if !enableReExecutePhase1 {
+		pe.timeOfCommitMaximumValidationPhase += time.Since(state.startTimeOfCommitMaximumValidationPhase)
 		cdr.mwisDone.Store(true) // 标记 MWIS 阶段完成
 		return
 	}
@@ -376,6 +379,8 @@ func (pe *PipelineEngine) finalizeMWISResults(state *BatchState, workerID int) {
 		// 初始化重执行状态
 		state.reExecute = newReExecuteState(finalDag, cdr.abortedTxs, pe.numThreads)
 	}
+	pe.timeOfCommitMaximumValidationPhase += time.Since(state.startTimeOfCommitMaximumValidationPhase)
+	state.startTimeOfReExecutePhase = time.Now()
 	cdr.mwisDone.Store(true) // 标记 MWIS 阶段完成
 }
 
@@ -462,6 +467,7 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 		//fmt.Printf("test [Worker %d] [batch %d] len(state.CompletionOrder)=%d, pairIndex=%d\n", workerID, state.BatchID, len(state.CompletionOrder), pairIndex)
 
 		if pairIndex == 0 && pe.numThreads%2 == 1 { // 奇数线程时，最后一个线程无需配对
+			state.startTimeOfMergeStateTablePhase = time.Now() // 开始进行合并计时
 			lastWorkerID := state.CompletionOrder[threadNextNumber-1]
 			state.MergeThreadStateTables.queueMu.Lock()
 			state.MergeThreadStateTables.stateTablesQueue = append(state.MergeThreadStateTables.stateTablesQueue, state.ThreadStateTables[lastWorkerID])
@@ -479,6 +485,9 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 	// 部分线程可以切换到下一批
 	state.CompletionOrder = append(state.CompletionOrder, workerID) // 先加入完成队列，防止竞争
 	state.CompletionMu.Unlock()
+	if threadNextNumber == pe.numThreads { // 所有线程完成，添加执行计时
+		pe.timeOfExecuteCurrentBatchPhase += time.Since(state.startTimeOfExecuteCurrentBatchPhase)
+	}
 	if state.NextBatch != nil {
 		pe.workerStaties[workerID].Phase = PreExecuteNextBatchPhase // 成功增加线程数
 	} else { // 如果没有下一批, 即最后一批，那么直接进入本批次的下一阶段
@@ -557,7 +566,7 @@ func (pe *PipelineEngine) tryConstructDAG(state *BatchState, workerID int) (pair
 				}
 				state.constructDAG.queueMu.Unlock()
 
-				isWait := state.constructDAG.awakeOrWaitConstructDAG(state, completedMergeCount, dag.totalMerges, workerID)
+				isWait := pe.awakeOrWaitConstructDAG(state, state.constructDAG, completedMergeCount, dag.totalMerges, workerID)
 				if isWait {
 					// 被唤醒之后进入下一阶段
 					pe.workerStaties[workerID].Phase = CommitMaximumValidationPhase
@@ -632,7 +641,7 @@ func (pe *PipelineEngine) completeBatch(state *BatchState) {
 func (pe *PipelineEngine) reExecute(state *BatchState, workerID int) {
 	reExec := state.reExecute
 	if reExec == nil {
-		pe.tryEntryNextBatch(state, workerID) // 没有需要重执行的交易，进入下一批
+		pe.tryEntryNextBatch(state, workerID, &state.startTimeOfReExecutePhase, &pe.timeOfReExecutePhase) // 没有需要重执行的交易，进入下一批
 		return
 	}
 
@@ -645,7 +654,7 @@ func (pe *PipelineEngine) reExecute(state *BatchState, workerID int) {
 			if !reExec.done.Load() {
 				// busy wait
 			}
-			pe.tryEntryNextBatch(state, workerID) // 最后一个阶段完成了，进入下一批
+			pe.tryEntryNextBatch(state, workerID, &state.startTimeOfReExecutePhase, &pe.timeOfReExecutePhase) // 最后一个阶段完成了，进入下一批
 			break
 		}
 
@@ -684,7 +693,7 @@ func (pe *PipelineEngine) reExecute(state *BatchState, workerID int) {
 			break
 		}
 	}
-	pe.tryEntryNextBatch(state, workerID) // 最后一个阶段完成了，进入下一批
+	pe.tryEntryNextBatch(state, workerID, &state.startTimeOfReExecutePhase, &pe.timeOfReExecutePhase) // 最后一个阶段完成了，进入下一批
 }
 
 // compareRWSet 比较两个读写集是否相同（只比较涉及冲突的部分）
@@ -723,6 +732,7 @@ func (pe *PipelineEngine) finalizeReExecute(state *BatchState, workerID int) {
 		}
 	}
 	if !enableReExecutePhase2 { // 不支持第二阶段的重执行
+		pe.timeOfReExecutePhase += time.Since(state.startTimeOfReExecutePhase)
 		reExec.done.Store(true)
 		return
 	}
@@ -745,5 +755,6 @@ func (pe *PipelineEngine) finalizeReExecute(state *BatchState, workerID int) {
 	}
 
 	// 标记阶段一完成
+	pe.timeOfReExecutePhase += time.Since(state.startTimeOfReExecutePhase)
 	reExec.done.Store(true)
 }

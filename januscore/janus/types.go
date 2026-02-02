@@ -7,6 +7,7 @@ import (
 	"math/bits"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // ReExecuteState 重执行状态
@@ -82,7 +83,7 @@ type ThreadStateTableForMerge struct {
 	done atomic.Bool
 }
 
-func (tstfm *ThreadStateTableForMerge) awakeOrWaitThreadStateTableForMerge(state *BatchState, completedMergeCount int, workerID int) (isWait bool) {
+func (pe *PipelineEngine) awakeOrWaitThreadStateTableForMerge(state *BatchState, tstfm *ThreadStateTableForMerge, completedMergeCount int, workerID int) (isWait bool) {
 	// 判断是否需要等待或唤醒
 	if completedMergeCount%2 == tstfm.waitFlag { // 最后一次肯定是需要Wait的，所以这里需要判断是否为最后一次，如果是则唤醒
 		// 需要等待
@@ -98,7 +99,11 @@ func (tstfm *ThreadStateTableForMerge) awakeOrWaitThreadStateTableForMerge(state
 				state.constructDAG.stateTables = append(state.constructDAG.stateTables, rwTable)
 			}
 			state.writeSet = tstfm.stateTablesQueue[0].writeSet
+
+			pe.timeOfMergeStateTablePhase += time.Since(state.startTimeOfMergeStateTablePhase)
+			state.startTimeOfConstructDAGPhase = time.Now()
 			tstfm.done.Store(true)
+
 			if enableLog {
 				fmt.Printf("[Worker %d] [batch %d]: merge state table %d/%d completed, broadcasting to all busy waiting...\n",
 					workerID, state.BatchID, completedMergeCount, tstfm.totalMerges)
@@ -187,6 +192,13 @@ type BatchState struct {
 	// 重执行相关
 	reExecute *ReExecuteState
 
+	// 时间统计
+	startTimeOfExecuteCurrentBatchPhase     time.Time
+	startTimeOfMergeStateTablePhase         time.Time
+	startTimeOfConstructDAGPhase            time.Time
+	startTimeOfCommitMaximumValidationPhase time.Time
+	startTimeOfReExecutePhase               time.Time
+
 	// 切换到下一批
 	finished atomic.Bool // 本批次是否完成
 }
@@ -241,7 +253,7 @@ type constructDAGResult struct {
 	mwisDone atomic.Bool
 }
 
-func (cdr *constructDAGResult) awakeOrWaitConstructDAG(state *BatchState, completedMergeCount, totalMerges int, workerID int) (isWait bool) {
+func (pe *PipelineEngine) awakeOrWaitConstructDAG(state *BatchState, cdr *constructDAGResult, completedMergeCount, totalMerges int, workerID int) (isWait bool) {
 	// 判断是否需要等待或唤醒
 	// 最后一次肯定是需要Wait的，所以这里需要判断是否为最后一次，如果是则唤醒
 	if completedMergeCount%2 == 1 { // 奇数次完成需要wait
@@ -268,6 +280,9 @@ func (cdr *constructDAGResult) awakeOrWaitConstructDAG(state *BatchState, comple
 				}
 			}
 			cdr.totalComponents = len(cdr.componentsQueue)
+
+			pe.timeOfConstructDAGPhase += time.Since(state.startTimeOfConstructDAGPhase)
+			state.startTimeOfCommitMaximumValidationPhase = time.Now()
 
 			cdr.done.Store(true)
 			if enableLog {
@@ -434,8 +449,13 @@ type PipelineEngine struct {
 	currentBatchID    atomic.Int32 // 当前批次索引
 	currentBlockID    atomic.Int32
 
-	// 完成通知
+	timeOfExecuteCurrentBatchPhase     time.Duration
+	timeOfMergeStateTablePhase         time.Duration
+	timeOfConstructDAGPhase            time.Duration
+	timeOfCommitMaximumValidationPhase time.Duration
+	timeOfReExecutePhase               time.Duration
 
+	// 完成通知
 	completeChan chan int
 }
 
@@ -448,11 +468,13 @@ const (
 	ReExecutePhase                      // 重执行阶段
 )
 
-func (pe *PipelineEngine) tryEntryNextBatch(state *BatchState, workerID int) {
+func (pe *PipelineEngine) tryEntryNextBatch(state *BatchState, workerID int, startTime *time.Time, timeOf *time.Duration) {
 	pe.workerStaties[workerID].Phase = WaitingPhase
 	ok := state.finished.CompareAndSwap(false, true)
 	if ok {
-		pe.currentBatchID.Add(1)
+		batchID := pe.currentBatchID.Add(1)
+		*timeOf += time.Since(*startTime)
+		pe.batchStates[batchID].startTimeOfExecuteCurrentBatchPhase = time.Now()
 		committedTxsNum += int32(len(state.CommittedTxs))
 		pe.completeBatch(state) // 完成该批次
 	}

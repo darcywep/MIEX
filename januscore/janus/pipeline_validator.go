@@ -193,7 +193,7 @@ func (pe *PipelineEngine) mergeStateTables(state *BatchState, threadStateTable1,
 	}
 	state.MergeThreadStateTables.queueMu.Unlock()
 
-	isWait := state.MergeThreadStateTables.awakeOrWaitThreadStateTableForMerge(state, completedMergeCount, workerID)
+	isWait := pe.awakeOrWaitThreadStateTableForMerge(state, state.MergeThreadStateTables, completedMergeCount, workerID)
 	if isWait {
 		// 被唤醒之后进入下一阶段
 		pe.workerStaties[workerID].Phase = ConstructDAGPhase
@@ -449,7 +449,7 @@ func (pe *PipelineEngine) mergeTwoDags(state *BatchState, pairDag *ConflictDAG, 
 		state.constructDAG.dagQueue = state.constructDAG.dagQueue[1:]
 	}
 	state.constructDAG.queueMu.Unlock()
-	isWait := state.constructDAG.awakeOrWaitConstructDAG(state, completedMergeCount, dag.totalMerges, workerID)
+	isWait := pe.awakeOrWaitConstructDAG(state, state.constructDAG, completedMergeCount, dag.totalMerges, workerID)
 	if isWait {
 		// 被唤醒之后进入下一阶段
 		pe.workerStaties[workerID].Phase = CommitMaximumValidationPhase
