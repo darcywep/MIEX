@@ -459,6 +459,7 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 
 	// 说明：这里设计成部分线程进入下一批执行，是为了避免所有线程都进入下一批，导致当前批次无法完成，从而阻塞流水线
 	state.CompletionMu.Lock()
+	state.finishedTreadNum++
 	threadNextNumber := len(state.CompletionOrder) // 有多少线程已经完成当前批次并并已经进入下一批
 	if threadNextNumber >= (pe.numThreads+1)/2 {   // 已经有超过一半的线程去执行下一批, 剩下的进行合并state table
 		pairIndex := state.pairIndex // 取一个配对的 threadStateTable
@@ -467,7 +468,6 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 		//fmt.Printf("test [Worker %d] [batch %d] len(state.CompletionOrder)=%d, pairIndex=%d\n", workerID, state.BatchID, len(state.CompletionOrder), pairIndex)
 
 		if pairIndex == 0 && pe.numThreads%2 == 1 { // 奇数线程时，最后一个线程无需配对
-			state.startTimeOfMergeStateTablePhase = time.Now() // 开始进行合并计时
 			lastWorkerID := state.CompletionOrder[threadNextNumber-1]
 			state.MergeThreadStateTables.queueMu.Lock()
 			state.MergeThreadStateTables.stateTablesQueue = append(state.MergeThreadStateTables.stateTablesQueue, state.ThreadStateTables[lastWorkerID])
@@ -479,15 +479,18 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 				workerID, state.BatchID, pairIndex, len(state.CompletionOrder), threadNextNumber, (pe.numThreads+1)/2)
 		}
 		pairWorkerID := state.CompletionOrder[pairIndex]
+		if pairIndex == 0 {
+			state.startTimeOfMergeStateTablePhase = time.Now() // 开始进行合并计时
+		}
+		if state.finishedTreadNum == pe.numThreads { // 所有线程完成，添加执行计时
+			pe.timeOfExecuteCurrentBatchPhase += time.Since(state.startTimeOfExecuteCurrentBatchPhase)
+		}
 		return state.ThreadStateTables[pairWorkerID], true // 返回配对的线程ID
 	}
 
 	// 部分线程可以切换到下一批
 	state.CompletionOrder = append(state.CompletionOrder, workerID) // 先加入完成队列，防止竞争
 	state.CompletionMu.Unlock()
-	if threadNextNumber == pe.numThreads { // 所有线程完成，添加执行计时
-		pe.timeOfExecuteCurrentBatchPhase += time.Since(state.startTimeOfExecuteCurrentBatchPhase)
-	}
 	if state.NextBatch != nil {
 		pe.workerStaties[workerID].Phase = PreExecuteNextBatchPhase // 成功增加线程数
 	} else { // 如果没有下一批, 即最后一批，那么直接进入本批次的下一阶段

@@ -180,9 +180,10 @@ type BatchState struct {
 	TotalTxs int
 
 	// 线程完成顺序
-	CompletionOrder []int
-	pairIndex       int // 用于记录当前线程应该和CompletionOrder中的哪个位置配对，按序
-	CompletionMu    sync.Mutex
+	CompletionOrder  []int
+	finishedTreadNum int
+	pairIndex        int // 用于记录当前线程应该和CompletionOrder中的哪个位置配对，按序
+	CompletionMu     sync.Mutex
 
 	// 验证相关
 	CommittedTxs []int
@@ -474,7 +475,10 @@ func (pe *PipelineEngine) tryEntryNextBatch(state *BatchState, workerID int, sta
 	if ok {
 		batchID := pe.currentBatchID.Add(1)
 		*timeOf += time.Since(*startTime)
-		pe.batchStates[batchID].startTimeOfExecuteCurrentBatchPhase = time.Now()
+		if int(batchID) < len(pe.batchStates) {
+			pe.batchStates[batchID].startTimeOfExecuteCurrentBatchPhase = time.Now()
+		}
+
 		committedTxsNum += int32(len(state.CommittedTxs))
 		pe.completeBatch(state) // 完成该批次
 	}

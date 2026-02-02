@@ -26,5 +26,6 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 	txNumber := janusConfig.TxNum
 	tps := float64(txNumber) / end2.Seconds()
 	fmt.Println("Serial TPS:", tps)
+	fmt.Printf("Serial Execution Time:     %-22v \n", end2)
 	return tps
 }
