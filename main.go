@@ -138,6 +138,7 @@ func main() {
 	}
 
 	runtime.GOMAXPROCS(janusConfig.AllThreadNum + 2)
+	fmt.Printf("GOMAXPROCS set to: %d\n", runtime.GOMAXPROCS(0))
 	var (
 		baseFileName           = "thread(" + strconv.Itoa(janusConfig.AllThreadNum) + ")_skew(" + fmt.Sprintf("%f", janusConfig.Skew) + ").xlsx"
 		tpss         []float64 = make([]float64, 0)

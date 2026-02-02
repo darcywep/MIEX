@@ -87,6 +87,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 	fmt.Printf("║ Thread Pool Size:         %-22d ║\n", numThreads)
 	fmt.Printf("║ Total Execution Time:     %-22v ║\n", elapsed)
 	fmt.Printf("║ Execute Current Batch Time:     %-22v ║\n", pipeline.timeOfExecuteCurrentBatchPhase)
+	fmt.Printf("║ Execute Current Batch Tail Time:     %-22v ║\n", pipeline.timeOfExecuteCurrentBatchTail)
 	fmt.Printf("║ Merge State Table Time:     %-22v ║\n", pipeline.timeOfMergeStateTablePhase)
 	fmt.Printf("║ Construct DAG Time:     %-22v ║\n", pipeline.timeOfConstructDAGPhase)
 	fmt.Printf("║ Commit Maximum Validation Time:     %-22v ║\n", pipeline.timeOfCommitMaximumValidationPhase)

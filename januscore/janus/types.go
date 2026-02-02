@@ -195,6 +195,7 @@ type BatchState struct {
 
 	// 时间统计
 	startTimeOfExecuteCurrentBatchPhase     time.Time
+	startTimeOfExecuteCurrentBatchTail      time.Time
 	startTimeOfMergeStateTablePhase         time.Time
 	startTimeOfConstructDAGPhase            time.Time
 	startTimeOfCommitMaximumValidationPhase time.Time
@@ -451,6 +452,7 @@ type PipelineEngine struct {
 	currentBlockID    atomic.Int32
 
 	timeOfExecuteCurrentBatchPhase     time.Duration
+	timeOfExecuteCurrentBatchTail      time.Duration
 	timeOfMergeStateTablePhase         time.Duration
 	timeOfConstructDAGPhase            time.Duration
 	timeOfCommitMaximumValidationPhase time.Duration

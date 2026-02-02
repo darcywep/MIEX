@@ -30,8 +30,8 @@ const (
 	CompetingTxCountRate = 0.5
 	IoTxCountRate        = 0.5
 
-	WaterMarkAlpha = 1.75 // 水位线参数 α
-	WaterMarkBeta  = 3.5  // 水位线参数 β
+	WaterMarkAlpha = 1.5 // 水位线参数 α
+	WaterMarkBeta  = 3.5 // 水位线参数 β
 )
 
 // 斐波那契计算相关配置

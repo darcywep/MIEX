@@ -481,9 +481,11 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 		pairWorkerID := state.CompletionOrder[pairIndex]
 		if pairIndex == 0 {
 			state.startTimeOfMergeStateTablePhase = time.Now() // 开始进行合并计时
+			state.startTimeOfExecuteCurrentBatchTail = time.Now()
 		}
 		if state.finishedTreadNum == pe.numThreads { // 所有线程完成，添加执行计时
 			pe.timeOfExecuteCurrentBatchPhase += time.Since(state.startTimeOfExecuteCurrentBatchPhase)
+			pe.timeOfExecuteCurrentBatchTail += time.Since(state.startTimeOfExecuteCurrentBatchTail)
 		}
 		return state.ThreadStateTables[pairWorkerID], true // 返回配对的线程ID
 	}
