@@ -2,6 +2,7 @@ package janus
 
 import (
 	janusConfig "Janus/config"
+	"Janus/ethereum/core/vm"
 	//"Janus/ethereum/core/types"
 	"Janus/tools"
 
@@ -14,12 +15,12 @@ func (pe *PipelineEngine) executeTransaction(jtx *janusTransaction, workerID int
 	writeSet := make(map[string]struct{})
 	tx := jtx.Tx
 
-	//tools.OpenTxCost(workerID)
+	vm.OpenTxCost(workerID)
 	//fmt.Println("inputs:", common.Bytes2Hex(tx.Data()))
 	_, err := pe.levms[workerID].CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
 	tools.PanicError("Janus Tx Execute ", err)
-	//jtx.ExecutionCost = tools.TxCost[workerID]
-	//tools.CloseTxCost(workerID)
+	jtx.ExecutionCost = vm.CloseTxCost(workerID)
+	//fmt.Println("Janus Tx Execute cost: ", jtx.ExecutionCost)
 
 	if tx.TxType == janusConfig.IOTx {
 		key1 := tx.From().String()
