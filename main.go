@@ -104,7 +104,7 @@ func run(baseline, baseFileName string, tpss *[]float64, signalChan chan struct{
 }
 
 func main() {
-	baseline := flag.String("baseline", "all",
+	baseline := flag.String("baseline", "janus",
 		"baseline: (default all)\n"+
 			"\t\"all\" is run all baseline\n"+
 			"\t\"schain\" is run schain\n"+

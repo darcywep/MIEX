@@ -7,6 +7,7 @@ import (
 	"math/bits"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // ReExecuteState 重执行状态
@@ -147,6 +148,7 @@ type BatchState struct {
 	// 交易队列
 	LongTxs  []*janusTransaction
 	ShortTxs []*janusTransaction
+	allTxs   []*janusTransaction
 
 	// 执行索引（原子操作）
 	LongTxIndex  atomic.Int32
@@ -432,6 +434,8 @@ type PipelineEngine struct {
 	currentBatchID    atomic.Int32 // 当前批次索引
 	currentBlockID    atomic.Int32
 
+	timeOfSubmitBlock time.Duration
+
 	// 完成通知
 
 	completeChan chan int
@@ -445,32 +449,6 @@ const (
 	CommitMaximumValidationPhase        // 最大可提交集
 	ReExecutePhase                      // 重执行阶段
 )
-
-func (pe *PipelineEngine) tryEntryNextBatch(state *BatchState, workerID int) {
-	pe.workerStaties[workerID].Phase = WaitingPhase
-	ok := state.finished.CompareAndSwap(false, true)
-	if ok {
-		pe.currentBatchID.Add(1)
-		committedTxsNum += int32(len(state.CommittedTxs))
-		pe.completeBatch(state) // 完成该批次
-	}
-	if enableLog {
-		fmt.Printf("[Worker %d] [batch %d] Finished batch %d, entry new batch %d\n",
-			workerID, pe.workerStaties[workerID].currentBatchID, pe.workerStaties[workerID].currentBatchID, pe.currentBatchID.Load())
-	}
-}
-
-func (pe *PipelineEngine) changeToNextBatch(state *BatchState, workerID int) bool {
-	if state.finished.Load() {
-		pe.workerStaties[workerID].Phase = WaitingPhase
-		//if enableLog {
-		//fmt.Printf("[WARNNING] [Worker %d] pipeline engine was entried next batch(%d), "+
-		//	"this worker is entring waiting phase.\n", workerID, pe.currentBatchID.Load())
-		//}
-		return true
-	}
-	return false
-}
 
 type WorkerStats struct {
 	currentBatchID int32

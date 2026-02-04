@@ -5,6 +5,9 @@ import (
 	lvm "Janus/core/evm"
 	"Janus/ethereum/core/types"
 	"fmt"
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -84,6 +87,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 	fmt.Println("╠════════════════════════════════════════════════════╣")
 	fmt.Printf("║ Thread Pool Size:         %-22d ║\n", numThreads)
 	fmt.Printf("║ Total Execution Time:     %-22v ║\n", elapsed)
+	fmt.Printf("║ Submit Block Time:     %-22v ║\n", pipeline.timeOfSubmitBlock)
 	fmt.Printf("║ Blocks Processed:         %-22d ║\n", blockNum)
 	fmt.Printf("║ Batches Processed:        %-22d ║\n", totalBatches)
 	fmt.Printf("║ Total Transactions:       %-22d ║\n", janusConfig.TxNum)
@@ -95,4 +99,91 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 	fmt.Println("╚════════════════════════════════════════════════════╝")
 
 	return tps
+}
+
+func RunSimpleParallel(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
+	fmt.Println("╔════════════════════════════════════════════════════╗")
+	fmt.Println("║   Simple Parallel EVM (No Batches, No Janus Core)  ║")
+	fmt.Println("╚════════════════════════════════════════════════════╝")
+
+	// 确保用满 CPU（也可以在 main/init 里统一设置）
+	runtime.GOMAXPROCS(runtime.NumCPU())
+	numThreads := janusConfig.AllThreadNum
+	fmt.Printf("Thread Pool Size: %d\n", numThreads)
+
+	// 1. 展平所有交易（不做批次划分）
+	allTxs := make([]*types.Transaction, 0)
+	for _, block := range blockTxs {
+		for _, tx := range block {
+			// 这里用 *types.Transaction，和 Serial 一样
+			allTxs = append(allTxs, tx)
+		}
+	}
+	totalTxs := len(allTxs)
+	fmt.Printf("Total Transactions: %d\n\n", totalTxs)
+
+	// 2. 为每个线程创建独立的 EVM 实例
+	levms := make([]*lvm.LEVM, numThreads)
+	for i := 0; i < numThreads; i++ {
+		levms[i] = levm.Copy()
+		levms[i].SetEVMWorkerID(i)
+	}
+
+	// 3. 使用一个原子索引分发任务（不需要任何批次信息）
+	var txIndex atomic.Int32
+	txIndex.Store(0)
+
+	start := time.Now()
+
+	var wg sync.WaitGroup
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			runtime.LockOSThread()
+			defer runtime.UnlockOSThread()
+
+			localEVM := levms[workerID]
+
+			for {
+				// 抢一个任务（下标从 0 开始）
+				idx := int(txIndex.Add(1) - 1)
+				if idx >= totalTxs {
+					return // 没有更多交易
+				}
+
+				tx := allTxs[idx]
+
+				// 4. 只执行交易，不做任何 Janus 额外逻辑
+				executeTransactionSimple(localEVM, tx)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	elapsed := time.Since(start)
+	tps := float64(totalTxs) / elapsed.Seconds()
+
+	fmt.Println("\n╔════════════════════════════════════════════════════╗")
+	fmt.Println("║         Simple Parallel EVM Summary                ║")
+	fmt.Println("╠════════════════════════════════════════════════════╣")
+	fmt.Printf("║ Thread Pool Size:         %-22d ║\n", numThreads)
+	fmt.Printf("║ Total Execution Time:     %-22v ║\n", elapsed)
+	fmt.Printf("║ Total Transactions:       %-22d ║\n", totalTxs)
+	fmt.Printf("║ TPS (Throughput):         %-22.2f ║\n", tps)
+	fmt.Println("╚════════════════════════════════════════════════════╝")
+
+	return tps
+}
+
+// executeTransactionSimple 纯 EVM 执行（无读写集、无 Janus 状态）
+func executeTransactionSimple(levm *lvm.LEVM, tx *types.Transaction) {
+	// 这里你要替换成你串行版本里真正调用的那个执行函数，
+	// 确保逻辑一模一样，只是不再有任何 Janus 包装。
+	//
+	// 例子（按你项目实际情况调整）:
+	// levm.ApplyTransaction(tx)
+	// 或者：
+	//levm.ExecuteTransaction(tx)
 }

@@ -17,7 +17,6 @@
 package vm
 
 import (
-	"Janus/tools"
 	"fmt"
 
 	"Janus/ethereum/core/tracing"
@@ -187,13 +186,13 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 		// Get the operation from the jump table and validate the stack to ensure there are
 		// enough stack items available to perform the operation.
 		op = contract.GetOp(pc)
-		if tools.LoadTxCost[evm.WorkerID] {
-			if timer := GetTimingByOpCode(op); timer != nil {
-				tools.TxCost[evm.WorkerID] += timer.AverageTime
-			} else {
-				tools.TxCost[evm.WorkerID] += InstructionAverageTime
-			}
-		}
+		//if tools.LoadTxCost[evm.WorkerID] {
+		//	if timer := GetTimingByOpCode(op); timer != nil {
+		//		tools.TxCost[evm.WorkerID] += timer.AverageTime
+		//	} else {
+		//		tools.TxCost[evm.WorkerID] += InstructionAverageTime
+		//	}
+		//}
 		//fmt.Println(op)
 		operation := jumpTable[op]
 		cost = operation.constantGas // For tracing

@@ -60,7 +60,7 @@ func GenerateSmallBankTxs(addresses []common.Address, ioTxCount, cpuTxCount, fib
 		// 随机生成一个CPU型交易或者是IO型交易
 		txType := rand.Intn(2) + 1 // 生成 [1, 2] 之间的随机数
 		//ioFibonacciM, cpuFibonacciM := rand.Intn(5)+5, rand.Intn(10)+10
-		ioFibonacciM, cpuFibonacciM := 20, 40
+		ioFibonacciM, cpuFibonacciM := 10, 45
 		if janusConfig.TransactionType(txType) == janusConfig.IOTx { // IO型交易
 			if ioTxNum < ioTxCount {
 				inputs, err = abiObject.Pack(
