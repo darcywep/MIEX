@@ -120,6 +120,7 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 		if stateID == -1 { // 尚未有批次
 			continue
 		}
+
 		//fmt.Printf("Worker %d is running, stateId=%d, worker stateId=%d\n", workerID, stateID, pe.workerStaties[workerID].currentBatchID)
 		// 切换到新的批次状态
 		if stateID > pe.workerStaties[workerID].currentBatchID {
@@ -135,6 +136,9 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 			continue
 		}
 		if pe.workerStaties[workerID].Phase == ExecuteCurrentBatchPhase {
+			//if state.finished.Load() { // 如果该批次已经完成，那么就是竞态导致重新进入了该批次的执行阶段
+			//	continue
+			//}
 			if enableLog {
 				fmt.Printf("[Worker %d] entry execute current batch(%d) phase.\n", workerID, pe.workerStaties[workerID].currentBatchID)
 			}
@@ -477,6 +481,9 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 			fmt.Printf("[Worker %d] [batch %d] execute current batch, pairIndex=%d, "+
 				"len(state.CompletionOrder)=%d, threadNextNumber=%d, (pe.numThreads+1)/2=%d\n",
 				workerID, state.BatchID, pairIndex, len(state.CompletionOrder), threadNextNumber, (pe.numThreads+1)/2)
+		}
+		if pairIndex >= pe.numThreads/2 {
+			return nil, false
 		}
 		pairWorkerID := state.CompletionOrder[pairIndex]
 		if pairIndex == 0 {

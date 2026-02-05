@@ -10,6 +10,39 @@ import (
 	"os"
 )
 
+var (
+	LoadTxCost        []bool
+	TxCost            []float64
+	OpCodeCallNumbers [][]int // workerID -> OpCode -> CallNumbers
+)
+
+func init() {
+	LoadTxCost = make([]bool, 1)
+	OpCodeCallNumbers = make([][]int, 1)
+}
+
+func InitTxCost(threads int) {
+	LoadTxCost = make([]bool, threads)
+	OpCodeCallNumbers = make([][]int, threads)
+}
+
+func OpenTxCost(workerID int) {
+	LoadTxCost[workerID] = true
+	OpCodeCallNumbers[workerID] = make([]int, 256)
+}
+
+func CloseTxCost(workerID int) (cost float64) {
+	LoadTxCost[workerID] = false
+	for opCode, number := range OpCodeCallNumbers[workerID] {
+		cost += InstructionTimers[opCode].AverageTime * float64(number)
+	}
+	return
+}
+
+func AddOpCodeCallNumber(workerID int, opCode OpCode) {
+	OpCodeCallNumbers[workerID][opCode]++
+}
+
 // InstructionTiming 存储单个指令的计时信息
 type InstructionTiming struct {
 	OpCode      OpCode  `json:"-"`
@@ -18,23 +51,34 @@ type InstructionTiming struct {
 	AverageTime float64 `json:"average_time_ns"`
 }
 
-var InstructionTimers map[OpCode]*InstructionTiming
+var InstructionTimers []*InstructionTiming
 var InstructionAverageTime = float64(50 / 100)
 
 func init() {
 	timings, err := LoadTimings(config.InstructionTimingFilePath)
 	if err != nil {
 		fmt.Printf("⚠️ 无法加载指令计时数据: %v\n", err)
-		InstructionTimers = make(map[OpCode]*InstructionTiming)
+		InstructionTimers = make([]*InstructionTiming, len(opCodeToString))
 		return
 	}
 
-	InstructionTimers = make(map[OpCode]*InstructionTiming)
+	InstructionTimers = make([]*InstructionTiming, len(opCodeToString))
 	for _, timing := range timings {
 		timing.OpCode = StringToOp(timing.OpName)
 		timing.AverageTime = timing.AverageTime / 100
 		InstructionTimers[timing.OpCode] = timing
 		//fmt.Println(timing.OpName, timing.OpCode, timing.SampleCount, timing.AverageTime)
+	}
+	for opCode, timing := range InstructionTimers {
+		if timing == nil {
+			newTiming := &InstructionTiming{
+				OpCode:      OpCode(opCode),
+				OpName:      OpCode(opCode).String(),
+				SampleCount: 0,
+				AverageTime: InstructionAverageTime,
+			}
+			InstructionTimers[opCode] = newTiming
+		}
 	}
 
 }
@@ -66,10 +110,7 @@ func LoadTimings(filename string) (map[string]*InstructionTiming, error) {
 
 // GetTimingByOpCode 根据OpCode获取计时信息
 func GetTimingByOpCode(op OpCode) *InstructionTiming {
-	if timing, exists := InstructionTimers[op]; exists {
-		return timing
-	}
-	return nil
+	return InstructionTimers[op]
 }
 
 // PrintTimingSummary 打印计时数据摘要

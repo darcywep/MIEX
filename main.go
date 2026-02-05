@@ -10,6 +10,7 @@ import (
 	lvm "Janus/core/evm"
 	"Janus/ethereum/config"
 	"Janus/ethereum/core/types"
+	"Janus/ethereum/core/vm"
 	"Janus/ethereum/database"
 	"Janus/januscore/janus"
 	"Janus/monitor"
@@ -132,9 +133,9 @@ func main() {
 	janusConfig.TxNum, _ = strconv.Atoi(*txNumber)
 
 	if janusConfig.AllThreadNum == 0 {
-		tools.InitTxCost(1)
+		vm.InitTxCost(1)
 	} else {
-		tools.InitTxCost(janusConfig.AllThreadNum)
+		vm.InitTxCost(janusConfig.AllThreadNum)
 	}
 
 	runtime.GOMAXPROCS(janusConfig.AllThreadNum + 2)
