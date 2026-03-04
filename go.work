@@ -1,7 +1,7 @@
 go 1.24.0
 
 use (
-	./go-ethereum-v1115
-	./go-ethereum-v1165
+	./janus-geth-1115-blockstm
+	./janus-geth-1165
 	./main
 )
