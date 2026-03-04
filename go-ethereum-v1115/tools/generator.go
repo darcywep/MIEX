@@ -1,0 +1,92 @@
+package tools
+
+import (
+	"log"
+	"math/big"
+	"math/rand"
+	"time"
+
+	"github.com/chinuy/zipf"
+
+	"chukonu/core/types"
+
+	"github.com/ethereum/go-ethereum/common"
+)
+
+const ContractBasePath = "/root/Janus/contract_example/"
+
+// GenerateAddresses 生成指定范围的伪地址
+func GenerateAddresses(start, end int) []common.Address {
+	addresses := make([]common.Address, 0, end-start+1)
+	for i := start; i <= end; i++ {
+		addr := common.BigToAddress(big.NewInt(int64(i)))
+		addresses = append(addresses, addr)
+	}
+	return addresses
+}
+
+// GenerateSmallBankTxs 基于Zipf分布生成交易，用于控制冲突概率
+func GenerateSmallBankTxs(addresses []common.Address, ioTxCount, cpuTxCount, fibonacciN int, recursive bool, skew float64) []*types.Transaction {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	z := zipf.NewZipf(r, skew, uint64(len(addresses)-1))
+	txCount := ioTxCount + cpuTxCount
+	txs := make([]*types.Transaction, 0, txCount)
+	gasPrice := big.NewInt(1)
+
+	abiObject, _, err := LoadContract(ContractBasePath+"smallbank_fibonacci.abi", ContractBasePath+"smallbank_fibonacci.bin")
+	PanicError("GenerateSmallBankTxs LoadContract ", err)
+
+	ioTxNum, cpuTxNum := 0, 0
+	rand.Seed(time.Now().UnixNano()) // 设置随机数种子（否则每次运行结果一样）
+
+	for i := 1; i <= txCount; i++ {
+		fromIdx := int(z.Uint64())
+		toIdx := int(z.Uint64())
+		if fromIdx == toIdx {
+			toIdx = (toIdx + 1) % len(addresses)
+		}
+
+		from := addresses[fromIdx]
+		to := addresses[toIdx]
+		//fmt.Println(from, to)
+		var (
+			inputs []byte
+			tx     *types.Transaction
+		)
+		// 随机生成一个CPU型交易或者是IO型交易
+		txType := rand.Intn(2) + 1           // 生成 [1, 2] 之间的随机数
+		if TransactionType(txType) == IOTx { // IO型交易
+			if ioTxNum < ioTxCount {
+				inputs, err = abiObject.Pack("transfer", to, big.NewInt(0).SetUint64(10))
+				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), uint64(1e19), gasPrice, inputs)
+				tx.TxType = uint64(IOTx)
+				ioTxNum += 1
+			} else {
+				inputs, err = abiObject.Pack("fibonacciCalculate", to, big.NewInt(0).SetUint64(uint64(fibonacciN)), recursive)
+				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), uint64(1e19), gasPrice, inputs)
+				tx.TxType = uint64(ComputeTx)
+				cpuTxNum += 1
+			}
+		} else { // CPU型交易
+			if cpuTxNum < cpuTxCount {
+				inputs, err = abiObject.Pack("fibonacciCalculate", to, big.NewInt(0).SetUint64(uint64(fibonacciN)), recursive)
+				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), uint64(1e19), gasPrice, inputs)
+				tx.TxType = uint64(ComputeTx)
+				cpuTxNum += 1
+			} else {
+				inputs, err = abiObject.Pack("transfer", to, big.NewInt(0).SetUint64(10))
+				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), uint64(1e19), gasPrice, inputs)
+				tx.TxType = uint64(IOTx)
+				ioTxNum += 1
+			}
+		}
+
+		PanicError("GenerateSmallBankTxs abiObject.Pack ", err)
+		// 注意交易的调用地址要用之前的合约地址
+		tx.SmallBankTo = to
+		tx.SetFrom(from)
+		txs = append(txs, tx)
+	}
+	log.Printf("Zipf 生成交易完成（skew=%.2f）", skew)
+	return txs
+}
