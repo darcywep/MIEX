@@ -1,7 +1,0 @@
-go 1.24.0
-
-use (
-	./janus-geth-1115-blockstm
-	./janus-geth-1165
-	./main
-)
