@@ -88,5 +88,5 @@ func init() {
 	// 在 init 中计算项目根目录
 	_, filename, _, _ := runtime.Caller(0)
 	ProjectRoot := filepath.Dir(filepath.Dir(filename))
-	InstructionTimingFilePath = filepath.Join(ProjectRoot, "Janus", "config", "instruction_timings.json")
+	InstructionTimingFilePath = filepath.Join(ProjectRoot, "config", "instruction_timings.json")
 }

@@ -118,17 +118,11 @@ contract MinimalSmallBank {
     /// @param recursive 是否使用递归计算
     /// @param updateBalance 是否更新余额
     function _internalFibonacciCalculate(address user, uint256 n, uint256 m, bool recursive, bool updateBalance) internal {
-        // 如果 n 为 0，直接返回
-        if (n == 0) return;
-
-        // 限制 m > 0 且 <= 100
-        if (m == 0) return;
-
         // 对于递归模式，限制 n <= 30
         if (recursive && n > 30) return;
 
         uint256 fib;
-
+        
         // 循环执行 m 次斐波那契计算
         for (uint256 i = 0; i < m; i++) {
             if (recursive) {

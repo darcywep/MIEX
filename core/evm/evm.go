@@ -1,13 +1,13 @@
 package evm
 
 import (
-	"fmt"
 	"Janus/ethereum/config"
 	"Janus/ethereum/core/state"
 	"Janus/ethereum/core/tracing"
 	"Janus/ethereum/core/types"
 	"Janus/ethereum/database"
 	"Janus/tools"
+	"fmt"
 	"math/big"
 	"runtime"
 	"runtime/debug"
@@ -190,6 +190,7 @@ func (lvm *LEVM) CallContractABI(callerAddr, contractAddr common.Address, value 
 	//fmt.Printf("inputs: %v\n", common.Bytes2Hex(inputs))
 
 	balance := lvm.allDBForState.StateDB.GetBalance(callerAddr)
+	//fmt.Println(callerAddr, "balance", balance)
 	output, _, err := lvm.evm.Call(
 		callerAddr,
 		contractAddr,
@@ -229,10 +230,10 @@ func PreReadState(txs []*types.Transaction, levm *LEVM) {
 		_ = levm.AllDB().StateDB.GetOrNewStateObject(to)
 		_, err := levm.CallContractABI(*from, tools.ContractAddress, new(uint256.Int).SetUint64(0), abiObject,
 			"getBalance", *from)
-		tools.PanicError("PreReadState CallContractABI from", err)
+		tools.PanicError("PreReadState CallContractABI from ", err)
 		_, err = levm.CallContractABI(to, tools.ContractAddress, new(uint256.Int).SetUint64(0), abiObject,
 			"getBalance", to)
-		tools.PanicError("PreReadState CallContractABI to", err)
+		tools.PanicError("PreReadState CallContractABI to ", err)
 		// 预读取合约存储状态
 	}
 }

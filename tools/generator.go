@@ -128,6 +128,8 @@ func GenerateTxsFormBriefTx(btxs [][]int, recursive bool) []*types.Transaction {
 	PanicError("GenerateSmallBankTxs LoadContract ", err)
 
 	for _, btx := range btxs {
+		//fmt.Println(btx[0], btx[1], btx[2], btx[3], btx[4])
+		//btx[3] = 0
 		from, to := common.BigToAddress(big.NewInt(int64(btx[0]))), common.BigToAddress(big.NewInt(int64(btx[1])))
 		inputs, err := abiObject.Pack(
 			"fibonacciCalculate",
