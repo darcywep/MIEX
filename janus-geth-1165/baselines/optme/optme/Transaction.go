@@ -36,7 +36,7 @@ func (t *OptmeTransaction) Execute(levm *lvm.LEVM) {
 	_, err := levm.CallContract(*t.Tx.EthTx.From(), *t.Tx.EthTx.To(), t.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
 	tools.PanicError("OptmeTransaction Execute", err)
 
-	if t.Tx.EthTx.TxType == config.IOTx {
+	if t.Tx.EthTx.TxType == config.ShortTx {
 		key1 := t.Tx.EthTx.From().String()
 		key2 := t.Tx.EthTx.SmallBankTo.String()
 		t.Tx.Vertex.WriteKeys[key1] = "value"

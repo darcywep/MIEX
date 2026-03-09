@@ -10,7 +10,7 @@ import (
 )
 
 func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
-	txGenerator := common.NewTxGenerator(janusConfig.TxNum, janusConfig.BlockSize) // TX_NUM = 2000, BLOCK_SIZE = 1000
+	txGenerator := common.NewTxGenerator(janusConfig.AllBlocksTxSum, janusConfig.BlockSize) // TX_NUM = 2000, BLOCK_SIZE = 1000
 
 	blocks := txGenerator.GenerateWorkload(blockTxs) // 生成区块
 	//fmt.Printf("Blocks num: %d\n", len(blocks))

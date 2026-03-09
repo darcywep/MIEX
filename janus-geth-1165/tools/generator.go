@@ -61,7 +61,7 @@ func GenerateSmallBankTxs(addresses []common.Address, ioTxCount, cpuTxCount, fib
 		txType := rand.Intn(2) + 1 // 生成 [1, 2] 之间的随机数
 		//ioFibonacciM, cpuFibonacciM := rand.Intn(5)+5, rand.Intn(10)+10
 		ioFibonacciM, cpuFibonacciM := 20, 40
-		if janusConfig.TransactionType(txType) == janusConfig.IOTx { // IO型交易
+		if janusConfig.TransactionType(txType) == janusConfig.ShortTx { // IO型交易
 			if ioTxNum < ioTxCount {
 				inputs, err = abiObject.Pack(
 					"transfer",
@@ -72,7 +72,7 @@ func GenerateSmallBankTxs(addresses []common.Address, ioTxCount, cpuTxCount, fib
 					recursive,
 				)
 				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), Uint64, gasPrice, inputs)
-				tx.TxType = janusConfig.IOTx
+				tx.TxType = janusConfig.ShortTx
 				ioTxNum += 1
 			} else {
 				inputs, err = abiObject.Pack(
@@ -83,7 +83,7 @@ func GenerateSmallBankTxs(addresses []common.Address, ioTxCount, cpuTxCount, fib
 					recursive,
 				)
 				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), Uint64, gasPrice, inputs)
-				tx.TxType = janusConfig.ComputeTx
+				tx.TxType = janusConfig.LongTx
 				cpuTxNum += 1
 			}
 		} else { // CPU型交易
@@ -96,7 +96,7 @@ func GenerateSmallBankTxs(addresses []common.Address, ioTxCount, cpuTxCount, fib
 					recursive,
 				)
 				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), Uint64, gasPrice, inputs)
-				tx.TxType = janusConfig.ComputeTx
+				tx.TxType = janusConfig.LongTx
 				cpuTxNum += 1
 			} else {
 				inputs, err = abiObject.Pack(
@@ -108,7 +108,7 @@ func GenerateSmallBankTxs(addresses []common.Address, ioTxCount, cpuTxCount, fib
 					recursive,
 				)
 				tx = types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), Uint64, gasPrice, inputs)
-				tx.TxType = janusConfig.IOTx
+				tx.TxType = janusConfig.ShortTx
 				ioTxNum += 1
 			}
 		}
@@ -119,5 +119,31 @@ func GenerateSmallBankTxs(addresses []common.Address, ioTxCount, cpuTxCount, fib
 		txs = append(txs, tx)
 	}
 	fmt.Printf("Zipf 生成交易完成（skew=%.2f）", skew)
+	return txs
+}
+
+func GenerateTxsFormBriefTx(btxs [][]int, recursive bool) []*types.Transaction {
+	txs := make([]*types.Transaction, 0, len(btxs))
+	abiObject, _, err := LoadContract(ContractBasePath+"smallbank_m_fibonacci.abi", ContractBasePath+"smallbank_m_fibonacci.bin")
+	PanicError("GenerateSmallBankTxs LoadContract ", err)
+
+	for _, btx := range btxs {
+		from, to := common.BigToAddress(big.NewInt(int64(btx[0]))), common.BigToAddress(big.NewInt(int64(btx[1])))
+		inputs, err := abiObject.Pack(
+			"fibonacciCalculate",
+			to,
+			big.NewInt(0).SetUint64(uint64(btx[3])),
+			big.NewInt(0).SetUint64(uint64(btx[4])),
+			recursive,
+		)
+		tx := types.NewTransaction(uint64(0), ContractAddress, big.NewInt(0), Uint64, big.NewInt(10), inputs)
+		tx.TxType = janusConfig.TransactionType(btx[2])
+		PanicError("GenerateSmallBankTxs abiObject.Pack ", err)
+		// 注意交易的调用地址要用之前的合约地址
+		tx.SmallBankTo = to
+		tx.SetFrom(from)
+		txs = append(txs, tx)
+	}
+
 	return txs
 }

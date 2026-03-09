@@ -75,7 +75,7 @@ func genTxs(txType config.TransactionType, txNum, writeN, readN, idx int, keyLis
 		}
 
 		var txId string
-		if txType == config.ComputeTx {
+		if txType == config.LongTx {
 			txId = fmt.Sprintf("compute-%d", i)
 		} else {
 			txId = fmt.Sprintf("io-%d", i)
@@ -142,10 +142,10 @@ func generateTxs() ([]*config.Transaction, []*config.Transaction) {
 
 	// 生成计算型交易
 
-	idx, competingTxs := genTxs(config.ComputeTx, config.CompetingTxCount, config.ComputingWriteN, config.ComputingReadN, idx, keyList)
+	idx, competingTxs := genTxs(config.LongTx, config.CompetingTxCount, config.ComputingWriteN, config.ComputingReadN, idx, keyList)
 
 	// 生成IO型交易
-	idx, ioTxs := genTxs(config.IOTx, config.IoTxCount, config.IoWriteN, config.IoReadN, idx, keyList)
+	idx, ioTxs := genTxs(config.ShortTx, config.IoTxCount, config.IoWriteN, config.IoReadN, idx, keyList)
 
 	//for _, tx := range competingTxs {
 	//	fmt.Println(tx.ReadKey)

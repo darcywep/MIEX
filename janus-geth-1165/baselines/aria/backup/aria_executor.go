@@ -121,7 +121,7 @@ func (e *AriaExecutor) Execute(tx *AriaTransaction) {
 	// 模拟 snapshot read handler
 
 	// 需要记录读写
-	if tx.Inner.EthTx.TxType == config.IOTx {
+	if tx.Inner.EthTx.TxType == config.ShortTx {
 		key1 := tx.Inner.EthTx.From().String()
 		key2 := tx.Inner.EthTx.SmallBankTo.String()
 		tx.Inner.Vertex.WriteKeys[key1] = "value"

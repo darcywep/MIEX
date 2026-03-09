@@ -22,7 +22,7 @@ func (pe *PipelineEngine) executeTransaction(jtx *janusTransaction, workerID int
 	tools.PanicError("Janus Tx Execute ", err)
 	jtx.ExecutionCost = vm.CloseTxCost(workerID)
 
-	if tx.TxType == janusConfig.IOTx {
+	if tx.TxType == janusConfig.ShortTx {
 		key1 := tx.From().String()
 		key2 := tx.SmallBankTo.String()
 		writeSet[key1] = struct{}{}
@@ -56,7 +56,7 @@ func (pe *PipelineEngine) reExecuteTransaction(oldRWSet *ReadWriteSet, workerID 
 	_, err := pe.levms[workerID].CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
 	tools.PanicError("Janus Tx ReExecute", err)
 
-	if tx.TxType == janusConfig.IOTx {
+	if tx.TxType == janusConfig.ShortTx {
 		key1 := tx.From().String()
 		key2 := tx.SmallBankTo.String()
 		writeSet[key1] = struct{}{}

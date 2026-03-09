@@ -24,10 +24,10 @@ func init() {
 	chainConfig = config.TestChainConfig
 }
 
-func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
+func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
 	fmt.Println("=== Run SChain ===")
 
-	blockNum := janusConfig.TxNum / janusConfig.BlockSize
+	blockNum := janusConfig.AllBlocksTxSum / janusConfig.BlockSize
 
 	start2 := time.Now()
 	for i := 0; i < blockNum; i++ {
@@ -47,8 +47,8 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 
 	}
 	end2 := time.Since(start2)
-	txNumber := janusConfig.TxNum
+	txNumber := janusConfig.AllBlocksTxSum
 	tps := float64(txNumber) / end2.Seconds()
 	fmt.Println("SChian TPS:", tps)
-	return tps
+	return []float64{tps, end2.Seconds()}
 }

@@ -41,7 +41,7 @@ func TestSerialExecution(txs []*types.Transaction, levm *lvm.LEVM) {
 		tools.PanicError("SChain TestSerialExecution", err)
 		tx.WriteKeys = make([]string, 0)
 		tx.ReadKeys = make([]string, 0)
-		if tx.TxType == config.IOTx {
+		if tx.TxType == config.ShortTx {
 			tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
 			tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
 		} else {
@@ -82,7 +82,7 @@ func GetRWSetByOCC(txs []*types.Transaction, levm *lvm.LEVM) {
 				//tx.ReadKeys = append(tx.ReadKeys, tx.From().String())
 				//tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
 				//tx.ReadKeys = append(tx.ReadKeys, tx.SmallBankTo.String())
-				if tx.TxType == config.IOTx {
+				if tx.TxType == config.ShortTx {
 					tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
 					tx.ReadKeys = append(tx.ReadKeys, tx.From().String())
 					tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
@@ -333,7 +333,7 @@ func runTx(wg *sync.WaitGroup, levm *lvm.LEVM, activePeepTxsChan chan *types.Tra
 		tools.PanicError("SChain Tx Execute", err)
 		tx.WriteKeys = make([]string, 0)
 		tx.ReadKeys = make([]string, 0)
-		if tx.TxType == config.IOTx {
+		if tx.TxType == config.ShortTx {
 			tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
 			tx.WriteKeys = append(tx.WriteKeys, tx.To().String())
 		} else {

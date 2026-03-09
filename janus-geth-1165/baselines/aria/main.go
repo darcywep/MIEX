@@ -2,7 +2,7 @@ package main
 
 func main() {
 	//
-	//txGenerator := common.NewTxGenerator(config.TxNum, config.BlockSize)
+	//txGenerator := common.NewTxGenerator(config.AllBlocksTxSum, config.BlockSize)
 	//
 	//blocks := txGenerator.GenerateWorkload() // 生成区块
 	//fmt.Printf("Blocks num: %d\n", len(blocks))

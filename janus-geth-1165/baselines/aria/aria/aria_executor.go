@@ -102,7 +102,7 @@ func (e *AriaExecutor) ProcessOneTx(tx *AriaTransaction) {
 
 // Execute: 填充 LocalGet/LocalPut 并调用 tx.Execute（不要写全局表）
 func (e *AriaExecutor) Execute(tx *AriaTransaction) {
-	if tx.Inner.EthTx.TxType == config.IOTx {
+	if tx.Inner.EthTx.TxType == config.ShortTx {
 		key1 := tx.Inner.EthTx.From().String()
 		key2 := tx.Inner.EthTx.SmallBankTo.String()
 		tx.Inner.Vertex.WriteKeys[key1] = "value"

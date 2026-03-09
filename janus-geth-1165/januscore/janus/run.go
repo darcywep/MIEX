@@ -9,7 +9,7 @@ import (
 )
 
 // Run 运行 Janus 混合负载并发执行引擎
-func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
+func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
 	fmt.Println("╔════════════════════════════════════════════════════╗")
 	fmt.Println("║   Janus Hybrid Transaction Execution Engine        ║")
 	fmt.Println("╚════════════════════════════════════════════════════╝")
@@ -22,7 +22,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 	fmt.Printf("Water Mark Alpha: %.1f\n", janusConfig.WaterMarkAlpha)
 	fmt.Printf("Water Mark Beta: %.1f\n\n", janusConfig.WaterMarkBeta)
 
-	blockNum := janusConfig.TxNum / janusConfig.BlockSize
+	blockNum := janusConfig.AllBlocksTxSum / janusConfig.BlockSize
 	numThreads := janusConfig.AllThreadNum
 
 	// 创建批次生成器
@@ -77,9 +77,9 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 	pipeline.Stop()
 
 	elapsed := time.Since(start)
-	tps := float64(janusConfig.TxNum) / elapsed.Seconds()
-	//commitRate := float64(totalCommitted) / float64(janusConfig.TxNum) * 100
-	commitRate := float64(committedTxsNum) / float64(janusConfig.TxNum) * 100
+	tps := float64(janusConfig.AllBlocksTxSum) / elapsed.Seconds()
+	//commitRate := float64(totalCommitted) / float64(janusConfig.AllBlocksTxSum) * 100
+	commitRate := float64(committedTxsNum) / float64(janusConfig.AllBlocksTxSum) * 100
 
 	fmt.Println("\n╔════════════════════════════════════════════════════╗")
 	fmt.Println("║           Janus Execution Summary                 ║")
@@ -94,7 +94,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 	fmt.Printf("║ Re-Execute Time:     %-22v ║\n", pipeline.timeOfReExecutePhase)
 	fmt.Printf("║ Blocks Processed:         %-22d ║\n", blockNum)
 	fmt.Printf("║ Batches Processed:        %-22d ║\n", totalBatches)
-	fmt.Printf("║ Total Transactions:       %-22d ║\n", janusConfig.TxNum)
+	fmt.Printf("║ Total Transactions:       %-22d ║\n", janusConfig.AllBlocksTxSum)
 	//fmt.Printf("║ Committed Transactions:   %-22d ║\n", totalCommitted)
 	fmt.Printf("║ Committed Transactions:   %-22d ║\n", committedTxsNum)
 	fmt.Printf("║ Aborted Transactions:     %-22d ║\n", totalCommitted-int(committedTxsNum))
@@ -102,5 +102,5 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 	fmt.Printf("║ TPS (Throughput):         %-22.2f ║\n", tps)
 	fmt.Println("╚════════════════════════════════════════════════════╝")
 
-	return tps
+	return []float64{tps, elapsed.Seconds()}
 }

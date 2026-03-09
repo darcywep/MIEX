@@ -9,15 +9,14 @@ import (
 	"time"
 )
 
-func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
-	txGenerator := common.NewTxGenerator(janusConfig.TxNum, janusConfig.BlockSize)
+func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
+	txGenerator := common.NewTxGenerator(janusConfig.AllBlocksTxSum, janusConfig.BlockSize)
 	blocks := txGenerator.GenerateWorkload(blockTxs) // 生成区块
 	//fmt.Printf("Blocks num: %d, Blocks size: %d\n", len(blocks), len(blocks[0].Txs))
 
+	startTime := time.Now()
 	static := common.NewStatistics()
 	harmonyInstance := NewHarmony(blocks, static, janusConfig.AllThreadNum, 4, true)
-
-	startTime := time.Now()
 	harmonyInstance.Start(levm)
 	elapsed := time.Since(startTime)
 
@@ -25,5 +24,5 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 	fmt.Printf("交易实际被执行总次数 %d \n", harmonyInstance.Statistics.ExecCount.Load())
 	tps := float64(harmonyInstance.Statistics.CommitCount.Load()) / (elapsed.Seconds())
 	fmt.Printf("交易处理吞吐(TPS)= %f \n", tps)
-	return tps
+	return []float64{tps, elapsed.Seconds()}
 }

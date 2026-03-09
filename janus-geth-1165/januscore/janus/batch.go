@@ -61,7 +61,7 @@ func (bg *BatchGenerator) GenerateBatches(txs []*types.Transaction) ([]*Batch, [
 	for txIdx, tx := range txs {
 
 		// 判断交易类型
-		isLongTx := tx.TxType == janusConfig.ComputeTx
+		isLongTx := tx.TxType == janusConfig.LongTx
 		jtx := &janusTransaction{
 			Tx:          tx,
 			IsLongTx:    isLongTx,

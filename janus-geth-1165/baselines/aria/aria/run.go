@@ -9,8 +9,9 @@ import (
 	"time"
 )
 
-func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
-	txGenerator := common.NewTxGenerator(janusConfig.TxNum, janusConfig.BlockSize) // TX_NUM = 2000, BLOCK_SIZE = 1000
+func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
+	start := time.Now()
+	txGenerator := common.NewTxGenerator(janusConfig.AllBlocksTxSum, janusConfig.BlockSize) // TX_NUM = 2000, BLOCK_SIZE = 1000
 
 	blocks := txGenerator.GenerateWorkload(blockTxs) // 生成区块
 	//fmt.Printf("Blocks num: %d\n", len(blocks))
@@ -18,14 +19,14 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 
 	static := common.NewStatistics()
 	aria := NewAria(blocks, static, janusConfig.AllThreadNum, 4, true, levm)
-	start := time.Now()
 	//tools.CatStorageState = true
 	aria.Start()
 	aria.Stop()
+	latency := time.Since(start).Seconds()
 	fmt.Println("CommitCount=", aria.Statistics().CommitCount.Load())
-	tps := float64(aria.Statistics().CommitCount.Load()) / (time.Since(start).Seconds())
+	tps := float64(aria.Statistics().CommitCount.Load()) / latency
 	fmt.Println("Aria TPS: ", tps)
 
 	defer aria.EvmClose()
-	return tps
+	return []float64{tps, latency}
 }

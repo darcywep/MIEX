@@ -17,21 +17,20 @@ var (
 	IoThreadNum        int = 4
 	ComputingThreadNum int = 4
 
-	AllThreadNum = 8
-	TxNum        = 4000
-	Skew         = 1.01
+	AllThreadNum   = 8
+	AllBlocksTxSum = 4000
+	BlockSize      = 2000
+	Skew           = 1.01
+
+	WaterMarkAlpha = 1.5 // 水位线参数 α
+	WaterMarkBeta  = 3.5 // 水位线参数 β
 )
 
 // 交易生成相关配置
 const (
-	BlockSize = 2000
-
 	AddressNumberRate    = 4 // 总共生成多少个地址, 按单个区块交易数量的（比例）来生成
 	CompetingTxCountRate = 0.5
 	IoTxCountRate        = 0.5
-
-	WaterMarkAlpha = 1.5 // 水位线参数 α
-	WaterMarkBeta  = 3.5 // 水位线参数 β
 )
 
 // 斐波那契计算相关配置
@@ -53,8 +52,8 @@ const (
 )
 
 const (
-	ComputeTx              TransactionType = 1
-	IOTx                   TransactionType = 2
+	LongTx                 TransactionType = 1
+	ShortTx                TransactionType = 2
 	TotalKeys                              = 25 * 10000 * 10000 // LevelDB 总数据量
 	JanusDBPath                            = "/root/alldb/JanusDB"
 	Key2addrDBPath                         = "/root/alldb/key2addrDB"

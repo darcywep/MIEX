@@ -9,11 +9,11 @@ import (
 	"time"
 )
 
-func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
-
+func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
 	fmt.Println("optme start")
 
-	txGenerator := common.NewTxGenerator(janusConfig.TxNum, janusConfig.BlockSize)
+	startTime := time.Now()
+	txGenerator := common.NewTxGenerator(janusConfig.AllBlocksTxSum, janusConfig.BlockSize)
 
 	blocks := txGenerator.GenerateWorkload(blockTxs) // 生成区块
 	fmt.Printf("Blocks num: %d\n", len(blocks))
@@ -22,7 +22,6 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 	static := common.NewStatistics()
 	optmeInstance := NewOptME(blocks, static, janusConfig.AllThreadNum, 4, true, levm)
 
-	startTime := time.Now()
 	optmeInstance.Start()
 	elapsed := time.Since(startTime)
 
@@ -32,5 +31,5 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 	fmt.Printf("交易处理吞吐(TPS)= %f \n", tps)
 
 	defer optmeInstance.GetThreadPool().EvmClose()
-	return tps
+	return []float64{tps, elapsed.Seconds()}
 }

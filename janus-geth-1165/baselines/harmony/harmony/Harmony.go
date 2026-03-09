@@ -428,7 +428,7 @@ func (executor *HarmonyExecutor) Execute(tx *HarmonyTransaction) {
 	_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
 	tools.PanicError("Transaction Execute", err)
 
-	if tx.Tx.EthTx.TxType == janusConfig.IOTx {
+	if tx.Tx.EthTx.TxType == janusConfig.ShortTx {
 
 		key1 := tx.Tx.EthTx.From().String()
 		key2 := tx.Tx.EthTx.SmallBankTo.String()

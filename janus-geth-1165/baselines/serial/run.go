@@ -11,7 +11,7 @@ import (
 	"github.com/holiman/uint256"
 )
 
-func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
+func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
 	fmt.Println("=== Run Serial ===")
 
 	start2 := time.Now()
@@ -23,9 +23,9 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) float64 {
 		}
 	}
 	end2 := time.Since(start2)
-	txNumber := janusConfig.TxNum
+	txNumber := janusConfig.AllBlocksTxSum
 	tps := float64(txNumber) / end2.Seconds()
 	fmt.Println("Serial TPS:", tps)
 	fmt.Printf("Serial Execution Time:     %-22v \n", end2)
-	return tps
+	return []float64{tps, end2.Seconds()}
 }

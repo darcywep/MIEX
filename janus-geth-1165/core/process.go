@@ -66,7 +66,7 @@ func ExecuteIOTransaction(cache *persister.StateCache, tx *config.Transaction, i
 
 // ExecuteTransaction 执行一笔交易
 func ExecuteTransaction(cache *persister.StateCache, tx *config.Transaction, i int) {
-	if config.ComputeTx == tx.Type {
+	if config.LongTx == tx.Type {
 		//time.Sleep(1 * time.Microsecond)
 		ExecuteCompetingTransaction(cache, tx)
 	} else {

@@ -1,29 +1,30 @@
 package main
 
 import (
-	"flag"
+	"Janus/baselines/aria/aria"
+	"Janus/baselines/harmony/harmony"
+	"Janus/baselines/optme/optme"
+	"Janus/baselines/schain/schain"
+	"Janus/baselines/serial"
+	janusConfig "Janus/config"
+	lvm "Janus/core/evm"
+	"Janus/ethereum/config"
+	"Janus/ethereum/core/types"
+	"Janus/ethereum/core/vm"
+	"Janus/ethereum/database"
+	"Janus/januscore/janus"
+	"Janus/monitor"
+	"Janus/tools"
+	"encoding/json"
 	"fmt"
-	"janus-geth-1165/baselines/aria/aria"
-	"janus-geth-1165/baselines/harmony/harmony"
-	"janus-geth-1165/baselines/optme/optme"
-	"janus-geth-1165/baselines/schain/schain"
-	"janus-geth-1165/baselines/serial"
-	janusConfig "janus-geth-1165/config"
-	lvm "janus-geth-1165/core/evm"
-	"janus-geth-1165/ethereum/config"
-	"janus-geth-1165/ethereum/core/types"
-	"janus-geth-1165/ethereum/core/vm"
-	"janus-geth-1165/ethereum/database"
-	"janus-geth-1165/januscore/janus"
-	"janus-geth-1165/monitor"
-	"janus-geth-1165/tools"
+	"io"
+	"math/big"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"sync"
 	"time"
-
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/xuri/excelize/v2"
@@ -31,6 +32,27 @@ import (
 
 var stateConfig *database.StateDBConfig
 var chainConfig *params.ChainConfig
+
+type InputData struct {
+	Baseline     string
+	ThreadNumber int
+	BlockNumber  int
+	BlockTxNum   int
+
+	Skew float64
+
+	WaterMarkAlpha float64
+	WaterMarkBeta  float64
+
+	LongTxCountRate  float64
+	ShortTxCountRate float64
+
+	FibonacciN                  int
+	FibonacciLoopNum            int
+	RecursiveCalculateFibonacci bool
+
+	Txs [][][]int
+}
 
 func init() {
 	stateConfig = &database.StateDBConfig{
@@ -41,7 +63,7 @@ func init() {
 	chainConfig = config.TestChainConfig
 }
 
-func writeTPSResultToExcel(filename string, baselines []string, tpss []float64) error {
+func writeTPSResultToExcel(filename string, baselines []string, tpssAndLatency [][]float64) error {
 	f := excelize.NewFile()
 
 	sheet := "TPS"
@@ -59,14 +81,22 @@ func writeTPSResultToExcel(filename string, baselines []string, tpss []float64) 
 	if err != nil {
 		return err
 	}
+	err = f.SetCellValue(sheet, "C1", "Latency (s)")
+	if err != nil {
+		return err
+	}
 
-	for i := 0; i < len(baselines) && i < len(tpss); i++ {
+	for i := 0; i < len(baselines) && i < len(tpssAndLatency); i++ {
 		row := i + 2
 		err = f.SetCellValue(sheet, fmt.Sprintf("A%d", row), baselines[i])
 		if err != nil {
 			return err
 		}
-		err = f.SetCellValue(sheet, fmt.Sprintf("B%d", row), tpss[i])
+		err = f.SetCellValue(sheet, fmt.Sprintf("B%d", row), tpssAndLatency[i][0])
+		if err != nil {
+			return err
+		}
+		err = f.SetCellValue(sheet, fmt.Sprintf("C%d", row), tpssAndLatency[i][1])
 		if err != nil {
 			return err
 		}
@@ -81,7 +111,7 @@ func writeTPSResultToExcel(filename string, baselines []string, tpss []float64) 
 	return f.SaveAs(filename)
 }
 
-func run(baseline, baseFileName string, tpss *[]float64, signalChan chan struct{}, signalWg *sync.WaitGroup, blockTxs []types.Transactions, levm *lvm.LEVM) {
+func run(baseline, baseFileName string, tpss *[][]float64, signalChan chan struct{}, signalWg *sync.WaitGroup, blockTxs []types.Transactions, levm *lvm.LEVM) {
 	monitorFilePath := filepath.Join(janusConfig.MonitorBasePath, baseline+"/"+baseFileName)
 	if baseline == "harmony" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
@@ -105,32 +135,42 @@ func run(baseline, baseFileName string, tpss *[]float64, signalChan chan struct{
 }
 
 func main() {
-	baseline := flag.String("baseline", "all",
-		"baseline: (default all)\n"+
-			"\t\"all\" is run all baseline\n"+
-			"\t\"schain\" is run schain\n"+
-			"\t\"optme\" is run optme\n"+
-			"\t\"aria\" is run aria\n"+
-			"\t\"harmony\" is run harmony\n"+
-			"\t\"serial\" is run serial\n"+
-			"\t\"janus\" is run janus\n")
-	threadNumber := flag.String("thread", "8", "thread number(default 8)")
-	skew := flag.String("skew", "0.5", "thread number(default 0.5)")
-	txNumber := flag.String("txNum", "100000", "thread number(default 6000)")
-	flag.Parse()
+	data, _ := io.ReadAll(os.Stdin)
 
-	fmt.Println("baseline: ", *baseline, "\tthreadNumber: ", *threadNumber,
-		"\tskew: ", *skew, "\ttxNumber: ", *txNumber)
+	var input InputData
+	err := json.Unmarshal(data, &input)
+	if err != nil {
+		panic(err)
+	}
 
-	if *baseline != "all" && *baseline != "harmony" && *baseline != "schain" && *baseline != "optme" &&
-		*baseline != "aria" && *baseline != "serial" && *baseline != "janus" {
+	fmt.Println("Janus running, baseline is", input.Baseline)
+
+	if input.Baseline != "all" && input.Baseline != "harmony" && input.Baseline != "schain" && input.Baseline != "optme" &&
+		input.Baseline != "aria" && input.Baseline != "serial" && input.Baseline != "janus" {
 		fmt.Println("baseline is invalid")
 		return
 	}
 
-	janusConfig.AllThreadNum, _ = strconv.Atoi(*threadNumber)
-	janusConfig.Skew, _ = strconv.ParseFloat(*skew, 64)
-	janusConfig.TxNum, _ = strconv.Atoi(*txNumber)
+	//fmt.Println(
+	//	"baseline:", input.Baseline,
+	//	"\nthreadNumber:", input.ThreadNumber,
+	//	"\nblockNumber:", input.BlockNumber,
+	//	"\nblockTxNumber:", input.BlockTxNum,
+	//	"\nskew:", input.Skew,
+	//	"\nwaterMarkAlpha:", input.WaterMarkAlpha,
+	//	"\nwaterMarkBeta:", input.WaterMarkBeta,
+	//	"\nfibonacciN:", input.FibonacciN,
+	//	"\nFibonacciLoopNum:", input.FibonacciLoopNum,
+	//	"\nrecursiveCalculateFibonacci:", input.RecursiveCalculateFibonacci,
+	//	"\ntxs:", input.Txs,
+	//)
+
+	janusConfig.AllThreadNum = input.ThreadNumber
+	janusConfig.Skew = input.Skew
+	janusConfig.AllBlocksTxSum = input.BlockNumber * input.BlockTxNum
+	janusConfig.BlockSize = input.BlockTxNum
+	janusConfig.WaterMarkAlpha = input.WaterMarkAlpha
+	janusConfig.WaterMarkBeta = input.WaterMarkBeta
 
 	if janusConfig.AllThreadNum == 0 {
 		vm.InitTxCost(1)
@@ -141,23 +181,24 @@ func main() {
 	runtime.GOMAXPROCS(janusConfig.AllThreadNum + 2)
 	fmt.Printf("GOMAXPROCS set to: %d\n", runtime.GOMAXPROCS(0))
 	var (
-		baseFileName           = "thread(" + strconv.Itoa(janusConfig.AllThreadNum) + ")_skew(" + fmt.Sprintf("%f", janusConfig.Skew) + ").xlsx"
-		tpss         []float64 = make([]float64, 0)
-		baselines              = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
+		baseFileName = "t(" + strconv.Itoa(input.ThreadNumber) + ")" +
+			"_bt(" + strconv.Itoa(input.BlockNumber) + ")" +
+			"_sk(" + fmt.Sprintf("%f", input.Skew) + ")" +
+			"_lr(" + fmt.Sprintf("%f", input.LongTxCountRate) + ")" +
+			"_sr(" + fmt.Sprintf("%f", input.ShortTxCountRate) + ")" +
+			"_wa(" + fmt.Sprintf("%f", input.WaterMarkAlpha) + ")" +
+			"_wb(" + fmt.Sprintf("%f", input.WaterMarkBeta) + ")" +
+			"_f(" + strconv.Itoa(input.FibonacciN) + ")" +
+			"_fln(" + strconv.Itoa(input.FibonacciLoopNum) + ")" +
+			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
+		tpssAndLatency [][]float64 = make([][]float64, 0)
+		baselines                  = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
 	)
 
-	blockNum := janusConfig.TxNum / janusConfig.BlockSize
+	blockNum := janusConfig.AllBlocksTxSum / janusConfig.BlockSize
 	blockTxs := make([]types.Transactions, 0) // 每个block的交易集合
 	for i := 0; i < blockNum; i++ {
-		txsLen := janusConfig.BlockSize
-		// Step 1: 生成地址
-		addresses := tools.GenerateAddresses(1, int(float64(txsLen)*janusConfig.AddressNumberRate))
-		fmt.Printf("生成地址数量: %d\n", len(addresses))
-
-		// Step 2: 生成交易（Zipf 控制冲突率）
-		ethTxs := tools.GenerateSmallBankTxs(addresses, int(float64(txsLen)*janusConfig.CompetingTxCountRate), int(float64(txsLen)*janusConfig.IoTxCountRate),
-			janusConfig.FibonacciN, janusConfig.RecursiveCalculateFibonacci, janusConfig.Skew)
-		fmt.Printf("生成交易数量: %d\n", len(ethTxs)) // 生成以太坊交易
+		ethTxs := tools.GenerateTxsFormBriefTx(input.Txs[i], input.RecursiveCalculateFibonacci)
 		blockTxs = append(blockTxs, ethTxs)
 	}
 
@@ -168,22 +209,21 @@ func main() {
 	}
 	defer levm.AllDB().Close()
 
-	//config.Skew = skewFromBias(config.Skew)
-	if *baseline != "all" {
-		baselines = []string{*baseline}
+	if input.Baseline != "all" {
+		baselines = []string{input.Baseline}
 	}
 
 	for _, bl := range baselines {
 		signalChan := make(chan struct{})
 		signalWg := new(sync.WaitGroup)
 		signalWg.Add(1)
-		run(bl, baseFileName, &tpss, signalChan, signalWg, blockTxs, levm)
+		run(bl, baseFileName, &tpssAndLatency, signalChan, signalWg, blockTxs, levm)
 		signalChan <- struct{}{}
 		close(signalChan)
 		signalWg.Wait()
 		fmt.Println()
 	}
-	err := writeTPSResultToExcel(filepath.Join(janusConfig.MonitorBasePath, "tps"+"/"+baseFileName), baselines, tpss)
+	err = writeTPSResultToExcel(filepath.Join(janusConfig.MonitorBasePath, "tps"+"/"+baseFileName), baselines, tpssAndLatency)
 	if err != nil {
 		fmt.Println(err)
 	}
