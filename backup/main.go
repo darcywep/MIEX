@@ -15,16 +15,15 @@ import (
 	"Janus/januscore/janus"
 	"Janus/monitor"
 	"Janus/tools"
-	"encoding/json"
+	"flag"
 	"fmt"
-	"io"
-	"math/big"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"sync"
 	"time"
+
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/xuri/excelize/v2"
@@ -32,27 +31,6 @@ import (
 
 var stateConfig *database.StateDBConfig
 var chainConfig *params.ChainConfig
-
-type InputData struct {
-	Baseline     string
-	ThreadNumber int
-	BlockNumber  int
-	BlockTxNum   int
-
-	Skew float64
-
-	WaterMarkAlpha float64
-	WaterMarkBeta  float64
-
-	LongTxCountRate  float64
-	ShortTxCountRate float64
-
-	FibonacciN                  int
-	FibonacciLoopNum            int
-	RecursiveCalculateFibonacci bool
-
-	Txs [][][]int
-}
 
 func init() {
 	stateConfig = &database.StateDBConfig{
@@ -63,7 +41,7 @@ func init() {
 	chainConfig = config.TestChainConfig
 }
 
-func writeTPSResultToExcel(filename string, baselines []string, tpssAndLatency [][]float64) error {
+func writeTPSResultToExcel(filename string, baselines []string, tpss [][]float64) error {
 	f := excelize.NewFile()
 
 	sheet := "TPS"
@@ -81,22 +59,14 @@ func writeTPSResultToExcel(filename string, baselines []string, tpssAndLatency [
 	if err != nil {
 		return err
 	}
-	err = f.SetCellValue(sheet, "C1", "Latency (s)")
-	if err != nil {
-		return err
-	}
 
-	for i := 0; i < len(baselines) && i < len(tpssAndLatency); i++ {
+	for i := 0; i < len(baselines) && i < len(tpss); i++ {
 		row := i + 2
 		err = f.SetCellValue(sheet, fmt.Sprintf("A%d", row), baselines[i])
 		if err != nil {
 			return err
 		}
-		err = f.SetCellValue(sheet, fmt.Sprintf("B%d", row), tpssAndLatency[i][0])
-		if err != nil {
-			return err
-		}
-		err = f.SetCellValue(sheet, fmt.Sprintf("C%d", row), tpssAndLatency[i][1])
+		err = f.SetCellValue(sheet, fmt.Sprintf("B%d", row), tpss[i][0])
 		if err != nil {
 			return err
 		}
@@ -135,42 +105,32 @@ func run(baseline, baseFileName string, tpss *[][]float64, signalChan chan struc
 }
 
 func main() {
-	data, _ := io.ReadAll(os.Stdin)
+	baseline := flag.String("baseline", "all",
+		"baseline: (default all)\n"+
+			"\t\"all\" is run all baseline\n"+
+			"\t\"schain\" is run schain\n"+
+			"\t\"optme\" is run optme\n"+
+			"\t\"aria\" is run aria\n"+
+			"\t\"harmony\" is run harmony\n"+
+			"\t\"serial\" is run serial\n"+
+			"\t\"janus\" is run janus\n")
+	threadNumber := flag.String("thread", "8", "thread number(default 8)")
+	skew := flag.String("skew", "0.5", "thread number(default 0.5)")
+	txNumber := flag.String("txNum", "100000", "thread number(default 6000)")
+	flag.Parse()
 
-	var input InputData
-	err := json.Unmarshal(data, &input)
-	if err != nil {
-		panic(err)
-	}
+	fmt.Println("baseline: ", *baseline, "\tthreadNumber: ", *threadNumber,
+		"\tskew: ", *skew, "\ttxNumber: ", *txNumber)
 
-	fmt.Println("Janus running, baseline is", input.Baseline)
-
-	if input.Baseline != "all" && input.Baseline != "harmony" && input.Baseline != "schain" && input.Baseline != "optme" &&
-		input.Baseline != "aria" && input.Baseline != "serial" && input.Baseline != "janus" {
+	if *baseline != "all" && *baseline != "harmony" && *baseline != "schain" && *baseline != "optme" &&
+		*baseline != "aria" && *baseline != "serial" && *baseline != "janus" {
 		fmt.Println("baseline is invalid")
 		return
 	}
 
-	fmt.Println(
-		"baseline:", input.Baseline,
-		"\nthreadNumber:", input.ThreadNumber,
-		"\nblockNumber:", input.BlockNumber,
-		"\nblockTxNumber:", input.BlockTxNum,
-		"\nskew:", input.Skew,
-		"\nwaterMarkAlpha:", input.WaterMarkAlpha,
-		"\nwaterMarkBeta:", input.WaterMarkBeta,
-		"\nfibonacciN:", input.FibonacciN,
-		"\nFibonacciLoopNum:", input.FibonacciLoopNum,
-		"\nrecursiveCalculateFibonacci:", input.RecursiveCalculateFibonacci,
-		"\ntxs:", input.Txs,
-	)
-
-	janusConfig.AllThreadNum = input.ThreadNumber
-	janusConfig.Skew = input.Skew
-	janusConfig.AllBlocksTxSum = input.BlockNumber * input.BlockTxNum
-	janusConfig.BlockSize = input.BlockTxNum
-	janusConfig.WaterMarkAlpha = input.WaterMarkAlpha
-	janusConfig.WaterMarkBeta = input.WaterMarkBeta
+	janusConfig.AllThreadNum, _ = strconv.Atoi(*threadNumber)
+	janusConfig.Skew, _ = strconv.ParseFloat(*skew, 64)
+	janusConfig.AllBlocksTxSum, _ = strconv.Atoi(*txNumber)
 
 	if janusConfig.AllThreadNum == 0 {
 		vm.InitTxCost(1)
@@ -181,24 +141,23 @@ func main() {
 	runtime.GOMAXPROCS(janusConfig.AllThreadNum + 2)
 	fmt.Printf("GOMAXPROCS set to: %d\n", runtime.GOMAXPROCS(0))
 	var (
-		baseFileName = "t(" + strconv.Itoa(input.ThreadNumber) + ")" +
-			"_bt(" + strconv.Itoa(input.BlockNumber) + ")" +
-			"_sk(" + fmt.Sprintf("%f", input.Skew) + ")" +
-			"_lr(" + fmt.Sprintf("%f", input.LongTxCountRate) + ")" +
-			"_sr(" + fmt.Sprintf("%f", input.ShortTxCountRate) + ")" +
-			"_wa(" + fmt.Sprintf("%f", input.WaterMarkAlpha) + ")" +
-			"_wb(" + fmt.Sprintf("%f", input.WaterMarkBeta) + ")" +
-			"_f(" + strconv.Itoa(input.FibonacciN) + ")" +
-			"_fln(" + strconv.Itoa(input.FibonacciLoopNum) + ")" +
-			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
-		tpssAndLatency [][]float64 = make([][]float64, 0)
-		baselines                  = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
+		baseFileName             = "thread(" + strconv.Itoa(janusConfig.AllThreadNum) + ")_skew(" + fmt.Sprintf("%f", janusConfig.Skew) + ").xlsx"
+		tpss         [][]float64 = make([][]float64, 0)
+		baselines                = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
 	)
 
 	blockNum := janusConfig.AllBlocksTxSum / janusConfig.BlockSize
 	blockTxs := make([]types.Transactions, 0) // 每个block的交易集合
 	for i := 0; i < blockNum; i++ {
-		ethTxs := tools.GenerateTxsFormBriefTx(input.Txs[i], input.RecursiveCalculateFibonacci)
+		txsLen := janusConfig.BlockSize
+		// Step 1: 生成地址
+		addresses := tools.GenerateAddresses(1, int(float64(txsLen)*janusConfig.AddressNumberRate))
+		fmt.Printf("生成地址数量: %d\n", len(addresses))
+
+		// Step 2: 生成交易（Zipf 控制冲突率）
+		ethTxs := tools.GenerateSmallBankTxs(addresses, int(float64(txsLen)*janusConfig.CompetingTxCountRate), int(float64(txsLen)*janusConfig.IoTxCountRate),
+			janusConfig.FibonacciN, janusConfig.RecursiveCalculateFibonacci, janusConfig.Skew)
+		fmt.Printf("生成交易数量: %d\n", len(ethTxs)) // 生成以太坊交易
 		blockTxs = append(blockTxs, ethTxs)
 	}
 
@@ -209,21 +168,22 @@ func main() {
 	}
 	defer levm.AllDB().Close()
 
-	if input.Baseline != "all" {
-		baselines = []string{input.Baseline}
+	//config.Skew = skewFromBias(config.Skew)
+	if *baseline != "all" {
+		baselines = []string{*baseline}
 	}
 
 	for _, bl := range baselines {
 		signalChan := make(chan struct{})
 		signalWg := new(sync.WaitGroup)
 		signalWg.Add(1)
-		run(bl, baseFileName, &tpssAndLatency, signalChan, signalWg, blockTxs, levm)
+		run(bl, baseFileName, &tpss, signalChan, signalWg, blockTxs, levm)
 		signalChan <- struct{}{}
 		close(signalChan)
 		signalWg.Wait()
 		fmt.Println()
 	}
-	err = writeTPSResultToExcel(filepath.Join(janusConfig.MonitorBasePath, "tps"+"/"+baseFileName), baselines, tpssAndLatency)
+	err := writeTPSResultToExcel(filepath.Join(janusConfig.MonitorBasePath, "tps"+"/"+baseFileName), baselines, tpss)
 	if err != nil {
 		fmt.Println(err)
 	}
