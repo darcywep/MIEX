@@ -1,12 +1,21 @@
 package main
 
 import (
-	"Janus_Experiment/tools"
+	janusConfig "Janus/config"
+	lvm "Janus/core/evm"
+	"Janus/ethereum/core/vm"
+	"Janus/tools"
 	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"sync"
+
+	"github.com/ethereum/go-bigmodexpfix/src/math/big"
 )
 
 var (
@@ -185,15 +194,77 @@ func main() {
 		Txs: blocksInfo,
 	}
 
-	if *baseline == "blockstm" {
-		runProject("/root/Janus_blockstm", input)
-		return
+	//if *baseline == "blockstm" {
+	//	runProject("/root/Janus_blockstm", input)
+	//	return
+	//}
+	//if *baseline != "all" {
+	//	fmt.Println("run Janus")
+	//	runProject("/root/Janus", input)
+	//	return
+	//}
+	//runProject("/root/Janus", input)
+	//runProject("/root/Janus_blockstm", input)
+	janusConfig.AllThreadNum = input.ThreadNumber
+	janusConfig.Skew = input.Skew
+	janusConfig.AllBlocksTxSum = input.BlockNumber * input.BlockTxNum
+	janusConfig.BlockSize = input.BlockTxNum
+	janusConfig.WaterMarkAlpha = input.WaterMarkAlpha
+	janusConfig.WaterMarkBeta = input.WaterMarkBeta
+
+	if janusConfig.AllThreadNum == 0 {
+		vm.InitTxCost(1)
+	} else {
+		vm.InitTxCost(janusConfig.AllThreadNum)
 	}
-	if *baseline != "all" {
-		fmt.Println("run Janus")
-		runProject("/root/Janus", input)
-		return
+
+	runtime.GOMAXPROCS(janusConfig.AllThreadNum + 2)
+	fmt.Printf("GOMAXPROCS set to: %d\n", runtime.GOMAXPROCS(0))
+	var (
+		baseFileName = "t(" + strconv.Itoa(input.ThreadNumber) + ")" +
+			"_bt(" + strconv.Itoa(input.BlockNumber) + ")" +
+			"_sk(" + fmt.Sprintf("%f", input.Skew) + ")" +
+			"_lr(" + fmt.Sprintf("%f", input.LongTxCountRate) + ")" +
+			"_sr(" + fmt.Sprintf("%f", input.ShortTxCountRate) + ")" +
+			"_wa(" + fmt.Sprintf("%f", input.WaterMarkAlpha) + ")" +
+			"_wb(" + fmt.Sprintf("%f", input.WaterMarkBeta) + ")" +
+			"_f(" + strconv.Itoa(input.FibonacciN) + ")" +
+			"_fln(" + strconv.Itoa(input.FibonacciLoopNum) + ")" +
+			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
+		tpssAndLatency [][]float64 = make([][]float64, 0)
+		baselines                  = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
+	)
+
+	blockNum := janusConfig.AllBlocksTxSum / janusConfig.BlockSize
+	blockTxs := make([]types.Transactions, 0) // 每个block的交易集合
+	for i := 0; i < blockNum; i++ {
+		ethTxs := tools.GenerateTxsFormBriefTx(input.Txs[i], input.RecursiveCalculateFibonacci)
+		blockTxs = append(blockTxs, ethTxs)
 	}
-	runProject("/root/Janus", input)
-	runProject("/root/Janus_blockstm", input)
+
+	fmt.Println("正在预读取状态...")
+	levm := lvm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
+	for _, txs := range blockTxs {
+		lvm.PreReadState(txs, levm)
+	}
+	defer levm.AllDB().Close()
+
+	if input.Baseline != "all" {
+		baselines = []string{input.Baseline}
+	}
+
+	for _, bl := range baselines {
+		signalChan := make(chan struct{})
+		signalWg := new(sync.WaitGroup)
+		signalWg.Add(1)
+		run(bl, baseFileName, &tpssAndLatency, signalChan, signalWg, blockTxs, levm)
+		signalChan <- struct{}{}
+		close(signalChan)
+		signalWg.Wait()
+		fmt.Println()
+	}
+	err = writeTPSResultToExcel(filepath.Join(janusConfig.MonitorBasePath, "tps"+"/"+baseFileName), baselines, tpssAndLatency)
+	if err != nil {
+		fmt.Println(err)
+	}
 }
