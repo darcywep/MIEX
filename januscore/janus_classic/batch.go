@@ -1,4 +1,4 @@
-package janus
+package janusClassic
 
 import (
 	janusConfig "Janus/config"

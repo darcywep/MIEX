@@ -17,7 +17,7 @@ import (
 var enableLog = true
 
 var (
-	committedTxsNum       int32
+	committedTxsNum       atomic.Int32
 	enableReExecutePhase1 = false
 	enableReExecutePhase2 = false
 )

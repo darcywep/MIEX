@@ -299,9 +299,9 @@ func (pe *PipelineEngine) solveComponentMWIS(state *BatchState, workerID int) {
 			cdr.threadAbortedTxs[workerID] = make([][]int, 0)
 		}
 		cdr.threadAbortedTxs[workerID] = append(cdr.threadAbortedTxs[workerID], abortSet)
-
+		completed := int(cdr.completeComponentsNumber.Add(1))
 		// 检查是否所有连通分量都已求解
-		if idx == cdr.totalComponents-1 {
+		if completed == cdr.totalComponents {
 			// 最后一个完成的线程负责汇总结果
 			pe.finalizeMWISResults(state, workerID)
 			break
@@ -321,6 +321,24 @@ func (pe *PipelineEngine) finalizeMWISResults(state *BatchState, workerID int) {
 	if EnableMWISBenchmark {
 		BenchmarkMWIS(finalDag)
 	}
+
+	//// 在合并独立集之前
+	//mwisCommittedCount := 0
+	//for _, commitTxs := range cdr.threadCommittedTxs {
+	//	if commitTxs != nil {
+	//		mwisCommittedCount += len(commitTxs)
+	//	}
+	//}
+	//mwisAbortedCount := 0
+	//for _, threadAbortedTxs := range cdr.threadAbortedTxs {
+	//	if threadAbortedTxs != nil {
+	//		for _, abortSet := range threadAbortedTxs {
+	//			mwisAbortedCount += len(abortSet)
+	//		}
+	//	}
+	//}
+	//fmt.Printf("[Batch %d] MWIS结果: 独立集提交=%d, 丢弃=%d, 合计=%d\n",
+	//	state.BatchID, mwisCommittedCount, mwisAbortedCount, mwisCommittedCount+mwisAbortedCount)
 
 	// 合并各线程提交的交易
 	for _, commitTxs := range cdr.threadCommittedTxs {
@@ -662,7 +680,7 @@ func (pe *PipelineEngine) reExecute(state *BatchState, workerID int) {
 		idx := int(reExec.abortedTxComponentsIndex.Add(1) - 1)
 		if idx >= reExec.totalAbortedTxComponents {
 			// 没有更多任务
-			if !reExec.done.Load() {
+			for !reExec.done.Load() {
 				// busy wait
 			}
 			pe.tryEntryNextBatch(state, workerID, &state.startTimeOfReExecutePhase, &pe.timeOfReExecutePhase) // 最后一个阶段完成了，进入下一批
@@ -698,8 +716,9 @@ func (pe *PipelineEngine) reExecute(state *BatchState, workerID int) {
 			}
 		}
 
+		completed := int(reExec.completedIndex.Add(1))
 		// 检查是否所有的连通分量都处理完成
-		if idx == reExec.totalAbortedTxComponents-1 { // 最后一个完成的线程负责串行执行剩下的交易
+		if completed == reExec.totalAbortedTxComponents { // 最后一个完成的线程负责串行执行剩下的交易
 			pe.finalizeReExecute(state, workerID)
 			break
 		}
@@ -736,6 +755,21 @@ func (pe *PipelineEngine) compareRWSet(old, new *ReadWriteSet) bool {
 func (pe *PipelineEngine) finalizeReExecute(state *BatchState, workerID int) {
 	reExec := state.reExecute
 
+	//reExecCommittedCount := 0
+	//for _, commitTxs := range reExec.threadCommittedTxs {
+	//	if commitTxs != nil {
+	//		reExecCommittedCount += len(commitTxs)
+	//	}
+	//}
+	//reExecAbortedCount := 0
+	//for _, threadAbortedTxs := range reExec.threadAbortedTxs {
+	//	if threadAbortedTxs != nil {
+	//		reExecAbortedCount += len(threadAbortedTxs)
+	//	}
+	//}
+	//fmt.Printf("[Batch %d] 重执行阶段1: 提交=%d, 需串行=%d, 合计=%d\n",
+	//	state.BatchID, reExecCommittedCount, reExecAbortedCount, reExecCommittedCount+reExecAbortedCount)
+
 	// 合并各线程提交的交易
 	for _, commitTxs := range reExec.threadCommittedTxs {
 		if commitTxs != nil {
@@ -754,6 +788,7 @@ func (pe *PipelineEngine) finalizeReExecute(state *BatchState, workerID int) {
 			reExec.abortedTxs = append(reExec.abortedTxs, threadAbortedTxs...)
 		}
 	}
+	//fmt.Println("reExec.abortedTxs", reExec.abortedTxs)
 	sort.Ints(reExec.abortedTxs)
 
 	// 打印阶段一结果

@@ -1,4 +1,4 @@
-package janus
+package janusClassic
 
 import (
 	lvm "Janus/core/evm"
@@ -20,6 +20,8 @@ type ReExecuteState struct {
 
 	// 求解结果
 	threadCommittedTxs [][]int // 按线程顺序存储的可提交交易列表，所有线程完成之后需要合并到 state.CommittedTxs
+
+	completedIndex atomic.Int32
 
 	abortedTxs       []int   // txId
 	threadAbortedTxs [][]int // 线程 -> txId
@@ -152,6 +154,7 @@ type BatchState struct {
 	// 交易队列
 	LongTxs  []*janusTransaction
 	ShortTxs []*janusTransaction
+	allTxs   []*janusTransaction
 
 	// 执行索引（原子操作）
 	LongTxIndex  atomic.Int32
@@ -249,6 +252,8 @@ type constructDAGResult struct {
 	// 求解结果
 	threadCommittedTxs [][]int // 按线程顺序存储的可提交交易列表，所有线程完成之后需要合并到 state.CommittedTxs
 
+	completeComponentsNumber atomic.Int32
+
 	abortedTxs       [][]int   // 按连通分量划分的丢交易 连通分量 -> 丢弃集
 	threadAbortedTxs [][][]int // 线程 -> 连通分量 -> 丢弃集
 
@@ -272,6 +277,23 @@ func (pe *PipelineEngine) awakeOrWaitConstructDAG(state *BatchState, cdr *constr
 			// 🆕 日志：打印最终的连通分量结果
 			finalDag := cdr.dagQueue[0]
 			components := finalDag.GetConnectedComponents()
+
+			//singleNodeCount := 0
+			//multiNodeCount := 0
+			//multiNodeTxCount := 0
+			//for _, nodes := range components {
+			//	if len(nodes) == 1 {
+			//		singleNodeCount++
+			//		state.CommittedTxs = append(state.CommittedTxs, nodes[0])
+			//	} else {
+			//		multiNodeCount++
+			//		multiNodeTxCount += len(nodes)
+			//		cdr.componentsQueue = append(cdr.componentsQueue, nodes)
+			//	}
+			//}
+			//fmt.Printf("[Batch %d] 单节点(直接提交)=%d, 多节点连通分量=%d(共%d笔交易), 总计=%d\n",
+			//	state.BatchID, singleNodeCount, multiNodeCount, multiNodeTxCount,
+			//	singleNodeCount+multiNodeTxCount)
 
 			// 初始化连通分量队列
 			for _, nodes := range components {
@@ -480,8 +502,10 @@ func (pe *PipelineEngine) tryEntryNextBatch(state *BatchState, workerID int, sta
 		if int(batchID) < len(pe.batchStates) {
 			pe.batchStates[batchID].startTimeOfExecuteCurrentBatchPhase = time.Now()
 		}
-
-		committedTxsNum += int32(len(state.CommittedTxs))
+		//fmt.Printf("[ERROR] [Batch %d] CommittedTxs=%d != TotalTxs=%d, 丢失=%d笔\n",
+		//	state.BatchID, len(state.CommittedTxs), state.TotalTxs,
+		//	state.TotalTxs-len(state.CommittedTxs))
+		committedTxsNum.Add(int32(len(state.CommittedTxs)))
 		pe.completeBatch(state) // 完成该批次
 	}
 	if enableLog {

@@ -1,4 +1,4 @@
-package janus
+package janusClassic
 
 import (
 	janusConfig "Janus/config"
@@ -79,7 +79,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
 	elapsed := time.Since(start)
 	tps := float64(janusConfig.AllBlocksTxSum) / elapsed.Seconds()
 	//commitRate := float64(totalCommitted) / float64(janusConfig.AllBlocksTxSum) * 100
-	commitRate := float64(committedTxsNum) / float64(janusConfig.AllBlocksTxSum) * 100
+	commitRate := float64(committedTxsNum.Load()) / float64(janusConfig.AllBlocksTxSum) * 100
 
 	fmt.Println("\n╔════════════════════════════════════════════════════╗")
 	fmt.Println("║           Janus Execution Summary                 ║")
@@ -96,8 +96,8 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
 	fmt.Printf("║ Batches Processed:        %-22d ║\n", totalBatches)
 	fmt.Printf("║ Total Transactions:       %-22d ║\n", janusConfig.AllBlocksTxSum)
 	//fmt.Printf("║ Committed Transactions:   %-22d ║\n", totalCommitted)
-	fmt.Printf("║ Committed Transactions:   %-22d ║\n", committedTxsNum)
-	fmt.Printf("║ Aborted Transactions:     %-22d ║\n", totalCommitted-int(committedTxsNum))
+	fmt.Printf("║ Committed Transactions:   %-22d ║\n", committedTxsNum.Load())
+	fmt.Printf("║ Aborted Transactions:     %-22d ║\n", totalCommitted-int(committedTxsNum.Load()))
 	fmt.Printf("║ Commit Rate:              %-21.2f%% ║\n", commitRate)
 	fmt.Printf("║ TPS (Throughput):         %-22.2f ║\n", tps)
 	fmt.Println("╚════════════════════════════════════════════════════╝")
