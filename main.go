@@ -151,19 +151,19 @@ func main() {
 		return
 	}
 
-	fmt.Println(
-		"baseline:", input.Baseline,
-		"\nthreadNumber:", input.ThreadNumber,
-		"\nblockNumber:", input.BlockNumber,
-		"\nblockTxNumber:", input.BlockTxNum,
-		"\nskew:", input.Skew,
-		"\nwaterMarkAlpha:", input.WaterMarkAlpha,
-		"\nwaterMarkBeta:", input.WaterMarkBeta,
-		"\nfibonacciN:", input.FibonacciN,
-		"\nFibonacciLoopNum:", input.FibonacciLoopNum,
-		"\nrecursiveCalculateFibonacci:", input.RecursiveCalculateFibonacci,
-		"\ntxs:", input.Txs,
-	)
+	//fmt.Println(
+	//	"baseline:", input.Baseline,
+	//	"\nthreadNumber:", input.ThreadNumber,
+	//	"\nblockNumber:", input.BlockNumber,
+	//	"\nblockTxNumber:", input.BlockTxNum,
+	//	"\nskew:", input.Skew,
+	//	"\nwaterMarkAlpha:", input.WaterMarkAlpha,
+	//	"\nwaterMarkBeta:", input.WaterMarkBeta,
+	//	"\nfibonacciN:", input.FibonacciN,
+	//	"\nFibonacciLoopNum:", input.FibonacciLoopNum,
+	//	"\nrecursiveCalculateFibonacci:", input.RecursiveCalculateFibonacci,
+	//	"\ntxs:", input.Txs,
+	//)
 
 	janusConfig.AllThreadNum = input.ThreadNumber
 	janusConfig.Skew = input.Skew

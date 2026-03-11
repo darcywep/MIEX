@@ -24,7 +24,6 @@ func NewPipelineEngine(levm *lvm.LEVM, numThreads int) *PipelineEngine {
 		completeChan:  make(chan int, 100),
 	}
 	pl.currentBatchID.Store(-1)
-	pl.currentBlockID.Store(-1)
 	return pl
 }
 
@@ -669,7 +668,7 @@ func (pe *PipelineEngine) reExecute(state *BatchState, workerID int) {
 			pe.tryEntryNextBatch(state, workerID, &state.startTimeOfReExecutePhase, &pe.timeOfReExecutePhase) // 最后一个阶段完成了，进入下一批
 			break
 		}
-
+		//fmt.Println("idx", idx)
 		txIds := reExec.abortedTxComponents[idx]
 		sort.Ints(txIds)
 

@@ -28,9 +28,10 @@ import (
 	"sync"
 	"time"
 
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/xuri/excelize/v2"
-	"math/big"
 )
 
 var stateConfig *database.StateDBConfig
@@ -266,7 +267,7 @@ func main() {
 	for i := 0; i < blockNumber; i++ {
 		// 生成交易（Zipf 控制冲突率）
 		// txsInfo [][]int = [from, to, txType, fibonacciN]
-		txsInfo := tools.GenerateBaseTransaction(blockTxNumber, int(float64(blockTxNumber)*longTxCountRate),
+		txsInfo := tools.GenerateBaseTransaction(blockTxNumber*addressNumberRate, int(float64(blockTxNumber)*longTxCountRate),
 			int(float64(blockTxNumber)*shortTxCountRate), fibonacciN, shortTxFibonacciLoopNumber, longTxFibonacciLoopNumber, skew)
 		fmt.Printf("区块%d: 生成交易数量: %d\n", i, len(txsInfo)) // 生成交易基础信息
 		blocksInfo = append(blocksInfo, txsInfo)
@@ -280,8 +281,8 @@ func main() {
 
 		Skew: skew,
 
-		WaterMarkAlpha: longTxCountRate,
-		WaterMarkBeta:  shortTxCountRate,
+		WaterMarkAlpha: waterMarkAlpha,
+		WaterMarkBeta:  waterMarkBeta,
 
 		LongTxCountRate:  longTxCountRate,
 		ShortTxCountRate: shortTxCountRate,
