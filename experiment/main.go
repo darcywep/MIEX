@@ -1,22 +1,40 @@
 package main
 
 import (
+	"Janus/baselines/aria/aria"
+	"Janus/baselines/harmony/harmony"
+	"Janus/baselines/optme/optme"
+	"Janus/baselines/schain/schain"
+	"Janus/baselines/serial"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
+	"Janus/ethereum/config"
+	"Janus/ethereum/core/types"
 	"Janus/ethereum/core/vm"
+	"Janus/ethereum/database"
+	"Janus/januscore/janus"
+	"Janus/monitor"
 	"Janus/tools"
 	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
+	//"io"
+	//"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"sync"
+	"time"
 
-	"github.com/ethereum/go-bigmodexpfix/src/math/big"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/xuri/excelize/v2"
+	"math/big"
 )
+
+var stateConfig *database.StateDBConfig
+var chainConfig *params.ChainConfig
 
 var (
 	threadNumber  = 8
@@ -60,6 +78,15 @@ type InputData struct {
 	Txs [][][]int
 }
 
+func init() {
+	stateConfig = &database.StateDBConfig{
+		Path:    "/root/alldb/smallbank_database",
+		Cache:   16000,
+		Handles: 16000,
+	}
+	chainConfig = config.TestChainConfig
+}
+
 func runTool(binary string, input InputData) {
 
 	data, err := json.Marshal(input)
@@ -99,7 +126,79 @@ func runProject(path string, input InputData) {
 	}
 }
 
+func writeTPSResultToExcel(filename string, baselines []string, tpssAndLatency [][]float64) error {
+	f := excelize.NewFile()
+
+	sheet := "TPS"
+	_, err := f.NewSheet(sheet)
+	if err != nil {
+		return err
+	}
+
+	// 标题行
+	err = f.SetCellValue(sheet, "A1", "Baseline")
+	if err != nil {
+		return err
+	}
+	err = f.SetCellValue(sheet, "B1", "TPS")
+	if err != nil {
+		return err
+	}
+	err = f.SetCellValue(sheet, "C1", "Latency (s)")
+	if err != nil {
+		return err
+	}
+
+	for i := 0; i < len(baselines) && i < len(tpssAndLatency); i++ {
+		row := i + 2
+		err = f.SetCellValue(sheet, fmt.Sprintf("A%d", row), baselines[i])
+		if err != nil {
+			return err
+		}
+		err = f.SetCellValue(sheet, fmt.Sprintf("B%d", row), tpssAndLatency[i][0])
+		if err != nil {
+			return err
+		}
+		err = f.SetCellValue(sheet, fmt.Sprintf("C%d", row), tpssAndLatency[i][1])
+		if err != nil {
+			return err
+		}
+	}
+
+	// 删除默认Sheet1
+	err = f.DeleteSheet("Sheet1")
+	if err != nil {
+		return err
+	}
+
+	return f.SaveAs(filename)
+}
+
+func run(baseline, baseFileName string, tpss *[][]float64, signalChan chan struct{}, signalWg *sync.WaitGroup, blockTxs []types.Transactions, levm *lvm.LEVM) {
+	monitorFilePath := filepath.Join(janusConfig.MonitorBasePath, baseline+"/"+baseFileName)
+	if baseline == "harmony" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, harmony.Run(blockTxs, levm))
+	} else if baseline == "schain" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, schain.Run(blockTxs, levm))
+	} else if baseline == "optme" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, optme.Run(blockTxs, levm))
+	} else if baseline == "aria" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, aria.Run(blockTxs, levm))
+	} else if baseline == "serial" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, serial.Run(blockTxs, levm))
+	} else if baseline == "janus" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, janus.Run(blockTxs, levm))
+	}
+}
+
 func main() {
+
 	baseline := flag.String("baseline", "all",
 		"baseline:\n"+
 			"\tall      run all baseline\n"+
@@ -194,6 +293,13 @@ func main() {
 		Txs: blocksInfo,
 	}
 
+	//data, _ := io.ReadAll(os.Stdin)
+	//
+	//err := json.Unmarshal(data, &input)
+	//if err != nil {
+	//	panic(err)
+	//}
+
 	//if *baseline == "blockstm" {
 	//	runProject("/root/Janus_blockstm", input)
 	//	return
@@ -253,6 +359,8 @@ func main() {
 		baselines = []string{input.Baseline}
 	}
 
+	fmt.Println("Hello......")
+
 	for _, bl := range baselines {
 		signalChan := make(chan struct{})
 		signalWg := new(sync.WaitGroup)
@@ -263,7 +371,7 @@ func main() {
 		signalWg.Wait()
 		fmt.Println()
 	}
-	err = writeTPSResultToExcel(filepath.Join(janusConfig.MonitorBasePath, "tps"+"/"+baseFileName), baselines, tpssAndLatency)
+	err := writeTPSResultToExcel(filepath.Join(janusConfig.MonitorBasePath, "tps"+"/"+baseFileName), baselines, tpssAndLatency)
 	if err != nil {
 		fmt.Println(err)
 	}
