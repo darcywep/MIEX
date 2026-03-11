@@ -41,6 +41,8 @@ type InputData struct {
 
 	Skew float64
 
+	AddressNumberRate int
+
 	WaterMarkAlpha float64
 	WaterMarkBeta  float64
 
@@ -48,7 +50,8 @@ type InputData struct {
 	ShortTxCountRate float64
 
 	FibonacciN                  int
-	FibonacciLoopNum            int
+	LongTxFibonacciLoopNumber   int
+	ShortTxFibonacciLoopNumber  int
 	RecursiveCalculateFibonacci bool
 
 	Txs [][][]int
@@ -182,14 +185,17 @@ func main() {
 	fmt.Printf("GOMAXPROCS set to: %d\n", runtime.GOMAXPROCS(0))
 	var (
 		baseFileName = "t(" + strconv.Itoa(input.ThreadNumber) + ")" +
-			"_bt(" + strconv.Itoa(input.BlockNumber) + ")" +
-			"_sk(" + fmt.Sprintf("%f", input.Skew) + ")" +
-			"_lr(" + fmt.Sprintf("%f", input.LongTxCountRate) + ")" +
-			"_sr(" + fmt.Sprintf("%f", input.ShortTxCountRate) + ")" +
-			"_wa(" + fmt.Sprintf("%f", input.WaterMarkAlpha) + ")" +
-			"_wb(" + fmt.Sprintf("%f", input.WaterMarkBeta) + ")" +
+			"_b(" + strconv.Itoa(input.BlockNumber) + ")" +
+			"_bt(" + strconv.Itoa(input.BlockTxNum) + ")" +
+			"_sk(" + fmt.Sprintf("%.2f", input.Skew) + ")" +
+			"_ar(" + strconv.Itoa(input.AddressNumberRate) + ")" +
+			"_lr(" + fmt.Sprintf("%.2f", input.LongTxCountRate) + ")" +
+			"_sr(" + fmt.Sprintf("%.2f", input.ShortTxCountRate) + ")" +
+			"_wa(" + fmt.Sprintf("%.2f", input.WaterMarkAlpha) + ")" +
+			"_wb(" + fmt.Sprintf("%.2f", input.WaterMarkBeta) + ")" +
 			"_f(" + strconv.Itoa(input.FibonacciN) + ")" +
-			"_fln(" + strconv.Itoa(input.FibonacciLoopNum) + ")" +
+			"_lfln(" + strconv.Itoa(input.LongTxFibonacciLoopNumber) + ")" +
+			"_sfln(" + strconv.Itoa(input.ShortTxFibonacciLoopNumber) + ")" +
 			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
 		tpssAndLatency [][]float64 = make([][]float64, 0)
 		baselines                  = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
