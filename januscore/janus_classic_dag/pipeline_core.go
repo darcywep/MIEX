@@ -1,4 +1,4 @@
-package janusClassic
+package janusClassicDAG
 
 import (
 	lvm "Janus/core/evm"
@@ -174,11 +174,12 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 			if enableLog {
 				fmt.Printf("[Worker %d] [batch %d] entried construct dag phase and try to construct DAG.\n", workerID, pe.workerStaties[workerID].currentBatchID)
 			}
-			// todo:尝试获取合并任务, 寻找弱连通分量
-			pairDag := pe.tryConstructDAG(state, workerID)
-			for pairDag != nil {
-				pairDag = pe.tryMergeDag(state, pairDag, workerID)
-			}
+			//// todo:尝试获取合并任务, 寻找弱连通分量
+			//pairDag := pe.tryConstructDAG(state, workerID)
+			//for pairDag != nil {
+			//	pairDag = pe.tryMergeDag(state, pairDag, workerID)
+			//}
+			pe.workerStaties[workerID].Phase = CommitMaximumValidationPhase
 			if enableLog {
 				fmt.Printf("[Worker %d] [batch %d] finished construct dag phase and try to entry commit maximum validation phase.\n", workerID, pe.workerStaties[workerID].currentBatchID)
 			}
@@ -456,22 +457,89 @@ func (pe *PipelineEngine) executeNextTransaction(atomicIdx *atomic.Int32, txs *[
 // executeCurrentBatch 执行当前批次的交易
 // 优先级：长交易 > 短交易 > 下一批交易
 // pairWorkerID 返回配对的工作线程ID，用于构建DAG
+//func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (pairStateTable *stateTableWithWriteSet, isMerge bool) {
+//	// ========= 1. 优先执行长交易 =========
+//	//fmt.Printf("[Janus] executeCurrentBatch workerID=%d, BatchID=%d, WokerBatchID=%d\n", workerID, state.BatchID, pe.workerStaties[workerID].currentBatchID)
+//	//fmt.Println("&state.LongTxIndex", &state.LongTxIndex)
+//	//fmt.Println("workerID", workerID)
+//	//fmt.Println("state batch =", state.BatchID, state)
+//	//fmt.Println("&state.LongTxs", &state.LongTxs)
+//	pe.executeNextTransaction(&state.LongTxIndex, &state.LongTxs, workerID, state)
+//
+//	// ========= 2. 执行短交易 =========
+//	pe.executeNextTransaction(&state.ShortTxIndex, &state.ShortTxs, workerID, state)
+//	//pe.executeNextTransaction(&state.LongTxIndex, &state.allTxs, workerID, state) // OCC的方式直接执行
+//
+//	// ========= 3. 当前批次没有交易可以执行, 尝试部分线程进行下一批的执行 =========
+//	// 线程完成本批次的任务后，需要先构建自己的状态读写表
+//	if state.ThreadStateTables[workerID] == nil {
+//		state.ThreadStateTables[workerID] = pe.buildStateTable(state, workerID) // 如果未参与构建, 则可能为空
+//		if enableLog {
+//			if state.ThreadStateTables[workerID] == nil {
+//				fmt.Printf("[WARNNING] [Worker %d] not execute any transaction\n", workerID)
+//			}
+//		}
+//	}
+//
+//	// 说明：这里设计成部分线程进入下一批执行，是为了避免所有线程都进入下一批，导致当前批次无法完成，从而阻塞流水线
+//	state.CompletionMu.Lock()
+//	state.finishedTreadNum++
+//	threadNextNumber := len(state.CompletionOrder) // 有多少线程已经完成当前批次并并已经进入下一批
+//	if threadNextNumber >= (pe.numThreads+1)/2 {   // 已经有超过一半的线程去执行下一批, 剩下的进行合并state table
+//		pairIndex := state.pairIndex // 取一个配对的 threadStateTable
+//		state.pairIndex++            // 放行
+//		state.CompletionMu.Unlock()
+//		//fmt.Printf("test [Worker %d] [batch %d] len(state.CompletionOrder)=%d, pairIndex=%d\n", workerID, state.BatchID, len(state.CompletionOrder), pairIndex)
+//
+//		if pairIndex == 0 && pe.numThreads%2 == 1 { // 奇数线程时，最后一个线程无需配对
+//			lastWorkerID := state.CompletionOrder[threadNextNumber-1]
+//			state.MergeThreadStateTables.queueMu.Lock()
+//			state.MergeThreadStateTables.stateTablesQueue = append(state.MergeThreadStateTables.stateTablesQueue, state.ThreadStateTables[lastWorkerID])
+//			state.MergeThreadStateTables.queueMu.Unlock()
+//		}
+//		if enableLog {
+//			fmt.Printf("[Worker %d] [batch %d] execute current batch, pairIndex=%d, "+
+//				"len(state.CompletionOrder)=%d, threadNextNumber=%d, (pe.numThreads+1)/2=%d\n",
+//				workerID, state.BatchID, pairIndex, len(state.CompletionOrder), threadNextNumber, (pe.numThreads+1)/2)
+//		}
+//		if pairIndex >= pe.numThreads/2 {
+//			return nil, false
+//		}
+//		pairWorkerID := state.CompletionOrder[pairIndex]
+//		if pairIndex == 0 {
+//			state.startTimeOfMergeStateTablePhase = time.Now() // 开始进行合并计时
+//			state.startTimeOfExecuteCurrentBatchTail = time.Now()
+//		}
+//		if state.finishedTreadNum == pe.numThreads { // 所有线程完成，添加执行计时
+//			pe.timeOfExecuteCurrentBatchPhase += time.Since(state.startTimeOfExecuteCurrentBatchPhase)
+//			pe.timeOfExecuteCurrentBatchTail += time.Since(state.startTimeOfExecuteCurrentBatchTail)
+//		}
+//		return state.ThreadStateTables[pairWorkerID], true // 返回配对的线程ID
+//	}
+//
+//	// 部分线程可以切换到下一批
+//	state.CompletionOrder = append(state.CompletionOrder, workerID) // 先加入完成队列，防止竞争
+//	state.CompletionMu.Unlock()
+//	if state.NextBatch != nil {
+//		pe.workerStaties[workerID].Phase = PreExecuteNextBatchPhase // 成功增加线程数
+//	} else { // 如果没有下一批, 即最后一批，那么直接进入本批次的下一阶段
+//		pe.workerStaties[workerID].Phase = ConstructDAGPhase
+//	}
+//	return nil, false
+//}
+
+// executeCurrentBatch 执行当前批次的交易（传统版本）
+// 所有线程执行完后，最后一个完成的线程负责串行合并+构图
 func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (pairStateTable *stateTableWithWriteSet, isMerge bool) {
 	// ========= 1. 优先执行长交易 =========
-	//fmt.Printf("[Janus] executeCurrentBatch workerID=%d, BatchID=%d, WokerBatchID=%d\n", workerID, state.BatchID, pe.workerStaties[workerID].currentBatchID)
-	//fmt.Println("&state.LongTxIndex", &state.LongTxIndex)
-	//fmt.Println("workerID", workerID)
-	//fmt.Println("state batch =", state.BatchID, state)
-	//fmt.Println("&state.LongTxs", &state.LongTxs)
 	pe.executeNextTransaction(&state.LongTxIndex, &state.LongTxs, workerID, state)
 
 	// ========= 2. 执行短交易 =========
 	pe.executeNextTransaction(&state.ShortTxIndex, &state.ShortTxs, workerID, state)
 
-	// ========= 3. 当前批次没有交易可以执行, 尝试部分线程进行下一批的执行 =========
-	// 线程完成本批次的任务后，需要先构建自己的状态读写表
+	// ========= 3. 构建自己的状态读写表 =========
 	if state.ThreadStateTables[workerID] == nil {
-		state.ThreadStateTables[workerID] = pe.buildStateTable(state, workerID) // 如果未参与构建, 则可能为空
+		state.ThreadStateTables[workerID] = pe.buildStateTable(state, workerID)
 		if enableLog {
 			if state.ThreadStateTables[workerID] == nil {
 				fmt.Printf("[WARNNING] [Worker %d] not execute any transaction\n", workerID)
@@ -479,50 +547,73 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 		}
 	}
 
-	// 说明：这里设计成部分线程进入下一批执行，是为了避免所有线程都进入下一批，导致当前批次无法完成，从而阻塞流水线
+	// ========= 4. 检查是否所有线程都完成了执行 =========
 	state.CompletionMu.Lock()
 	state.finishedTreadNum++
-	threadNextNumber := len(state.CompletionOrder) // 有多少线程已经完成当前批次并并已经进入下一批
-	if threadNextNumber >= (pe.numThreads+1)/2 {   // 已经有超过一半的线程去执行下一批, 剩下的进行合并state table
-		pairIndex := state.pairIndex // 取一个配对的 threadStateTable
-		state.pairIndex++            // 放行
-		state.CompletionMu.Unlock()
-		//fmt.Printf("test [Worker %d] [batch %d] len(state.CompletionOrder)=%d, pairIndex=%d\n", workerID, state.BatchID, len(state.CompletionOrder), pairIndex)
+	finishedNum := state.finishedTreadNum
+	isLastThread := finishedNum == pe.numThreads
 
-		if pairIndex == 0 && pe.numThreads%2 == 1 { // 奇数线程时，最后一个线程无需配对
-			lastWorkerID := state.CompletionOrder[threadNextNumber-1]
-			state.MergeThreadStateTables.queueMu.Lock()
-			state.MergeThreadStateTables.stateTablesQueue = append(state.MergeThreadStateTables.stateTablesQueue, state.ThreadStateTables[lastWorkerID])
-			state.MergeThreadStateTables.queueMu.Unlock()
-		}
-		if enableLog {
-			fmt.Printf("[Worker %d] [batch %d] execute current batch, pairIndex=%d, "+
-				"len(state.CompletionOrder)=%d, threadNextNumber=%d, (pe.numThreads+1)/2=%d\n",
-				workerID, state.BatchID, pairIndex, len(state.CompletionOrder), threadNextNumber, (pe.numThreads+1)/2)
-		}
-		if pairIndex >= pe.numThreads/2 {
-			return nil, false
-		}
-		pairWorkerID := state.CompletionOrder[pairIndex]
-		if pairIndex == 0 {
-			state.startTimeOfMergeStateTablePhase = time.Now() // 开始进行合并计时
+	if !isLastThread {
+		// 不是最后一个线程，进入预执行下一批或等待
+		state.CompletionOrder = append(state.CompletionOrder, workerID)
+		state.CompletionMu.Unlock()
+
+		if finishedNum == 1 { // 第一个完成的线程记录时间
 			state.startTimeOfExecuteCurrentBatchTail = time.Now()
 		}
-		if state.finishedTreadNum == pe.numThreads { // 所有线程完成，添加执行计时
-			pe.timeOfExecuteCurrentBatchPhase += time.Since(state.startTimeOfExecuteCurrentBatchPhase)
-			pe.timeOfExecuteCurrentBatchTail += time.Since(state.startTimeOfExecuteCurrentBatchTail)
+
+		if state.NextBatch != nil {
+			pe.workerStaties[workerID].Phase = PreExecuteNextBatchPhase
+		} else {
+			// 最后一批，没有下一批可以预执行，进入等待
+			pe.workerStaties[workerID].Phase = ConstructDAGPhase
 		}
-		return state.ThreadStateTables[pairWorkerID], true // 返回配对的线程ID
+		return nil, false
 	}
 
-	// 部分线程可以切换到下一批
-	state.CompletionOrder = append(state.CompletionOrder, workerID) // 先加入完成队列，防止竞争
+	// ========= 最后一个线程：负责串行合并+构图+BFS =========
 	state.CompletionMu.Unlock()
-	if state.NextBatch != nil {
-		pe.workerStaties[workerID].Phase = PreExecuteNextBatchPhase // 成功增加线程数
-	} else { // 如果没有下一批, 即最后一批，那么直接进入本批次的下一阶段
-		pe.workerStaties[workerID].Phase = ConstructDAGPhase
+
+	pe.timeOfExecuteCurrentBatchPhase += time.Since(state.startTimeOfExecuteCurrentBatchPhase)
+	pe.timeOfExecuteCurrentBatchTail += time.Since(state.startTimeOfExecuteCurrentBatchTail)
+
+	// 串行合并所有 StateTable
+	state.startTimeOfMergeStateTablePhase = time.Now()
+	mergedST := pe.mergeAllStateTables(state)
+	if mergedST != nil {
+		state.writeSet = mergedST.writeSet
 	}
+	pe.timeOfMergeStateTablePhase += time.Since(state.startTimeOfMergeStateTablePhase)
+
+	// 串行构图
+	state.startTimeOfConstructDAGPhase = time.Now()
+	dag := pe.buildConflictDAGSerial(state, mergedST)
+
+	// BFS 查找连通分量
+	components := getConnectedComponentsBFS(dag)
+
+	cdr := state.constructDAG
+	// 将 dag 放入 dagQueue（保持和后续 MWIS 阶段的兼容）
+	cdr.dagQueue = append(cdr.dagQueue, dag)
+
+	for _, nodes := range components {
+		if len(nodes) == 1 {
+			state.CommittedTxs = append(state.CommittedTxs, nodes[0])
+		} else {
+			cdr.componentsQueue = append(cdr.componentsQueue, nodes)
+		}
+	}
+	cdr.totalComponents = len(cdr.componentsQueue)
+
+	pe.timeOfConstructDAGPhase += time.Since(state.startTimeOfConstructDAGPhase)
+	state.startTimeOfCommitMaximumValidationPhase = time.Now()
+
+	// 标记合并和构图完成，唤醒其他线程
+	state.MergeThreadStateTables.done.Store(true)
+	cdr.done.Store(true)
+
+	// 最后一个线程直接进入 MWIS 阶段
+	pe.workerStaties[workerID].Phase = CommitMaximumValidationPhase
 	return nil, false
 }
 

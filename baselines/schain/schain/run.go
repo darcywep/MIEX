@@ -1,12 +1,12 @@
 package schain
 
 import (
-	"fmt"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/ethereum/config"
 	"Janus/ethereum/core/types"
 	"Janus/ethereum/database"
+	"fmt"
 	"time"
 
 	"github.com/ethereum/go-ethereum/params"
@@ -24,7 +24,7 @@ func init() {
 	chainConfig = config.TestChainConfig
 }
 
-func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
+func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	fmt.Println("=== Run SChain ===")
 
 	blockNum := janusConfig.AllBlocksTxSum / janusConfig.BlockSize
@@ -50,5 +50,5 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
 	txNumber := janusConfig.AllBlocksTxSum
 	tps := float64(txNumber) / end2.Seconds()
 	fmt.Println("SChian TPS:", tps)
-	return []float64{tps, end2.Seconds()}
+	return [][]float64{[]float64{tps}, []float64{end2.Seconds()}}
 }

@@ -1,10 +1,10 @@
 package optme
 
 import (
-	"fmt"
 	"Janus/baselines/common"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"

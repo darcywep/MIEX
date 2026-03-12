@@ -1,15 +1,15 @@
 package optme
 
 import (
-	"fmt"
 	"Janus/baselines/common"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/ethereum/core/types"
+	"fmt"
 	"time"
 )
 
-func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
+func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	fmt.Println("optme start")
 
 	startTime := time.Now()
@@ -31,5 +31,5 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
 	fmt.Printf("交易处理吞吐(TPS)= %f \n", tps)
 
 	defer optmeInstance.GetThreadPool().EvmClose()
-	return []float64{tps, elapsed.Seconds()}
+	return [][]float64{[]float64{tps}, []float64{elapsed.Seconds()}}
 }

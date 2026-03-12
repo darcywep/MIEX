@@ -66,7 +66,7 @@ func init() {
 	chainConfig = config.TestChainConfig
 }
 
-func writeTPSResultToExcel(filename string, baselines []string, tpssAndLatency [][]float64) error {
+func writeTPSResultToExcel(filename string, baselines []string, tpssAndLatency [][][]float64) error {
 	f := excelize.NewFile()
 
 	sheet := "TPS"
@@ -95,11 +95,11 @@ func writeTPSResultToExcel(filename string, baselines []string, tpssAndLatency [
 		if err != nil {
 			return err
 		}
-		err = f.SetCellValue(sheet, fmt.Sprintf("B%d", row), tpssAndLatency[i][0])
+		err = f.SetCellValue(sheet, fmt.Sprintf("B%d", row), tpssAndLatency[i][0][0])
 		if err != nil {
 			return err
 		}
-		err = f.SetCellValue(sheet, fmt.Sprintf("C%d", row), tpssAndLatency[i][1])
+		err = f.SetCellValue(sheet, fmt.Sprintf("C%d", row), tpssAndLatency[i][1][0])
 		if err != nil {
 			return err
 		}
@@ -114,7 +114,7 @@ func writeTPSResultToExcel(filename string, baselines []string, tpssAndLatency [
 	return f.SaveAs(filename)
 }
 
-func run(baseline, baseFileName string, tpss *[][]float64, signalChan chan struct{}, signalWg *sync.WaitGroup, blockTxs []types.Transactions, levm *lvm.LEVM) {
+func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan struct{}, signalWg *sync.WaitGroup, blockTxs []types.Transactions, levm *lvm.LEVM) {
 	monitorFilePath := filepath.Join(janusConfig.MonitorBasePath, baseline+"/"+baseFileName)
 	if baseline == "harmony" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
@@ -197,8 +197,8 @@ func main() {
 			"_lfln(" + strconv.Itoa(input.LongTxFibonacciLoopNumber) + ")" +
 			"_sfln(" + strconv.Itoa(input.ShortTxFibonacciLoopNumber) + ")" +
 			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
-		tpssAndLatency [][]float64 = make([][]float64, 0)
-		baselines                  = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
+		tpssAndLatency [][][]float64 = make([][][]float64, 0) // baseline -> [tps], [latency], [other(if have)]
+		baselines                    = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
 	)
 
 	blockNum := janusConfig.AllBlocksTxSum / janusConfig.BlockSize

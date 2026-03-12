@@ -1,4 +1,4 @@
-package janusClassic
+package janusClassicOCC
 
 import (
 	"fmt"

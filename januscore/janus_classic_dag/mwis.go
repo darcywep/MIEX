@@ -1,4 +1,4 @@
-package janusClassic
+package janusClassicDAG
 
 import (
 	"encoding/json"

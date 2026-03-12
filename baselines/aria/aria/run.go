@@ -1,15 +1,15 @@
 package aria
 
 import (
-	"fmt"
 	"Janus/baselines/common"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/ethereum/core/types"
+	"fmt"
 	"time"
 )
 
-func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
+func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	start := time.Now()
 	txGenerator := common.NewTxGenerator(janusConfig.AllBlocksTxSum, janusConfig.BlockSize) // TX_NUM = 2000, BLOCK_SIZE = 1000
 
@@ -28,5 +28,5 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
 	fmt.Println("Aria TPS: ", tps)
 
 	defer aria.EvmClose()
-	return []float64{tps, latency}
+	return [][]float64{[]float64{tps}, []float64{latency}}
 }
