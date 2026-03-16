@@ -482,6 +482,8 @@ type PipelineEngine struct {
 	timeOfCommitMaximumValidationPhase time.Duration
 	timeOfReExecutePhase               time.Duration
 
+	abortTxs []*janusTransaction
+
 	// 完成通知
 	completeChan chan int
 }

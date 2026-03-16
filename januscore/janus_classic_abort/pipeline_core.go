@@ -50,6 +50,7 @@ func (pe *PipelineEngine) SubmitBlockBatches(batches []*Batch, jtxs []*janusTran
 	pe.janusTransactions = jtxs
 	// 创建批次状态
 	pe.batchStates = make([]*BatchState, len(batches))
+	pe.abortTxs = make([]*janusTransaction, 0)
 	pe.currentBatchID.Store(-1)
 
 	for i, batch := range batches {
@@ -327,19 +328,23 @@ func (pe *PipelineEngine) solveComponentMWIS(state *BatchState, workerID int) {
 			return
 		}
 
+		finalDag := state.constructDAG.dagQueue[0] // 获取最终 DAG
 		// 单线程处理丢弃的交易并分配给线程
 		if state.reExecute == nil && aborted != nil {
 			// 只有一个线程进入此分支，负责初始化和分配丢弃交易
-			finalDag := state.constructDAG.dagQueue[0] // 获取最终 DAG
 			abortedComponents := divideAbortedByComponents(finalDag, aborted)
 
 			state.reExecute = newReExecuteState(finalDag, abortedComponents, pe.numThreads)
 		}
 		pe.timeOfCommitMaximumValidationPhase += time.Since(state.startTimeOfCommitMaximumValidationPhase)
+
+		for _, txID := range aborted {
+			pe.abortTxs = append(pe.abortTxs, finalDag.Nodes[txID].Tx)
+		}
 		state.startTimeOfReExecutePhase = time.Now()
 		state.constructDAG.mwisDone.Store(true)
 	}
-	
+
 	// 进入下一阶段
 	pe.workerStaties[workerID].Phase = ReExecutePhase
 }
