@@ -278,11 +278,15 @@ func GenerateBaseTransaction(addressLen int, longTxCount, shortTxCount, fibonacc
 
 		if fibonacciN == -1 {
 			if isLongTx {
-				tx[3] = rand.Intn(5) + 31 // 31-35
-				tx[4] = longTxFibonacciLoopNumber
+				//tx[3] = rand.Intn(5) + 31 // 31-35
+				//tx[4] = longTxFibonacciLoopNumber
+				tx[3] = 10
+				tx[4] = rand.Intn(20) + 20 // 20-40 // longTxFibonacciLoopNumber
 			} else {
-				tx[3] = rand.Intn(5) + 1 // 1-5
-				tx[4] = shortTxFibonacciLoopNumber
+				//tx[3] = rand.Intn(5) + 1 // 1-5
+				//tx[4] = shortTxFibonacciLoopNumber
+				tx[3] = 10
+				tx[4] = rand.Intn(5) + 1 // 1-5 // longTxFibonacciLoopNumber
 			}
 		} else {
 			tx[3] = fibonacciN

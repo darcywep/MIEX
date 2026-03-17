@@ -1,4 +1,4 @@
-package janusClassicOCC
+package janus_calssic_occ
 
 import (
 	"sync/atomic"

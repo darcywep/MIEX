@@ -90,6 +90,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	fmt.Printf("║ Execute Current Batch Tail Time:     %-22v ║\n", pipeline.timeOfExecuteCurrentBatchTail)
 	fmt.Printf("║ Merge State Table Time:     %-22v ║\n", pipeline.timeOfMergeStateTablePhase)
 	fmt.Printf("║ Construct DAG Time:     %-22v ║\n", pipeline.timeOfConstructDAGPhase)
+	fmt.Printf("║ Construct Time!!!:     %-22v ║\n", pipeline.timeOfMergeStateTablePhase+pipeline.timeOfConstructDAGPhase-pipeline.timeOfExecuteCurrentBatchTail)
 	fmt.Printf("║ Commit Maximum Validation Time:     %-22v ║\n", pipeline.timeOfCommitMaximumValidationPhase)
 	fmt.Printf("║ Re-Execute Time:     %-22v ║\n", pipeline.timeOfReExecutePhase)
 	fmt.Printf("║ Blocks Processed:         %-22d ║\n", blockNum)

@@ -13,6 +13,8 @@ import (
 	"Janus/ethereum/core/vm"
 	"Janus/ethereum/database"
 	"Janus/januscore/janus"
+	janusClassicDAG "Janus/januscore/janus_classic_dag"
+	janus_calssic_occ "Janus/januscore/janus_classic_occ"
 	"Janus/monitor"
 	"Janus/tools"
 	"encoding/json"
@@ -134,7 +136,14 @@ func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan str
 	} else if baseline == "janus" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, janus.Run(blockTxs, levm))
+	} else if baseline == "occ" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, janus_calssic_occ.Run(blockTxs, levm))
+	} else if baseline == "serial_construct_graph" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, janusClassicDAG.Run(blockTxs, levm))
 	}
+
 }
 
 func main() {
@@ -198,7 +207,8 @@ func main() {
 			"_sfln(" + strconv.Itoa(input.ShortTxFibonacciLoopNumber) + ")" +
 			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
 		tpssAndLatency [][][]float64 = make([][][]float64, 0) // baseline -> [tps], [latency], [other(if have)]
-		baselines                    = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
+		//baselines                    = []string{"serial", "harmony", "schain", "optme", "aria", "occ", "janus", "serial_construct_graph"}
+		baselines = []string{"janus", "serial_construct_graph"}
 	)
 
 	blockNum := janusConfig.AllBlocksTxSum / janusConfig.BlockSize
@@ -220,6 +230,7 @@ func main() {
 	}
 
 	for _, bl := range baselines {
+		fmt.Println("Baseline is...", bl)
 		signalChan := make(chan struct{})
 		signalWg := new(sync.WaitGroup)
 		signalWg.Add(1)

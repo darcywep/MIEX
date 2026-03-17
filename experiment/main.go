@@ -211,6 +211,8 @@ func main() {
 			"\tblockstm run blockstm\n"+
 			"\tjanus    run janus")
 
+	fmt.Println(baseline)
+
 	flag.IntVar(&threadNumber, "t", 8, "threads number")
 	flag.IntVar(&blockNumber, "b", 10, "blocks number")
 	flag.IntVar(&blockTxNumber, "bt", 2000, "transactions per block")

@@ -1,4 +1,4 @@
-package janusClassicOCC
+package janus_calssic_occ
 
 import (
 	janusConfig "Janus/config"
@@ -9,9 +9,9 @@ import (
 )
 
 // Run 运行 Janus 混合负载并发执行引擎
-func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
+func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	fmt.Println("╔════════════════════════════════════════════════════╗")
-	fmt.Println("║   Janus Hybrid Transaction Execution Engine        ║")
+	fmt.Println("║   Janus Execution Engine (Without Long Priority)   ║")
 	fmt.Println("╚════════════════════════════════════════════════════╝")
 	SetMWISSolver(SolverGreedy)
 	SetMWISBenchmark(false)
@@ -82,7 +82,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
 	commitRate := float64(committedTxsNum.Load()) / float64(janusConfig.AllBlocksTxSum) * 100
 
 	fmt.Println("\n╔════════════════════════════════════════════════════╗")
-	fmt.Println("║           Janus Execution Summary                 ║")
+	fmt.Println("║ Janus Execution Engine (Without Long Priority) summary║")
 	fmt.Println("╠════════════════════════════════════════════════════╣")
 	fmt.Printf("║ Thread Pool Size:         %-22d ║\n", numThreads)
 	fmt.Printf("║ Total Execution Time:     %-22v ║\n", elapsed)
@@ -102,5 +102,6 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) []float64 {
 	fmt.Printf("║ TPS (Throughput):         %-22.2f ║\n", tps)
 	fmt.Println("╚════════════════════════════════════════════════════╝")
 
-	return []float64{tps, elapsed.Seconds()}
+	//return []float64{tps, elapsed.Seconds()}
+	return [][]float64{[]float64{tps}, []float64{elapsed.Seconds()}}
 }
