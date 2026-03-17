@@ -457,3 +457,45 @@ func (pe *PipelineEngine) mergeTwoDags(state *BatchState, pairDag *ConflictDAG, 
 
 	return newPairDag
 }
+
+// solveGraphFromOrderedTxs 从 allTxs 顺序处理冲突
+func solveGraphFromOrderedTxs(allTxs []*janusTransaction) ([]int, []int) {
+	// 1. 初始化提交和丢弃集合
+	committed := make([]int, 0)
+	aborted := make([]int, 0)
+
+	// 2. 已提交交易的写集合（全局写状态）
+	globalWriteSet := make(map[string]struct{})
+
+	for _, tx := range allTxs {
+		hasConflict := false
+
+		// 3. 检测当前交易是否冲突
+		for key := range tx.rwSet.ReadSet {
+			if _, exists := globalWriteSet[key]; exists {
+				hasConflict = true
+				break
+			}
+		}
+		for key := range tx.rwSet.WriteSet {
+			if _, exists := globalWriteSet[key]; exists {
+				hasConflict = true
+				break
+			}
+		}
+
+		// 4. 如果有冲突，将当前交易丢弃
+		if hasConflict {
+			aborted = append(aborted, tx.OriginalIdx)
+		} else {
+			// 5. 如果无冲突，提交当前交易并更新全局写集合
+			committed = append(committed, tx.OriginalIdx)
+			for key := range tx.rwSet.WriteSet {
+				globalWriteSet[key] = struct{}{}
+			}
+		}
+	}
+
+	// 6. 返回提交和丢弃的交易集合
+	return committed, aborted
+}

@@ -401,19 +401,40 @@ type ConflictDAG struct {
 	// 并查集，用于维护连通分量
 	parent map[int]int // 并查集的父节点映射 parent[x] = x 的父节点
 	rank   map[int]int // 并查集的秩映射 rank[x] = x 的秩（用于按秩合并优化
+	//parent []int
+	//rank   []int
 }
 
+//	func (dag *ConflictDAG) Find(x int) int {
+//		// 初始化
+//		if _, exists := dag.parent[x]; !exists {
+//			dag.parent[x] = x
+//			dag.rank[x] = 0
+//		}
+//		// 路径压缩
+//		if dag.parent[x] != x {
+//			dag.parent[x] = dag.Find(dag.parent[x]) // 路径压缩
+//		}
+//		return dag.parent[x]
+//	}
 func (dag *ConflictDAG) Find(x int) int {
-	// 初始化
 	if _, exists := dag.parent[x]; !exists {
 		dag.parent[x] = x
 		dag.rank[x] = 0
+		return x
 	}
-	// 路径压缩
-	if dag.parent[x] != x {
-		dag.parent[x] = dag.Find(dag.parent[x]) // 路径压缩
+	// 第一遍：找到根
+	root := x
+	for dag.parent[root] != root {
+		root = dag.parent[root]
 	}
-	return dag.parent[x]
+	// 第二遍：路径压缩
+	for x != root {
+		next := dag.parent[x]
+		dag.parent[x] = root
+		x = next
+	}
+	return root
 }
 
 // 并查集按秩合并
@@ -453,7 +474,8 @@ type StateTable struct {
 // Operation 读写操作
 type Operation struct {
 	TxID int
-	Type string // "r" for read, "w" for write
+	//Type string // "r" for read, "w" for write
+	Type byte // 'r' = 0, 'w' = 1
 }
 
 // PipelineEngine 流水线引擎
@@ -478,6 +500,8 @@ type PipelineEngine struct {
 	timeOfConstructDAGPhase            time.Duration
 	timeOfCommitMaximumValidationPhase time.Duration
 	timeOfReExecutePhase               time.Duration
+
+	abortTxs []*janusTransaction
 
 	// 完成通知
 	completeChan chan int

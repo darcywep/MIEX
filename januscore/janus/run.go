@@ -44,6 +44,8 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 			i, len(batches), len(txs))
 	}
 
+	abortTxs := make([]*janusTransaction, 0)
+
 	start := time.Now()
 
 	// 创建流水线引擎
@@ -71,12 +73,18 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 		// 等待当前区块的所有批次完成
 		//fmt.Printf("\n[Block %d] Waiting for %d batches to complete...\n", i, len(batches))
 		pipeline.WaitForBlockCompletion(len(batches))
+
+		abortTxs = append(abortTxs, pipeline.abortTxs...)
 	}
 
 	// 停止流水线
 	pipeline.Stop()
 
 	elapsed := time.Since(start)
+	var txsCosts float64 = 0
+	for _, abortTx := range abortTxs {
+		txsCosts += abortTx.ExecutionCost
+	}
 	tps := float64(janusConfig.AllBlocksTxSum) / elapsed.Seconds()
 	//commitRate := float64(totalCommitted) / float64(janusConfig.AllBlocksTxSum) * 100
 	commitRate := float64(committedTxsNum.Load()) / float64(janusConfig.AllBlocksTxSum) * 100
@@ -101,6 +109,8 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	fmt.Printf("║ Aborted Transactions:     %-22d ║\n", totalCommitted-int(committedTxsNum.Load()))
 	fmt.Printf("║ Commit Rate:              %-21.2f%% ║\n", commitRate)
 	fmt.Printf("║ TPS (Throughput):         %-22.2f ║\n", tps)
+	fmt.Printf("║ Number of abort transaction:         %-22d ║\n", len(abortTxs))
+	fmt.Printf("║ Cost of abort transactions:         %-22.2f ║\n", txsCosts)
 	fmt.Println("╚════════════════════════════════════════════════════╝")
 
 	return [][]float64{[]float64{tps}, []float64{elapsed.Seconds()}}

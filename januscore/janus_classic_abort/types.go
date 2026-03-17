@@ -154,6 +154,7 @@ type BatchState struct {
 	// 交易队列
 	LongTxs  []*janusTransaction
 	ShortTxs []*janusTransaction
+	allTxs   []*janusTransaction
 
 	// 执行索引（原子操作）
 	LongTxIndex  atomic.Int32
@@ -257,6 +258,8 @@ type constructDAGResult struct {
 	threadAbortedTxs [][][]int // 线程 -> 连通分量 -> 丢弃集
 
 	mwisDone atomic.Bool
+
+	doingAbort atomic.Bool
 }
 
 func (pe *PipelineEngine) awakeOrWaitConstructDAG(state *BatchState, cdr *constructDAGResult, completedMergeCount, totalMerges int, workerID int) (isWait bool) {
@@ -478,6 +481,8 @@ type PipelineEngine struct {
 	timeOfConstructDAGPhase            time.Duration
 	timeOfCommitMaximumValidationPhase time.Duration
 	timeOfReExecutePhase               time.Duration
+
+	abortTxs []*janusTransaction
 
 	// 完成通知
 	completeChan chan int

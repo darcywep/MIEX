@@ -50,6 +50,7 @@ func (pe *PipelineEngine) SubmitBlockBatches(batches []*Batch, jtxs []*janusTran
 	pe.janusTransactions = jtxs
 	// 创建批次状态
 	pe.batchStates = make([]*BatchState, len(batches))
+	pe.abortTxs = make([]*janusTransaction, 0)
 	pe.currentBatchID.Store(-1)
 
 	for i, batch := range batches {
@@ -64,6 +65,7 @@ func (pe *PipelineEngine) SubmitBlockBatches(batches []*Batch, jtxs []*janusTran
 			NextBatch:              nextBatch,
 			LongTxs:                batch.LongTxs,
 			ShortTxs:               batch.ShortTxs,
+			allTxs:                 batch.AllTxs,
 			writeSet:               make(map[string]struct{}),
 			ThreadRWSets:           make([][]*ReadWriteSet, pe.numThreads),
 			ThreadStateTables:      make([]*stateTableWithWriteSet, pe.numThreads),
@@ -220,96 +222,161 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 	}
 }
 
-// solveComponentMWIS 并发求解连通分量的最大权重独立集
+//// solveComponentMWIS 并发求解连通分量的最大权重独立集
+//func (pe *PipelineEngine) solveComponentMWIS(state *BatchState, workerID int) {
+//	cdr := state.constructDAG
+//
+//	// 获取最终的 DAG（用于求解）
+//	finalDag := cdr.dagQueue[0]
+//
+//	if cdr.totalComponents == 0 { // TODO：全部都可以提交，直接进入下一批
+//		pe.tryEntryNextBatch(state, workerID, &state.startTimeOfCommitMaximumValidationPhase, &pe.timeOfCommitMaximumValidationPhase)
+//		return
+//	}
+//
+//	// 循环抢任务求解
+//	for {
+//		// 尝试获取一个连通分量
+//		idx := int(cdr.componentsIndex.Add(1) - 1)
+//		if idx >= cdr.totalComponents {
+//			// 没有更多任务，等待所有求解完成
+//			break
+//		}
+//
+//		// 获取该连通分量的节点
+//		nodes := cdr.componentsQueue[idx]
+//
+//		// 求解该连通分量的最大权重独立集
+//		var independentSet, abortSet []int
+//		var err error
+//
+//		// 单节点情况已经处理过了，直接调用 ILP 求解多节点的情况
+//		//if enableLog {
+//		//	fmt.Printf("[Worker %d] [batch %d] [MWIS] connected component index=%d, nodes=%v，solving MWIS.\n",
+//		//		workerID, state.BatchID, idx, nodes)
+//		//}
+//
+//		independentSet, err = SolveMWIS(finalDag, nodes)
+//		if err != nil {
+//			fmt.Printf("[Error] [Worker %d] [batch %d] [MWIS] connected component index=%d err: %v\n",
+//				workerID, state.BatchID, idx, err)
+//			independentSet = []int{} // 求解失败，保守策略：不提交任何交易
+//		} else {
+//			independentMap := make(map[int]struct{})
+//			for _, nodeID := range independentSet {
+//				independentMap[nodeID] = struct{}{}
+//			}
+//			for _, node := range nodes {
+//				if _, exist := independentMap[node]; !exist { // 不在独立集中，那么则丢弃
+//					abortSet = append(abortSet, node)
+//				}
+//			}
+//			//if enableLog {
+//			//	// 计算总权重
+//			//	totalWeight := 0.0
+//			//	for _, nodeID := range independentSet {
+//			//		if rwset, exists := finalDag.Nodes[nodeID]; exists && rwset != nil {
+//			//			totalWeight += rwset.Cost
+//			//		}
+//			//	}
+//			//	abortWeight := 0.0
+//			//	for _, nodeID := range abortSet {
+//			//		if rwset, exists := finalDag.Nodes[nodeID]; exists && rwset != nil {
+//			//			abortWeight += rwset.Cost
+//			//		}
+//			//	}
+//			//
+//			//	fmt.Printf("[Worker %d] [batch %d] [MWIS] connected component index=%d, nodes=%v, independent set=%v with weight=%.2f, abort set=%v with weight=%.2f\n",
+//			//		workerID, state.BatchID, idx, nodes, independentSet, totalWeight, abortSet, abortWeight)
+//			//}
+//		}
+//
+//		// 将结果加入提交集合
+//		if cdr.threadCommittedTxs[workerID] == nil {
+//			cdr.threadCommittedTxs[workerID] = make([]int, 0)
+//		}
+//		cdr.threadCommittedTxs[workerID] = append(cdr.threadCommittedTxs[workerID], independentSet...)
+//
+//		if cdr.threadAbortedTxs[workerID] == nil {
+//			cdr.threadAbortedTxs[workerID] = make([][]int, 0)
+//		}
+//		cdr.threadAbortedTxs[workerID] = append(cdr.threadAbortedTxs[workerID], abortSet)
+//		completed := int(cdr.completeComponentsNumber.Add(1))
+//		// 检查是否所有连通分量都已求解
+//		if completed == cdr.totalComponents {
+//			// 最后一个完成的线程负责汇总结果
+//			pe.finalizeMWISResults(state, workerID)
+//			break
+//		}
+//	}
+//
+//	// 进入下一阶段
+//	pe.workerStaties[workerID].Phase = ReExecutePhase
+//}
+
 func (pe *PipelineEngine) solveComponentMWIS(state *BatchState, workerID int) {
 	cdr := state.constructDAG
+	// 使用 allTxs 顺序解决冲突
+	if cdr.doingAbort.CompareAndSwap(false, true) {
+		committed, aborted := solveGraphFromOrderedTxs(state.allTxs)
+		// 合并提交的交易
+		state.CommittedTxs = append(state.CommittedTxs, committed...)
 
-	// 获取最终的 DAG（用于求解）
-	finalDag := cdr.dagQueue[0]
-
-	if cdr.totalComponents == 0 { // TODO：全部都可以提交，直接进入下一批
-		pe.tryEntryNextBatch(state, workerID, &state.startTimeOfCommitMaximumValidationPhase, &pe.timeOfCommitMaximumValidationPhase)
-		return
-	}
-
-	// 循环抢任务求解
-	for {
-		// 尝试获取一个连通分量
-		idx := int(cdr.componentsIndex.Add(1) - 1)
-		if idx >= cdr.totalComponents {
-			// 没有更多任务，等待所有求解完成
-			break
+		if !enableReExecutePhase1 {
+			pe.timeOfCommitMaximumValidationPhase += time.Since(state.startTimeOfCommitMaximumValidationPhase)
+			cdr.mwisDone.Store(true) // 标记 MWIS 阶段完成
+			return
 		}
 
-		// 获取该连通分量的节点
-		nodes := cdr.componentsQueue[idx]
+		finalDag := state.constructDAG.dagQueue[0] // 获取最终 DAG
+		// 单线程处理丢弃的交易并分配给线程
+		if state.reExecute == nil && aborted != nil {
+			// 只有一个线程进入此分支，负责初始化和分配丢弃交易
+			abortedComponents := divideAbortedByComponents(finalDag, aborted)
 
-		// 求解该连通分量的最大权重独立集
-		var independentSet, abortSet []int
-		var err error
-
-		// 单节点情况已经处理过了，直接调用 ILP 求解多节点的情况
-		//if enableLog {
-		//	fmt.Printf("[Worker %d] [batch %d] [MWIS] connected component index=%d, nodes=%v，solving MWIS.\n",
-		//		workerID, state.BatchID, idx, nodes)
-		//}
-
-		independentSet, err = SolveMWIS(finalDag, nodes)
-		if err != nil {
-			fmt.Printf("[Error] [Worker %d] [batch %d] [MWIS] connected component index=%d err: %v\n",
-				workerID, state.BatchID, idx, err)
-			independentSet = []int{} // 求解失败，保守策略：不提交任何交易
-		} else {
-			independentMap := make(map[int]struct{})
-			for _, nodeID := range independentSet {
-				independentMap[nodeID] = struct{}{}
-			}
-			for _, node := range nodes {
-				if _, exist := independentMap[node]; !exist { // 不在独立集中，那么则丢弃
-					abortSet = append(abortSet, node)
-				}
-			}
-			//if enableLog {
-			//	// 计算总权重
-			//	totalWeight := 0.0
-			//	for _, nodeID := range independentSet {
-			//		if rwset, exists := finalDag.Nodes[nodeID]; exists && rwset != nil {
-			//			totalWeight += rwset.Cost
-			//		}
-			//	}
-			//	abortWeight := 0.0
-			//	for _, nodeID := range abortSet {
-			//		if rwset, exists := finalDag.Nodes[nodeID]; exists && rwset != nil {
-			//			abortWeight += rwset.Cost
-			//		}
-			//	}
-			//
-			//	fmt.Printf("[Worker %d] [batch %d] [MWIS] connected component index=%d, nodes=%v, independent set=%v with weight=%.2f, abort set=%v with weight=%.2f\n",
-			//		workerID, state.BatchID, idx, nodes, independentSet, totalWeight, abortSet, abortWeight)
-			//}
+			state.reExecute = newReExecuteState(finalDag, abortedComponents, pe.numThreads)
 		}
+		pe.timeOfCommitMaximumValidationPhase += time.Since(state.startTimeOfCommitMaximumValidationPhase)
 
-		// 将结果加入提交集合
-		if cdr.threadCommittedTxs[workerID] == nil {
-			cdr.threadCommittedTxs[workerID] = make([]int, 0)
+		for _, txID := range aborted {
+			pe.abortTxs = append(pe.abortTxs, finalDag.Nodes[txID].Tx)
 		}
-		cdr.threadCommittedTxs[workerID] = append(cdr.threadCommittedTxs[workerID], independentSet...)
-
-		if cdr.threadAbortedTxs[workerID] == nil {
-			cdr.threadAbortedTxs[workerID] = make([][]int, 0)
-		}
-		cdr.threadAbortedTxs[workerID] = append(cdr.threadAbortedTxs[workerID], abortSet)
-		completed := int(cdr.completeComponentsNumber.Add(1))
-		// 检查是否所有连通分量都已求解
-		if completed == cdr.totalComponents {
-			// 最后一个完成的线程负责汇总结果
-			pe.finalizeMWISResults(state, workerID)
-			break
-		}
+		state.startTimeOfReExecutePhase = time.Now()
+		state.constructDAG.mwisDone.Store(true)
 	}
 
 	// 进入下一阶段
 	pe.workerStaties[workerID].Phase = ReExecutePhase
+}
+
+// divideAbortedByComponents 根据连通分量分组丢弃交易
+func divideAbortedByComponents(dag *ConflictDAG, aborted []int) [][]int {
+	componentMap := dag.GetConnectedComponents() // 获取连通分量（根节点 -> 分量内节点列表）
+	componentMapByNode := make(map[int]int)      // 节点 -> 连通分量代表
+	abortedComponents := make([][]int, 0)
+
+	// 创建一个节点到分量ID的映射
+	for root, nodes := range componentMap {
+		for _, node := range nodes {
+			componentMapByNode[node] = root
+		}
+	}
+
+	// 初始化连通分量丢弃交易集
+	componentAborted := make(map[int][]int)
+
+	// 遍历被丢弃的交易，归入对应的分量
+	for _, txID := range aborted {
+		if root, exists := componentMapByNode[txID]; exists {
+			componentAborted[root] = append(componentAborted[root], txID)
+		}
+	}
+	// 将丢弃结果转换为二维数组
+	for _, abortedSet := range componentAborted {
+		abortedComponents = append(abortedComponents, abortedSet)
+	}
+
+	return abortedComponents
 }
 
 // finalizeMWISResults 汇总 MWIS 求解结果

@@ -50,6 +50,7 @@ func (pe *PipelineEngine) SubmitBlockBatches(batches []*Batch, jtxs []*janusTran
 	pe.janusTransactions = jtxs
 	// 创建批次状态
 	pe.batchStates = make([]*BatchState, len(batches))
+	pe.abortTxs = make([]*janusTransaction, 0)
 	pe.currentBatchID.Store(-1)
 
 	for i, batch := range batches {
@@ -401,6 +402,17 @@ func (pe *PipelineEngine) finalizeMWISResults(state *BatchState, workerID int) {
 		state.reExecute = newReExecuteState(finalDag, cdr.abortedTxs, pe.numThreads)
 	}
 	pe.timeOfCommitMaximumValidationPhase += time.Since(state.startTimeOfCommitMaximumValidationPhase)
+
+	for _, threadAbortedTxs := range cdr.threadAbortedTxs {
+		if threadAbortedTxs != nil {
+			for _, txIDs := range threadAbortedTxs {
+				for _, txID := range txIDs {
+					pe.abortTxs = append(pe.abortTxs, finalDag.Nodes[txID].Tx)
+				}
+			}
+		}
+	}
+
 	state.startTimeOfReExecutePhase = time.Now()
 	cdr.mwisDone.Store(true) // 标记 MWIS 阶段完成
 }
@@ -613,6 +625,8 @@ func (pe *PipelineEngine) tryConstructDAG(state *BatchState, workerID int) (pair
 				totalMerges: -1,
 				parent:      make(map[int]int),
 				rank:        make(map[int]int),
+				//parent: make([]int, len(pe.janusTransactions)),
+				//rank:   make([]int, len(pe.janusTransactions)),
 			}
 		}
 		// idx可能越界，但会在上面的判断中break掉
