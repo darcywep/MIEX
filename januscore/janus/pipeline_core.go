@@ -625,6 +625,8 @@ func (pe *PipelineEngine) tryConstructDAG(state *BatchState, workerID int) (pair
 				totalMerges: -1,
 				parent:      make(map[int]int),
 				rank:        make(map[int]int),
+				//parent: make([]int, len(pe.janusTransactions)),
+				//rank:   make([]int, len(pe.janusTransactions)),
 			}
 		}
 		// idx可能越界，但会在上面的判断中break掉

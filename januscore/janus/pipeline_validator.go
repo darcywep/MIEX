@@ -2,6 +2,7 @@ package janus
 
 import (
 	"fmt"
+	"sort"
 )
 
 // buildStateTable 构建单个线程的状态读写表
@@ -22,7 +23,7 @@ func (pe *PipelineEngine) buildStateTable(state *BatchState, workerID int) *stat
 			}
 			stateTableWriteSet.stateTables[addr].Operations = append(stateTableWriteSet.stateTables[addr].Operations, &Operation{
 				TxID: rwset.TxID,
-				Type: "r",
+				Type: 0,
 			})
 		}
 
@@ -39,7 +40,7 @@ func (pe *PipelineEngine) buildStateTable(state *BatchState, workerID int) *stat
 			}
 			stateTableWriteSet.stateTables[addr].Operations = append(stateTableWriteSet.stateTables[addr].Operations, &Operation{
 				TxID: rwset.TxID,
-				Type: "w",
+				Type: 1,
 			})
 		}
 	}
@@ -48,26 +49,33 @@ func (pe *PipelineEngine) buildStateTable(state *BatchState, workerID int) *stat
 	// 排序规则：先按 TxID 排序，TxID 相同时 r 在前，w 在后
 	for _, table := range stateTableWriteSet.stateTables {
 		ops := table.Operations
-		// 冒泡排序
-		for i := 0; i < len(ops); i++ {
-			for j := i + 1; j < len(ops); j++ {
-				// 比较规则
-				needSwap := false
-				if ops[i].TxID > ops[j].TxID {
-					// TxID 大的排后面
-					needSwap = true
-				} else if ops[i].TxID == ops[j].TxID {
-					// TxID 相同，w 排后面（r 在前）
-					if ops[i].Type == "w" && ops[j].Type == "r" {
-						needSwap = true
-					}
-				}
-
-				if needSwap {
-					ops[i], ops[j] = ops[j], ops[i]
-				}
+		sort.Slice(ops, func(i, j int) bool {
+			if ops[i].TxID != ops[j].TxID {
+				return ops[i].TxID < ops[j].TxID
 			}
-		}
+			// TxID 相同，r 在前 w 在后
+			return ops[i].Type == 0 && ops[j].Type == 1
+		})
+		//// 冒泡排序
+		//for i := 0; i < len(ops); i++ {
+		//	for j := i + 1; j < len(ops); j++ {
+		//		// 比较规则
+		//		needSwap := false
+		//		if ops[i].TxID > ops[j].TxID {
+		//			// TxID 大的排后面
+		//			needSwap = true
+		//		} else if ops[i].TxID == ops[j].TxID {
+		//			// TxID 相同，w 排后面（r 在前）
+		//			if ops[i].Type == "w" && ops[j].Type == "r" {
+		//				needSwap = true
+		//			}
+		//		}
+		//
+		//		if needSwap {
+		//			ops[i], ops[j] = ops[j], ops[i]
+		//		}
+		//	}
+		//}
 	}
 
 	return stateTableWriteSet
@@ -77,20 +85,14 @@ func (pe *PipelineEngine) buildStateTable(state *BatchState, workerID int) *stat
 // 返回值：< 0 表示 op1 < op2，0 表示相等，> 0 表示 op1 > op2
 // 排序规则：先按 TxID，TxID 相同时 r 在前 w 在后
 func (pe *PipelineEngine) compareOperations(op1, op2 *Operation) int {
-	if op1.TxID < op2.TxID {
-		return -1
-	}
-	if op1.TxID > op2.TxID {
+	if op1.TxID != op2.TxID {
+		if op1.TxID < op2.TxID {
+			return -1
+		}
 		return 1
 	}
-	// TxID 相同，比较类型
-	if op1.Type == "r" && op2.Type == "w" {
-		return -1 // r 在前
-	}
-	if op1.Type == "w" && op2.Type == "r" {
-		return 1 // w 在后
-	}
-	return 0 // 相同
+	// TxID 相同，OpRead(0) < OpWrite(1)，直接比较
+	return int(op1.Type) - int(op2.Type)
 }
 
 // mergeTwoLists 合并两个已排序的操作列表(需要注意的是：某个线程可能不涉及该地址的读写操作，导致传入的列表数量可能少于2)
@@ -120,14 +122,16 @@ func (pe *PipelineEngine) mergeTwoLists(lists [][]*Operation) []*Operation {
 	}
 
 	// 添加剩余元素
-	for i < len(list1) {
-		result = append(result, list1[i])
-		i++
-	}
-	for j < len(list2) {
-		result = append(result, list2[j])
-		j++
-	}
+	result = append(result, list1[i:]...)
+	result = append(result, list2[j:]...)
+	//for i < len(list1) {
+	//	result = append(result, list1[i])
+	//	i++
+	//}
+	//for j < len(list2) {
+	//	result = append(result, list2[j])
+	//	j++
+	//}
 
 	return result
 }
@@ -140,18 +144,18 @@ func (pe *PipelineEngine) mergeStateTables(state *BatchState, threadStateTable1,
 	if threadStateTable1 != nil { // 可能为空
 		stateTable1 = threadStateTable1.stateTables
 		writeSet1 = threadStateTable1.writeSet
-		for addr := range threadStateTable1.stateTables {
-			mergeThreadStateTable.stateTables[addr] = &StateTable{Address: addr}
-		}
+		//for addr := range threadStateTable1.stateTables {
+		//	mergeThreadStateTable.stateTables[addr] = &StateTable{Address: addr}
+		//}
 	}
 	if threadStateTable2 != nil { // 可能为空
 		stateTable2 = threadStateTable2.stateTables
 		writeSet2 = threadStateTable2.writeSet
-		for addr := range threadStateTable2.stateTables {
-			if mergeThreadStateTable.stateTables[addr] == nil {
-				mergeThreadStateTable.stateTables[addr] = &StateTable{Address: addr}
-			}
-		}
+		//for addr := range threadStateTable2.stateTables {
+		//	if mergeThreadStateTable.stateTables[addr] == nil {
+		//		mergeThreadStateTable.stateTables[addr] = &StateTable{Address: addr}
+		//	}
+		//}
 	}
 
 	// ========== 合并读写集 ================
@@ -163,20 +167,57 @@ func (pe *PipelineEngine) mergeStateTables(state *BatchState, threadStateTable1,
 		mergeThreadStateTable.writeSet[addr] = struct{}{}
 	}
 
-	// 对每个状态地址进行合并，构建冲突边
-	for addr := range mergeThreadStateTable.stateTables {
-		// 收集两个线程对该地址的操作列表
-		opLists := make([][]*Operation, 0)
-		if table1 := stateTable1[addr]; table1 != nil {
-			opLists = append(opLists, table1.Operations)
-		}
-		if table2 := stateTable2[addr]; table2 != nil {
-			opLists = append(opLists, table2.Operations)
-		}
-
-		// 使用归并排序合并两个已排序的操作列表
-		mergeThreadStateTable.stateTables[addr].Operations = pe.mergeTwoLists(opLists)
+	// 估算容量，减少 map 扩容
+	estimatedSize := len(stateTable1)
+	if len(stateTable2) > estimatedSize {
+		estimatedSize = len(stateTable2)
 	}
+	mergedTables := make(map[string]*StateTable, estimatedSize)
+
+	//// 对每个状态地址进行合并，构建冲突边
+	//for addr := range mergeThreadStateTable.stateTables {
+	//	// 收集两个线程对该地址的操作列表
+	//	opLists := make([][]*Operation, 0)
+	//	if table1 := stateTable1[addr]; table1 != nil {
+	//		opLists = append(opLists, table1.Operations)
+	//	}
+	//	if table2 := stateTable2[addr]; table2 != nil {
+	//		opLists = append(opLists, table2.Operations)
+	//	}
+	//
+	//	// 使用归并排序合并两个已排序的操作列表
+	//	mergeThreadStateTable.stateTables[addr].Operations = pe.mergeTwoLists(opLists)
+	//}
+
+	// 第一遍：处理 stateTable1 中的所有地址
+	for addr, table1 := range stateTable1 {
+		if table2, exists := stateTable2[addr]; exists {
+			// 两个表都有该地址 → 归并
+			mergedTables[addr] = &StateTable{
+				Address:    addr,
+				Operations: pe.mergeTwoLists([][]*Operation{table1.Operations, table2.Operations}),
+			}
+		} else {
+			// 仅 table1 有 → 直接引用，零拷贝
+			mergedTables[addr] = &StateTable{
+				Address:    addr,
+				Operations: table1.Operations,
+			}
+		}
+	}
+
+	// 第二遍：处理仅在 stateTable2 中存在的地址
+	for addr, table2 := range stateTable2 {
+		if _, exists := stateTable1[addr]; !exists {
+			// 仅 table2 有 → 直接引用，零拷贝
+			mergedTables[addr] = &StateTable{
+				Address:    addr,
+				Operations: table2.Operations,
+			}
+		}
+	}
+
+	mergeThreadStateTable.stateTables = mergedTables
 
 	if len(mergeThreadStateTable.stateTables) == 0 { // 如果两个都为空，则合并之后的也置空
 		mergeThreadStateTable = nil
@@ -223,9 +264,9 @@ func (pe *PipelineEngine) groupOperationsByTx(ops []*Operation) []*TxOperation {
 		}
 
 		// 记录操作类型
-		if op.Type == "r" {
+		if op.Type == 0 {
 			currentOp.HasRead = true
-		} else if op.Type == "w" {
+		} else if op.Type == 1 {
 			currentOp.HasWrite = true
 		}
 	}
