@@ -579,15 +579,16 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 
 	// 串行合并所有 StateTable
 	state.startTimeOfMergeStateTablePhase = time.Now()
-	mergedST := pe.mergeAllStateTables(state)
-	if mergedST != nil {
-		state.writeSet = mergedST.writeSet
-	}
+	//mergedST := pe.mergeAllStateTables(state)
+	//if mergedST != nil {
+	//	state.writeSet = mergedST.writeSet
+	//}
 	pe.timeOfMergeStateTablePhase += time.Since(state.startTimeOfMergeStateTablePhase)
 
 	// 串行构图
 	state.startTimeOfConstructDAGPhase = time.Now()
-	dag := pe.buildConflictDAGSerial(state, mergedST)
+	//dag := pe.buildConflictDAGSerial(state, mergedST)
+	dag := pe.buildConflictDAGClassicSerial(state)
 
 	// BFS 查找连通分量
 	components := getConnectedComponentsBFS(dag)

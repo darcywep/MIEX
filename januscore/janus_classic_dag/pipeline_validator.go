@@ -84,6 +84,62 @@ func (pe *PipelineEngine) buildConflictDAGSerial(state *BatchState, mergedST *st
 	return dag
 }
 
+// buildConflictDAGSerial 单线程串行构建冲突 DAG
+// 直接基于交易的读写集进行传统构图，不再依赖 mergedST
+
+// buildConflictDAGClassicSerial 单线程串行构建冲突 DAG
+// 直接基于当前批次交易的读写集进行传统构图
+func (pe *PipelineEngine) buildConflictDAGClassicSerial(state *BatchState) *ConflictDAG {
+	dag := &ConflictDAG{
+		Nodes:  make(map[int]*ReadWriteSet),
+		Edges:  make(map[int]map[int]struct{}),
+		Degree: make(map[int]int),
+		parent: make(map[int]int),
+		rank:   make(map[int]int),
+	}
+
+	// 步骤1：从当前批次收集所有交易的读写集，添加为 DAG 节点
+	allRWSets := make([]*ReadWriteSet, 0)
+	for _, jtx := range state.allTxs {
+		if jtx == nil || jtx.rwSet == nil {
+			continue
+		}
+		rwset := jtx.rwSet
+		dag.Nodes[rwset.TxID] = rwset
+		dag.Edges[rwset.TxID] = make(map[int]struct{})
+		dag.Degree[rwset.TxID] = 0
+		allRWSets = append(allRWSets, rwset)
+	}
+
+	// 步骤2：按交易顺序两两比较，检测 WR 冲突
+	// 规则：tx_i (i < j) 有写，tx_j 有读，且写集与读集有交集，则添加边
+	n := len(allRWSets)
+	for i := 0; i < n; i++ {
+		if len(allRWSets[i].WriteSet) == 0 {
+			continue // tx_i 没有写操作，不会产生冲突
+		}
+		for j := i + 1; j < n; j++ {
+			if hasWRConflict(allRWSets[i].WriteSet, allRWSets[j].ReadSet) {
+				if !pe.hasEdge(dag, allRWSets[i].TxID, allRWSets[j].TxID) {
+					pe.addEdge(dag, allRWSets[i].TxID, allRWSets[j].TxID)
+				}
+			}
+		}
+	}
+
+	return dag
+}
+
+// hasWRConflict 检查前序交易的写集与后序交易的读集是否有交集
+func hasWRConflict(writeSet, readSet map[string]struct{}) bool {
+	for addr := range writeSet {
+		if _, exists := readSet[addr]; exists {
+			return true
+		}
+	}
+	return false
+}
+
 // getConnectedComponentsBFS 使用 BFS 查找连通分量
 func getConnectedComponentsBFS(dag *ConflictDAG) map[int][]int {
 	visited := make(map[int]bool)
