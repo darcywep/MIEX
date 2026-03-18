@@ -562,6 +562,11 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 			state.startTimeOfExecuteCurrentBatchTail = time.Now()
 		}
 
+		if finishedNum <= (pe.numThreads+1)/2 { // 还没有超过一半的线程完成，继续等待
+			pe.workerStaties[workerID].Phase = ConstructDAGPhase
+			return nil, false
+		}
+
 		if state.NextBatch != nil {
 			pe.workerStaties[workerID].Phase = PreExecuteNextBatchPhase
 		} else {
