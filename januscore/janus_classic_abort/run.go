@@ -15,7 +15,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	fmt.Println("╚════════════════════════════════════════════════════╝")
 	SetMWISSolver(SolverGreedy)
 	SetMWISBenchmark(false)
-	enableLog = true
+	enableLog = false
 	enableReExecutePhase1 = true
 	enableReExecutePhase2 = true
 	fmt.Printf("Thread Pool Size: %d\n", janusConfig.AllThreadNum)
@@ -90,7 +90,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	commitRate := float64(committedTxsNum.Load()) / float64(janusConfig.AllBlocksTxSum) * 100
 
 	fmt.Println("\n╔════════════════════════════════════════════════════╗")
-	fmt.Println("║           Janus Execution Summary                 ║")
+	fmt.Println("║           Janus Execution Summary (Classic Abort)    ║")
 	fmt.Println("╠════════════════════════════════════════════════════╣")
 	fmt.Printf("║ Thread Pool Size:         %-22d ║\n", numThreads)
 	fmt.Printf("║ Total Execution Time:     %-22v ║\n", elapsed)

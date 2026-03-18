@@ -383,6 +383,7 @@ func newConstructDAGResult(threadNumber int) *constructDAGResult {
 		abortedTxs:         make([][]int, 0),
 		threadAbortedTxs:   make([][][]int, threadNumber),
 	}
+	cdr.doingAbort.Store(false)
 	return cdr
 }
 

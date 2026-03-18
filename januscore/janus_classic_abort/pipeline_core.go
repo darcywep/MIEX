@@ -317,7 +317,11 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 func (pe *PipelineEngine) solveComponentMWIS(state *BatchState, workerID int) {
 	cdr := state.constructDAG
 	// 使用 allTxs 顺序解决冲突
+	//fmt.Printf("[Worker %d] solveComponentMWIS begin, doingAbort=%t\n", workerID, cdr.doingAbort.Load())
 	if cdr.doingAbort.CompareAndSwap(false, true) {
+		if enableLog {
+			fmt.Printf("[Worker %d] [batch %d] [MWIS] start solving MWIS with ordered transactions.\n", workerID, pe.workerStaties[workerID].currentBatchID)
+		}
 		committed, aborted := solveGraphFromOrderedTxs(state.allTxs)
 		// 合并提交的交易
 		state.CommittedTxs = append(state.CommittedTxs, committed...)
@@ -330,7 +334,10 @@ func (pe *PipelineEngine) solveComponentMWIS(state *BatchState, workerID int) {
 
 		finalDag := state.constructDAG.dagQueue[0] // 获取最终 DAG
 		// 单线程处理丢弃的交易并分配给线程
-		if state.reExecute == nil && aborted != nil {
+		if enableLog {
+			fmt.Println("state.reExecute:", state.reExecute, "aborted:", aborted)
+		}
+		if state.reExecute == nil && len(aborted) != 0 {
 			// 只有一个线程进入此分支，负责初始化和分配丢弃交易
 			abortedComponents := divideAbortedByComponents(finalDag, aborted)
 
@@ -479,8 +486,7 @@ func (pe *PipelineEngine) executeNextTransaction(atomicIdx *atomic.Int32, txs *[
 		if idx >= len(*txs) {            // 没有交易可以执行
 			return
 		}
-
-		fmt.Println("idx: ", idx)
+		
 		jtx := (*txs)[idx]
 		var needRun = false
 		if jtx.IsRuned { // 如果已经执行过, 需要检查是否要重新执行
