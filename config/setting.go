@@ -22,8 +22,8 @@ var (
 	BlockSize      = 2000
 	Skew           = 1.01
 
-	WaterMarkAlpha = 1.5 // 水位线参数 α
-	WaterMarkBeta  = 3.5 // 水位线参数 β
+	WaterMarkAlpha = 3.5 // 水位线参数 α
+	WaterMarkBeta  = 5.5 // 水位线参数 β
 )
 
 // 交易生成相关配置

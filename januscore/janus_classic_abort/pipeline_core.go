@@ -480,6 +480,7 @@ func (pe *PipelineEngine) executeNextTransaction(atomicIdx *atomic.Int32, txs *[
 			return
 		}
 
+		fmt.Println("idx: ", idx)
 		jtx := (*txs)[idx]
 		var needRun = false
 		if jtx.IsRuned { // 如果已经执行过, 需要检查是否要重新执行
@@ -745,6 +746,9 @@ func (pe *PipelineEngine) reExecute(state *BatchState, workerID int) {
 	for {
 		// 尝试获取一个待重执行的交易
 		idx := int(reExec.abortedTxComponentsIndex.Add(1) - 1)
+		if enableLog {
+			fmt.Println("idx: ", idx, " reExec: ", len(reExec.abortedTxComponents), reExec.totalAbortedTxComponents)
+		}
 		if idx >= reExec.totalAbortedTxComponents {
 			// 没有更多任务
 			for !reExec.done.Load() {

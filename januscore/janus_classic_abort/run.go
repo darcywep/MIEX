@@ -15,7 +15,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	fmt.Println("╚════════════════════════════════════════════════════╝")
 	SetMWISSolver(SolverGreedy)
 	SetMWISBenchmark(false)
-	enableLog = false
+	enableLog = true
 	enableReExecutePhase1 = true
 	enableReExecutePhase2 = true
 	fmt.Printf("Thread Pool Size: %d\n", janusConfig.AllThreadNum)
