@@ -1,22 +1,27 @@
 package main
 
 import (
+	"Janus/baselines/aria/aria"
+	"Janus/baselines/harmony/harmony"
 	"Janus/baselines/optme/optme"
+	"Janus/baselines/schain/schain"
+	"Janus/baselines/serial"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/ethereum/config"
 	"Janus/ethereum/core/types"
 	"Janus/ethereum/core/vm"
 	"Janus/ethereum/database"
-	janusClassicAbort "Janus/januscore/janus_classic_abort"
-	janusClassicDAG "Janus/januscore/janus_classic_dag"
-	janus_calssic_occ "Janus/januscore/janus_classic_occ"
+	"Janus/januscore/janus"
 	"Janus/monitor"
 	"Janus/tools"
 	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math/big"
+	"time"
+
 	//"io"
 	//"os"
 	"os/exec"
@@ -24,9 +29,6 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
-	"time"
-
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/xuri/excelize/v2"
@@ -175,38 +177,38 @@ func writeTPSResultToExcel(filename string, baselines []string, tpssAndLatency [
 
 func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan struct{}, signalWg *sync.WaitGroup, blockTxs []types.Transactions, levm *lvm.LEVM) {
 	monitorFilePath := filepath.Join(janusConfig.MonitorBasePath, baseline+"/"+baseFileName)
-	if baseline == "Non_Prioritied" {
-		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		*tpss = append(*tpss, janus_calssic_occ.Run(blockTxs, levm))
-	} else if baseline == "Non_Concurrent_Graph_Construct" {
-		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		*tpss = append(*tpss, janusClassicDAG.Run(blockTxs, levm))
-	} else if baseline == "Non_Maximum_Commit_Validation" {
-		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		*tpss = append(*tpss, janusClassicAbort.Run(blockTxs, levm))
-	} else if baseline == "MIEX" {
-		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		*tpss = append(*tpss, optme.Run(blockTxs, levm))
-	}
-	//if baseline == "harmony" {
+	//if baseline == "Non_Prioritied" {
 	//	go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-	//	*tpss = append(*tpss, harmony.Run(blockTxs, levm))
-	//} else if baseline == "schain" {
+	//	*tpss = append(*tpss, janus_calssic_occ.Run(blockTxs, levm))
+	//} else if baseline == "Non_Concurrent_Graph_Construct" {
 	//	go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-	//	*tpss = append(*tpss, schain.Run(blockTxs, levm))
-	//} else if baseline == "optme" {
+	//	*tpss = append(*tpss, janusClassicDAG.Run(blockTxs, levm))
+	//} else if baseline == "Non_Maximum_Commit_Validation" {
 	//	go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-	//	*tpss = append(*tpss, optme.Run(blockTxs, levm))
-	//} else if baseline == "aria" {
-	//	go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-	//	*tpss = append(*tpss, aria.Run(blockTxs, levm))
-	//} else if baseline == "serial" {
-	//	go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-	//	*tpss = append(*tpss, serial.Run(blockTxs, levm))
-	//} else if baseline == "janus" {
+	//	*tpss = append(*tpss, janusClassicAbort.Run(blockTxs, levm))
+	//} else if baseline == "MIEX" {
 	//	go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 	//	*tpss = append(*tpss, janus.Run(blockTxs, levm))
 	//}
+	if baseline == "harmony" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, harmony.Run(blockTxs, levm))
+	} else if baseline == "schain" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, schain.Run(blockTxs, levm))
+	} else if baseline == "optme" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, optme.Run(blockTxs, levm))
+	} else if baseline == "aria" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, aria.Run(blockTxs, levm))
+	} else if baseline == "serial" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, serial.Run(blockTxs, levm))
+	} else if baseline == "janus" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, janus.Run(blockTxs, levm))
+	}
 }
 
 func main() {
@@ -352,9 +354,9 @@ func main() {
 			"_fln(" + strconv.Itoa(input.FibonacciLoopNum) + ")" +
 			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
 		tpssAndLatency [][][]float64 = make([][][]float64, 0)
-		//baselines                    = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
+		baselines                    = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
 		//baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX"}
-		baselines = []string{"Non_Maximum_Commit_Validation"}
+		//baselines = []string{"Non_Maximum_Commit_Validation"}
 	)
 
 	blockNum := janusConfig.AllBlocksTxSum / janusConfig.BlockSize
@@ -370,6 +372,8 @@ func main() {
 		lvm.PreReadState(txs, levm)
 	}
 	defer levm.AllDB().Close()
+
+	fmt.Println("AAAAA")
 
 	if input.Baseline != "all" {
 		baselines = []string{input.Baseline}

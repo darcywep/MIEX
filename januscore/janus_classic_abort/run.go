@@ -11,7 +11,7 @@ import (
 // Run 运行 Janus 混合负载并发执行引擎
 func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	fmt.Println("╔════════════════════════════════════════════════════╗")
-	fmt.Println("║   Janus Hybrid Transaction Execution Engine        ║")
+	fmt.Println("║   Janus Execution (Non_Maximum_Commit_Validation)Engine ║")
 	fmt.Println("╚════════════════════════════════════════════════════╝")
 	SetMWISSolver(SolverGreedy)
 	SetMWISBenchmark(false)
@@ -90,7 +90,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	commitRate := float64(committedTxsNum.Load()) / float64(janusConfig.AllBlocksTxSum) * 100
 
 	fmt.Println("\n╔════════════════════════════════════════════════════╗")
-	fmt.Println("║           Janus Execution Summary (Classic Abort)    ║")
+	fmt.Println("║           Janus Execution Summary (Non_Maximum_Commit_Validation)    ║")
 	fmt.Println("╠════════════════════════════════════════════════════╣")
 	fmt.Printf("║ Thread Pool Size:         %-22d ║\n", numThreads)
 	fmt.Printf("║ Total Execution Time:     %-22v ║\n", elapsed)
