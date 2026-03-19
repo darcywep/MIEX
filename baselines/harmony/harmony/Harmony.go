@@ -385,7 +385,7 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 	for i := range batch {
 		tx := &batch[i]
 		if (*tx).FlagConflict {
-			if traceAbort {
+			if tools.TraceAbort {
 				ariaAbortTxs[int((*tx).BlockID)][int((*tx).ID)] = *tx
 			}
 			e.Fallback(*tx)

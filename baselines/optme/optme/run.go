@@ -5,12 +5,26 @@ import (
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/ethereum/core/types"
+	"Janus/januscore/janus"
 	"fmt"
 	"time"
+
+	"Janus/tools"
+)
+
+var (
+	ariaAbortTxs []map[int]*OptmeTransaction // block -> aborted txs in this block
 )
 
 func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	fmt.Println("optme start")
+
+	if tools.TraceAbort {
+		ariaAbortTxs = make([]map[int]*OptmeTransaction, len(blockTxs))
+		for i, _ := range blockTxs {
+			ariaAbortTxs[i] = make(map[int]*OptmeTransaction)
+		}
+	}
 
 	startTime := time.Now()
 	txGenerator := common.NewTxGenerator(janusConfig.AllBlocksTxSum, janusConfig.BlockSize)
@@ -29,6 +43,18 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	fmt.Printf("成功提交的交易数目 %d \n", optmeInstance.Statistics.CommitCount.Load())
 	tps := float64(optmeInstance.Statistics.CommitCount.Load()) / (elapsed.Seconds())
 	fmt.Printf("交易处理吞吐(TPS)= %f \n", tps)
+	if tools.TraceAbort {
+		abortSum := 0
+		var cost float64 = 0.0
+		for blockID, v := range ariaAbortTxs {
+			abortSum += len(v)
+			for index, _ := range v {
+				cost += janus.AllJanusTransactions[blockID][index].ExecutionCost
+			}
+		}
+		fmt.Printf("Number of abort transaction:         %-22d\n", abortSum)
+		fmt.Printf("Cost of abort transactions:         %-22.2f\n", cost)
+	}
 
 	defer optmeInstance.GetThreadPool().EvmClose()
 	return [][]float64{[]float64{tps}, []float64{elapsed.Seconds()}}

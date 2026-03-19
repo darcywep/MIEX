@@ -6,21 +6,20 @@ import (
 	lvm "Janus/core/evm"
 	"Janus/ethereum/core/types"
 	"Janus/januscore/janus"
+	"Janus/tools"
 	"fmt"
 	"time"
 )
 
 var (
-	traceAbort   bool                       = false
 	ariaAbortTxs []map[int]*AriaTransaction // block -> aborted txs in this block
 )
 
 func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	start := time.Now()
 	txGenerator := common.NewTxGenerator(janusConfig.AllBlocksTxSum, janusConfig.BlockSize) // TX_NUM = 2000, BLOCK_SIZE = 1000
-
-	traceAbort = true
-	if traceAbort {
+	
+	if tools.TraceAbort {
 		ariaAbortTxs = make([]map[int]*AriaTransaction, 0, len(blockTxs))
 	}
 	blocks := txGenerator.GenerateWorkload(blockTxs) // 生成区块
@@ -35,7 +34,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	latency := time.Since(start).Seconds()
 	fmt.Println("CommitCount=", aria.Statistics().CommitCount.Load())
 	tps := float64(aria.Statistics().CommitCount.Load()) / latency
-	if traceAbort {
+	if tools.TraceAbort {
 		abortSum := 0
 		var cost float64 = 0.0
 		for blockID, v := range ariaAbortTxs {

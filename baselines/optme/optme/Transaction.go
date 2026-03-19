@@ -13,11 +13,13 @@ import (
 )
 
 type OptmeTransaction struct {
-	Tx         *common.BasicTransaction
-	Blockid    uint32
-	Sequenceid uint32
-	Committed  atomic.Bool
-	Aborted    atomic.Bool
+	Tx              *common.BasicTransaction
+	originalTxID    int
+	originalBlockID int
+	Blockid         uint32
+	Sequenceid      uint32
+	Committed       atomic.Bool
+	Aborted         atomic.Bool
 
 	StartTime time.Time
 
@@ -26,8 +28,15 @@ type OptmeTransaction struct {
 	LocalPut map[string]string
 }
 
-func NewOptmeTransaction(tx *common.BasicTransaction, blockid uint32) *OptmeTransaction {
-	return &OptmeTransaction{Tx: tx, Blockid: blockid, LocalGet: make(map[string]string), LocalPut: make(map[string]string)}
+func NewOptmeTransaction(tx *common.BasicTransaction, blockid uint32, originalTxID, originalBlockID int) *OptmeTransaction {
+	return &OptmeTransaction{
+		Tx:              tx,
+		Blockid:         blockid,
+		originalTxID:    originalTxID,
+		originalBlockID: originalBlockID,
+		LocalGet:        make(map[string]string),
+		LocalPut:        make(map[string]string),
+	}
 }
 
 // 即将换成EVM逻辑

@@ -160,7 +160,7 @@ func (a *Aria) processBlock(perThreadBatch [][]*AriaTransaction, blockID int) {
 
 			// aborted tx：插回下一列的开头，等待重试
 			perThreadBatch[t] = append([]*AriaTransaction{res}, perThreadBatch[t]...)
-			if traceAbort {
+			if tools.TraceAbort {
 				abortTxs[int(res.ID)] = res
 			}
 		}
@@ -179,7 +179,7 @@ func (a *Aria) processBlock(perThreadBatch [][]*AriaTransaction, blockID int) {
 	for i := 0; i < len(a.levms); i++ {
 		a.levms[i].AllDB().StateDB.FlushDirtyToNewStateDB(a.levm.AllDB().StateDB)
 	}
-	if traceAbort {
+	if tools.TraceAbort {
 		ariaAbortTxs = append(ariaAbortTxs, abortTxs)
 	}
 }
