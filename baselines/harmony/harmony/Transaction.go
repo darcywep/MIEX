@@ -12,6 +12,7 @@ import (
 type HarmonyTransaction struct {
 	Tx           *common.BasicTransaction // 嵌入 Transaction，假设 Transaction 类型已存在
 	EthTx        *types.Transaction
+	BlockID      int
 	ID           uint32
 	BatchID      uint32
 	FlagConflict bool
@@ -26,11 +27,12 @@ type HarmonyTransaction struct {
 }
 
 // NewHarmonyTransaction 构造函数
-func NewHarmonyTransaction(inner *common.BasicTransaction, id uint32, batchID uint32) *HarmonyTransaction {
+func NewHarmonyTransaction(inner *common.BasicTransaction, id uint32, batchID uint32, blockID int) *HarmonyTransaction {
 	return &HarmonyTransaction{
 		Tx:         inner,
 		ID:         id,
 		BatchID:    batchID,
+		BlockID:    blockID,
 		MinOut:     id + 1,
 		MaxIn:      0,
 		OutBatchID: batchID,

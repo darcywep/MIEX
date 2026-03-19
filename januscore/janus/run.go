@@ -75,6 +75,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 		pipeline.WaitForBlockCompletion(len(batches))
 
 		abortTxs = append(abortTxs, pipeline.abortTxs...)
+		AllJanusTransactions = append(AllJanusTransactions, jtxss[i])
 	}
 
 	// 停止流水线

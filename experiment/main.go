@@ -352,7 +352,7 @@ func main() {
 			"_fln(" + strconv.Itoa(input.FibonacciLoopNum) + ")" +
 			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
 		tpssAndLatency [][][]float64 = make([][][]float64, 0)
-		//baselines                    = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
+		//baselines                    = []string{"serial", "janus", "harmony", "schain", "optme", "aria"}
 		//baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX"}
 		baselines = []string{"Non_Maximum_Commit_Validation"}
 	)

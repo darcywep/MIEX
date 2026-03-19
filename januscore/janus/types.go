@@ -1,6 +1,7 @@
 package janus
 
 import (
+	"Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/ethereum/core/types"
 	"fmt"
@@ -52,6 +53,12 @@ type janusTransaction struct {
 	EarlyAbort    bool
 	CheckConflict bool
 	IsRuned       bool
+}
+
+var AllJanusTransactions [][]*janusTransaction
+
+func init() {
+	AllJanusTransactions = make([][]*janusTransaction, 0, config.AllThreadNum)
 }
 
 // ThreadStateTableForMerge
