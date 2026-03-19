@@ -82,7 +82,7 @@ func (optme *OptME) Start() {
 	txid := 0
 	blockid := 0
 	// 将块拆分为批次
-	for _, block := range optme.blocks {
+	for blockIndex, block := range optme.blocks {
 
 		//blockid++
 		txs := block.GetTxs()
@@ -91,7 +91,7 @@ func (optme *OptME) Start() {
 		for i := 0; i < janusConfig.BlockSize; i++ {
 			txid++
 			txs[i].Txid = uint32(txid)
-			optmeTx := NewOptmeTransaction(txs[i], uint32(blockid))
+			optmeTx := NewOptmeTransaction(txs[i], uint32(blockid), i, blockIndex)
 			batch = append(batch, optmeTx) // batch[][], 里面每个元素表示一个区块中的所有交易
 		}
 

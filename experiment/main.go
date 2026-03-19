@@ -12,7 +12,6 @@ import (
 	"Janus/ethereum/core/types"
 	"Janus/ethereum/core/vm"
 	"Janus/ethereum/database"
-	"Janus/januscore/janus"
 	"Janus/monitor"
 	"Janus/tools"
 	"bytes"
@@ -56,6 +55,7 @@ var (
 	shortTxFibonacciLoopNumber  = 20    // 循环执行 fibonacciLoopNumber 次斐波那契计算
 	longTxFibonacciLoopNumber   = 40    // 循环执行 fibonacciLoopNumber 次斐波那契计算
 	recursiveCalculateFibonacci = false // 是否使用递归计算斐波那契
+	traceAbort                  = false // 是否追踪丢弃
 )
 
 type InputData struct {
@@ -75,6 +75,7 @@ type InputData struct {
 	FibonacciN                  int
 	FibonacciLoopNum            int
 	RecursiveCalculateFibonacci bool
+	TraceAbort                  bool
 
 	Txs [][][]int
 }
@@ -254,6 +255,8 @@ func main() {
 
 	flag.BoolVar(&recursiveCalculateFibonacci, "r", false,
 		"recursive calculate fibonacci (default false)")
+	flag.BoolVar(&traceAbort, "ta", false,
+		"trace transaction abort (must run janus first when it is \"true\", must be \"false\" when test performance)")
 	flag.Parse()
 	fmt.Println(
 		"baseline:", *baseline,
@@ -270,6 +273,7 @@ func main() {
 		"\nshortTxFibonacciLoopNumber:", shortTxFibonacciLoopNumber,
 		"\nlongTxFibonacciLoopNumber:", longTxFibonacciLoopNumber,
 		"\nrecursiveCalculateFibonacci:", recursiveCalculateFibonacci,
+		"\ntraceAbort:", traceAbort,
 	)
 
 	if *baseline != "all" && *baseline != "harmony" && *baseline != "schain" && *baseline != "optme" &&
@@ -305,6 +309,7 @@ func main() {
 		FibonacciN:                  fibonacciN,
 		FibonacciLoopNum:            longTxFibonacciLoopNumber,
 		RecursiveCalculateFibonacci: recursiveCalculateFibonacci,
+		TraceAbort:                  traceAbort,
 
 		Txs: blocksInfo,
 	}
@@ -333,6 +338,7 @@ func main() {
 	janusConfig.BlockSize = input.BlockTxNum
 	janusConfig.WaterMarkAlpha = input.WaterMarkAlpha
 	janusConfig.WaterMarkBeta = input.WaterMarkBeta
+	tools.TraceAbort = input.TraceAbort
 
 	if janusConfig.AllThreadNum == 0 {
 		vm.InitTxCost(1)
@@ -354,7 +360,7 @@ func main() {
 			"_fln(" + strconv.Itoa(input.FibonacciLoopNum) + ")" +
 			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
 		tpssAndLatency [][][]float64 = make([][][]float64, 0)
-		baselines                    = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
+		//baselines                    = []string{"serial", "janus", "harmony", "schain", "optme", "aria"}
 		//baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX"}
 		//baselines = []string{"Non_Maximum_Commit_Validation"}
 	)

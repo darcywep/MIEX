@@ -1,11 +1,11 @@
 package harmony
 
 import (
-	"fmt"
 	"Janus/baselines/common"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/tools"
+	"fmt"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -157,7 +157,7 @@ func (h *Harmony) Start(levm *lvm.LEVM) {
 				tx := txs[j+k]
 				txID := tx.Txid
 				txInner := tx
-				batch[batchIdx] = append(batch[batchIdx], NewHarmonyTransaction(txInner, txID, uint32(batchID)))
+				batch[batchIdx] = append(batch[batchIdx], NewHarmonyTransaction(txInner, txID, uint32(batchID), i))
 			}
 			index++
 		}
@@ -385,6 +385,9 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 	for i := range batch {
 		tx := &batch[i]
 		if (*tx).FlagConflict {
+			if tools.TraceAbort {
+				ariaAbortTxs[int((*tx).BlockID)][int((*tx).ID)] = *tx
+			}
 			e.Fallback(*tx)
 			e.statistics.JournalExecute()
 			latency := time.Since((*tx).StartTime).Microseconds()

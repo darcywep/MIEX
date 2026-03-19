@@ -96,15 +96,16 @@ func (a *Aria) Start() {
 	}
 	for blockID := 0; blockID < len(a.blocks); blockID++ {
 		a.table = NewAriaTable(a.tablePartitions)
-		a.processBlock(blockBatches[blockID])
+		a.processBlock(blockBatches[blockID], blockID)
 	}
 	log.Println("==================== aria stop ======================")
 }
 
-func (a *Aria) processBlock(perThreadBatch [][]*AriaTransaction) {
+func (a *Aria) processBlock(perThreadBatch [][]*AriaTransaction, blockID int) {
 	// ---- 准备 channels 与 worker levm ----
 	a.jobChans = make([]chan *AriaTransaction, a.numThreads)
 	a.resultChans = make([]chan *AriaTransaction, a.numThreads)
+	abortTxs := make(map[int]*AriaTransaction)
 	for i := 0; i < a.numThreads; i++ {
 		a.jobChans[i] = make(chan *AriaTransaction)
 		a.resultChans[i] = make(chan *AriaTransaction)
@@ -159,6 +160,9 @@ func (a *Aria) processBlock(perThreadBatch [][]*AriaTransaction) {
 
 			// aborted tx：插回下一列的开头，等待重试
 			perThreadBatch[t] = append([]*AriaTransaction{res}, perThreadBatch[t]...)
+			if tools.TraceAbort {
+				abortTxs[int(res.ID)] = res
+			}
 		}
 		if nilNumber == a.numThreads {
 			break
@@ -175,7 +179,9 @@ func (a *Aria) processBlock(perThreadBatch [][]*AriaTransaction) {
 	for i := 0; i < len(a.levms); i++ {
 		a.levms[i].AllDB().StateDB.FlushDirtyToNewStateDB(a.levm.AllDB().StateDB)
 	}
-
+	if tools.TraceAbort {
+		ariaAbortTxs = append(ariaAbortTxs, abortTxs)
+	}
 }
 
 func (a *Aria) Stop() {
