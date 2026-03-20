@@ -1,9 +1,9 @@
 package common
 
 import (
+	lvm "Janus/core/evm"
 	"container/list"
 	"fmt"
-	lvm "Janus/core/evm"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -31,10 +31,6 @@ func (s *Statistics) GetExecCount() uint32 {
 
 func (s *Statistics) AddExecCount() {
 	s.ExecCount.Add(1)
-}
-
-func (s *Statistics) AddCommitCount() {
-	s.CommitCount.Add(1)
 }
 
 func (s *Statistics) AddRollbackCount() {

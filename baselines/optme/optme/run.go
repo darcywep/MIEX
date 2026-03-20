@@ -41,6 +41,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 
 	fmt.Printf("被执行的交易数目 %d \n", optmeInstance.Statistics.ExecCount.Load())
 	fmt.Printf("成功提交的交易数目 %d \n", optmeInstance.Statistics.CommitCount.Load())
+
 	tps := float64(optmeInstance.Statistics.CommitCount.Load()) / (elapsed.Seconds())
 	fmt.Printf("交易处理吞吐(TPS)= %f \n", tps)
 	if tools.TraceAbort {

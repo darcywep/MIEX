@@ -53,10 +53,6 @@ func (u *Unit) is_sorted() bool {
 	return u.tx.Sequenceid > 0
 }
 
-func (u *Unit) abort_tx(txid string) {
-	u.tx.Aborted.Store(true)
-}
-
 // ReadUnits 管理读操作单元的集合，支持排序和序列号分配
 type ReadUnits struct {
 	units   []*Unit
@@ -622,12 +618,15 @@ func (a *AddressBasedConflictGraph) extractTxsList() []*OptmeTransaction {
 
 // extractAbortList 提取中止交易列表（高效版本）
 func (a *AddressBasedConflictGraph) extractAbortList() []*OptmeTransaction {
+
 	var abortedList []*OptmeTransaction
 	var newTxList []*OptmeTransaction
 
 	// 单次遍历，同时构建新列表和提取中止交易
 	for _, tx := range a.txList {
 		if tx.Aborted.Load() {
+			fmt.Println("Hello.....")
+
 			if tools.TraceAbort {
 				tools.TraceAbortMutex.Lock()
 				ariaAbortTxs[tx.originalBlockID][tx.originalTxID] = tx
