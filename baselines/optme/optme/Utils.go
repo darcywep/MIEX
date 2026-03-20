@@ -2,7 +2,6 @@ package optme
 
 import (
 	"Janus/baselines/common"
-	"Janus/tools"
 	"fmt"
 	"runtime"
 	"sort"
@@ -630,11 +629,6 @@ func (a *AddressBasedConflictGraph) extractAbortList() []*OptmeTransaction {
 		if tx.Aborted.Load() {
 			abortedList = append(abortedList, tx)
 		} else {
-			if tools.TraceAbort {
-				tools.TraceAbortMutex.Lock()
-				ariaAbortTxs[tx.originalBlockID][tx.originalTxID] = tx
-				tools.TraceAbortMutex.Unlock()
-			}
 			newTxList = append(newTxList, tx)
 		}
 	}

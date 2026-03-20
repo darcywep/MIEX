@@ -4,6 +4,7 @@ import (
 	"Janus/baselines/common"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
+	"Janus/tools"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -168,6 +169,11 @@ func (o *OptME) ReorderWithACG(acg *AddressBasedConflictGraph, simulationResult 
 	for _, tx := range txList {
 		latency := time.Since(tx.StartTime).Microseconds()
 		o.Statistics.JournalCommit(uint32(latency))
+		if tools.TraceAbort {
+			tools.TraceAbortMutex.Lock()
+			ariaAbortTxs[tx.originalBlockID][tx.originalTxID] = tx
+			tools.TraceAbortMutex.Unlock()
+		}
 	}
 
 	// 统计整个重排序阶段的执行时间
