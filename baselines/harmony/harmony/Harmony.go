@@ -157,7 +157,7 @@ func (h *Harmony) Start(levm *lvm.LEVM) {
 				tx := txs[j+k]
 				txID := tx.Txid
 				txInner := tx
-				batch[batchIdx] = append(batch[batchIdx], NewHarmonyTransaction(txInner, txID, uint32(batchID), i))
+				batch[batchIdx] = append(batch[batchIdx], NewHarmonyTransaction(txInner, txID, uint32(batchID), i, tx.OriginalTxID))
 			}
 			index++
 		}
@@ -386,7 +386,9 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 		tx := &batch[i]
 		if (*tx).FlagConflict {
 			if tools.TraceAbort {
-				ariaAbortTxs[int((*tx).BlockID)][int((*tx).ID)] = *tx
+				tools.TraceAbortMutex.Lock()
+				ariaAbortTxs[int((*tx).BlockID)][int((*tx).originalTxID)] = *tx
+				tools.TraceAbortMutex.Unlock()
 			}
 			e.Fallback(*tx)
 			e.statistics.JournalExecute()

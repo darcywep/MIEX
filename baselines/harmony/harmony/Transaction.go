@@ -13,6 +13,7 @@ type HarmonyTransaction struct {
 	Tx           *common.BasicTransaction // 嵌入 Transaction，假设 Transaction 类型已存在
 	EthTx        *types.Transaction
 	BlockID      int
+	originalTxID int
 	ID           uint32
 	BatchID      uint32
 	FlagConflict bool
@@ -27,19 +28,20 @@ type HarmonyTransaction struct {
 }
 
 // NewHarmonyTransaction 构造函数
-func NewHarmonyTransaction(inner *common.BasicTransaction, id uint32, batchID uint32, blockID int) *HarmonyTransaction {
+func NewHarmonyTransaction(inner *common.BasicTransaction, id uint32, batchID uint32, blockID, originalTxID int) *HarmonyTransaction {
 	return &HarmonyTransaction{
-		Tx:         inner,
-		ID:         id,
-		BatchID:    batchID,
-		BlockID:    blockID,
-		MinOut:     id + 1,
-		MaxIn:      0,
-		OutBatchID: batchID,
-		InBatchID:  batchID,
-		StartTime:  time.Now(), // 使用当前时间作为开始时间
-		LocalGet:   make(map[string]string),
-		LocalPut:   make(map[string]string),
+		Tx:           inner,
+		ID:           id,
+		BatchID:      batchID,
+		BlockID:      blockID,
+		originalTxID: originalTxID,
+		MinOut:       id + 1,
+		MaxIn:        0,
+		OutBatchID:   batchID,
+		InBatchID:    batchID,
+		StartTime:    time.Now(), // 使用当前时间作为开始时间
+		LocalGet:     make(map[string]string),
+		LocalPut:     make(map[string]string),
 	}
 }
 

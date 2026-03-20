@@ -5,9 +5,10 @@ import (
 )
 
 type BasicTransaction struct {
-	Txid   uint32
-	Vertex *TransactionVertex
-	EthTx  *types.Transaction
+	Txid         uint32
+	OriginalTxID int
+	Vertex       *TransactionVertex
+	EthTx        *types.Transaction
 }
 
 type TransactionVertex struct {
@@ -16,6 +17,6 @@ type TransactionVertex struct {
 	Children  map[*TransactionVertex]bool
 }
 
-func NewBasicTransaction(txid uint32, vertex *TransactionVertex, ethTx *types.Transaction) *BasicTransaction {
-	return &BasicTransaction{Txid: txid, Vertex: vertex, EthTx: ethTx}
+func NewBasicTransaction(txid uint32, originalTxID int, vertex *TransactionVertex, ethTx *types.Transaction) *BasicTransaction {
+	return &BasicTransaction{Txid: txid, OriginalTxID: originalTxID, Vertex: vertex, EthTx: ethTx}
 }

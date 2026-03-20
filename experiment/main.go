@@ -12,6 +12,7 @@ import (
 	"Janus/ethereum/core/types"
 	"Janus/ethereum/core/vm"
 	"Janus/ethereum/database"
+	"Janus/januscore/janus"
 	"Janus/monitor"
 	"Janus/tools"
 	"bytes"
@@ -360,7 +361,7 @@ func main() {
 			"_fln(" + strconv.Itoa(input.FibonacciLoopNum) + ")" +
 			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
 		tpssAndLatency [][][]float64 = make([][][]float64, 0)
-		//baselines                    = []string{"serial", "janus", "harmony", "schain", "optme", "aria"}
+		baselines                    = []string{"serial", "janus", "harmony", "schain", "optme", "aria"}
 		//baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX"}
 		//baselines = []string{"Non_Maximum_Commit_Validation"}
 	)
