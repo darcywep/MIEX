@@ -4,6 +4,7 @@ import (
 	optmeCommon "Janus/baselines/common"
 	"Janus/config"
 	lvm "Janus/core/evm"
+	"Janus/tools"
 	"time"
 )
 
@@ -84,6 +85,11 @@ func (e *AriaExecutor) ProcessOneTx(tx *AriaTransaction) {
 			tx.SetConflict(true)
 			// 通过 channel 返回 abort 给 controller
 			e.aria.resultChans[workerID] <- tx
+			if tools.TraceAbort {
+				tools.TraceAbortMutex.Lock()
+				ariaAbortTxs[tx.OriginalBlockID][tx.OriginalTxID] = tx
+				tools.TraceAbortMutex.Unlock()
+			}
 			e.statistics.AddRollbackCount()
 			return
 		}

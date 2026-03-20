@@ -3,3 +3,4 @@
 .idea/deployment.xml
 .idea/webServers.xml
 *.csv
+*.txt
