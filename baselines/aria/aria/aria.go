@@ -106,7 +106,6 @@ func (a *Aria) processBlock(perThreadBatch [][]*AriaTransaction, blockID int) {
 	// ---- 准备 channels 与 worker levm ----
 	a.jobChans = make([]chan *AriaTransaction, a.numThreads)
 	a.resultChans = make([]chan *AriaTransaction, a.numThreads)
-	abortTxs := make(map[int]*AriaTransaction)
 	for i := 0; i < a.numThreads; i++ {
 		a.jobChans[i] = make(chan *AriaTransaction)
 		a.resultChans[i] = make(chan *AriaTransaction)
@@ -162,7 +161,9 @@ func (a *Aria) processBlock(perThreadBatch [][]*AriaTransaction, blockID int) {
 			// aborted tx：插回下一列的开头，等待重试
 			perThreadBatch[t] = append([]*AriaTransaction{res}, perThreadBatch[t]...)
 			if tools.TraceAbort {
-				abortTxs[int(res.ID)] = res
+				tools.TraceAbortMutex.Lock()
+				ariaAbortTxs[res.OriginalBlockID][res.OriginalTxID] = res
+				tools.TraceAbortMutex.Unlock()
 			}
 		}
 		if nilNumber == a.numThreads {
@@ -180,13 +181,13 @@ func (a *Aria) processBlock(perThreadBatch [][]*AriaTransaction, blockID int) {
 	for i := 0; i < len(a.levms); i++ {
 		a.levms[i].AllDB().StateDB.FlushDirtyToNewStateDB(a.levm.AllDB().StateDB)
 	}
-	if tools.TraceAbort {
-		tools.TraceAbortMutex.Lock()
-		for _, tx := range abortTxs {
-			ariaAbortTxs[tx.OriginalBlockID][tx.OriginalTxID] = tx
-		}
-		tools.TraceAbortMutex.Unlock()
-	}
+	//if tools.TraceAbort {
+	//	tools.TraceAbortMutex.Lock()
+	//	for _, tx := range abortTxs {
+	//		ariaAbortTxs[tx.OriginalBlockID][tx.OriginalTxID] = tx
+	//	}
+	//	tools.TraceAbortMutex.Unlock()
+	//}
 }
 
 func (a *Aria) Stop() {
