@@ -42,9 +42,6 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 		for blockID, v := range ariaAbortTxs {
 			abortSum += len(v)
 			for index, _ := range v {
-				fmt.Println("blockID", blockID)
-				fmt.Println("index", index)
-
 				cost += janus.AllJanusTransactions[blockID][index].ExecutionCost
 			}
 		}

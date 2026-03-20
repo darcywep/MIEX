@@ -11,23 +11,27 @@ import (
 )
 
 type AriaTransaction struct {
-	Inner        janusCommon.BasicTransaction
-	ID           uint64
-	BatchID      uint64
-	LocalGet     map[string]string
-	LocalPut     map[string]string
-	StartTime    time.Time
-	flagConflict atomic.Bool
-	committed    atomic.Uint32
+	Inner           janusCommon.BasicTransaction
+	OriginalBlockID int
+	OriginalTxID    int
+	ID              uint64
+	BatchID         uint64
+	LocalGet        map[string]string
+	LocalPut        map[string]string
+	StartTime       time.Time
+	flagConflict    atomic.Bool
+	committed       atomic.Uint32
 }
 
-func NewAriaTransaction(inner janusCommon.BasicTransaction, id, batch uint64) *AriaTransaction {
+func NewAriaTransaction(inner janusCommon.BasicTransaction, id, batch uint64, OriginalBlockID, OriginalTxID int) *AriaTransaction {
 	return &AriaTransaction{
-		Inner:    inner,
-		ID:       id,
-		BatchID:  batch,
-		LocalGet: make(map[string]string),
-		LocalPut: make(map[string]string),
+		Inner:           inner,
+		ID:              id,
+		BatchID:         batch,
+		OriginalBlockID: OriginalBlockID,
+		OriginalTxID:    OriginalTxID,
+		LocalGet:        make(map[string]string),
+		LocalPut:        make(map[string]string),
 	}
 }
 

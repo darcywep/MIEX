@@ -18,9 +18,12 @@ var (
 func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	start := time.Now()
 	txGenerator := common.NewTxGenerator(janusConfig.AllBlocksTxSum, janusConfig.BlockSize) // TX_NUM = 2000, BLOCK_SIZE = 1000
-	
+
 	if tools.TraceAbort {
-		ariaAbortTxs = make([]map[int]*AriaTransaction, 0, len(blockTxs))
+		ariaAbortTxs = make([]map[int]*AriaTransaction, len(blockTxs))
+		for i, _ := range blockTxs {
+			ariaAbortTxs[i] = make(map[int]*AriaTransaction)
+		}
 	}
 	blocks := txGenerator.GenerateWorkload(blockTxs) // 生成区块
 	//fmt.Printf("Blocks num: %d\n", len(blocks))

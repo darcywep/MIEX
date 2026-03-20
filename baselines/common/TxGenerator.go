@@ -14,9 +14,9 @@ func NewTxGenerator(txNum int, blockSize int) *TxGenerator {
 	return &TxGenerator{txNum, blockSize, nil}
 }
 
-func (g *TxGenerator) GenerateTransaction(txid uint32, originalTxID int, readKeys map[string]string, writeKeys map[string]string, ethTx *types.Transaction) *BasicTransaction {
+func (g *TxGenerator) GenerateTransaction(txid uint32, originalBlockID, originalTxID int, readKeys map[string]string, writeKeys map[string]string, ethTx *types.Transaction) *BasicTransaction {
 	vertex := TransactionVertex{readKeys, writeKeys, nil}
-	return NewBasicTransaction(txid, originalTxID, &vertex, ethTx)
+	return NewBasicTransaction(txid, originalBlockID, originalTxID, &vertex, ethTx)
 }
 
 func (tg *TxGenerator) GenerateBlock(blockID int, ethTxs types.Transactions) *Block { // 生成的区块中包含EVM可执行交易
@@ -27,7 +27,7 @@ func (tg *TxGenerator) GenerateBlock(blockID int, ethTxs types.Transactions) *Bl
 		readKeys := make(map[string]string)
 		writeKeys := make(map[string]string)
 
-		tx := tg.GenerateTransaction(uint32(txid), i, readKeys, writeKeys, ethTxs[i])
+		tx := tg.GenerateTransaction(uint32(txid), blockID, i, readKeys, writeKeys, ethTxs[i])
 		txs = append(txs, tx)
 	}
 

@@ -87,7 +87,7 @@ func (a *Aria) Start() {
 				tx := txs[txIndex+k]
 
 				inner := *tx
-				atx := NewAriaTransaction(inner, uint64(tx.Txid), batchID)
+				atx := NewAriaTransaction(inner, uint64(tx.Txid), batchID, tx.OriginalBlockID, tx.OriginalTxID)
 
 				perThreadBatches[threadID] = append(perThreadBatches[threadID], atx)
 			}
@@ -181,7 +181,11 @@ func (a *Aria) processBlock(perThreadBatch [][]*AriaTransaction, blockID int) {
 		a.levms[i].AllDB().StateDB.FlushDirtyToNewStateDB(a.levm.AllDB().StateDB)
 	}
 	if tools.TraceAbort {
-		ariaAbortTxs = append(ariaAbortTxs, abortTxs)
+		tools.TraceAbortMutex.Lock()
+		for _, tx := range abortTxs {
+			ariaAbortTxs[tx.OriginalBlockID][tx.OriginalTxID] = tx
+		}
+		tools.TraceAbortMutex.Unlock()
 	}
 }
 
