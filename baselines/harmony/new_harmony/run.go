@@ -16,8 +16,24 @@ var (
 )
 
 func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
+	if tools.TraceAbort {
+		blockTxs = make([]types.Transactions, 0)
+		for _, jtxs := range janus.JanusTxsForOneBatchAsOneBlock {
+			txs := make(types.Transactions, len(jtxs))
+			for i, jtx := range jtxs {
+				txs[i] = jtx.Tx
+			}
+			blockTxs = append(blockTxs, txs)
+		}
+	}
 	txGenerator := common.NewTxGenerator(janusConfig.AllBlocksTxSum, janusConfig.BlockSize)
-	blocks := txGenerator.GenerateWorkload(blockTxs)
+	var blocks []*common.Block
+	if tools.TraceAbort {
+		blocks = txGenerator.GenerateWorkloadForHarmonyAbort(blockTxs)
+	} else {
+		blocks = txGenerator.GenerateWorkload(blockTxs)
+	}
+
 	if tools.TraceAbort {
 		ariaAbortTxs = make([]map[int]*HarmonyTransaction, len(blockTxs))
 		for i := range blockTxs {
@@ -41,7 +57,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 		for blockID, v := range ariaAbortTxs {
 			abortSum += len(v)
 			for index := range v {
-				cost += janus.AllJanusTransactions[blockID][index].ExecutionCost
+				cost += janus.JanusTxsForOneBatchAsOneBlock[blockID][index].ExecutionCost
 			}
 		}
 		fmt.Printf("Number of abort transaction:         %-22d\n", abortSum)

@@ -4,9 +4,18 @@ import (
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/ethereum/core/types"
+	"Janus/tools"
 	"fmt"
 	"time"
 )
+
+var JanusTxsForOneBatchAsOneBlock [][]*janusTransaction // block -> txs
+
+func init() {
+	if tools.TraceAbort {
+		JanusTxsForOneBatchAsOneBlock = make([][]*janusTransaction, 0)
+	}
+}
 
 // Run 运行 Janus 混合负载并发执行引擎
 func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
@@ -38,6 +47,11 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 		totalCommitted += len(txs)
 		batches, jtxs := batchGenerator.GenerateBatches(txs)
 		batchForBlock[i], jtxss[i] = batches, jtxs
+		if tools.TraceAbort {
+			for _, batch := range batches {
+				JanusTxsForOneBatchAsOneBlock = append(JanusTxsForOneBatchAsOneBlock, batch.AllTxs)
+			}
+		}
 		totalBatches += len(batches)
 
 		fmt.Printf("Block %d: Generated %d batches (%d transactions)\n",

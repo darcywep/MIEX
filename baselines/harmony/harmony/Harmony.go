@@ -225,10 +225,10 @@ func (e *HarmonyExecutor) Run() {
 				addr := e.confirmExit.Load()
 				atomic.CompareAndSwapInt32(&addr, int32(e.workerID), int32(e.workerID+1))
 			}
-			fmt.Printf("worker %d executing", e.workerID)
 
 			for i := range batch {
 				tx := &batch[i]
+				fmt.Printf("worker %d executing, execut txid %d", e.workerID, (*tx).originalTxID)
 				// 记录开始时间
 				(*tx).StartTime = time.Now()
 				// 执行交易并处理读写依赖
@@ -250,6 +250,7 @@ func (e *HarmonyExecutor) Run() {
 				tx := &batch[i]
 				e.Verify(*tx)
 				if (*tx).FlagConflict {
+					fmt.Printf("worker %d executing, abort txid %d", e.workerID, (*tx).originalTxID)
 					e.PrepareLockTable(*tx)
 					//if tools.TraceAbort {
 					//	tools.TraceAbortMutex.Lock()

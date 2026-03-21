@@ -208,7 +208,7 @@ func (e *HarmonyExecutor) Run() {
 
 			for i := range batch {
 				tx := &batch[i]
-				//fmt.Printf("worker %d executing, txid %d executing\n", e.workerID, (*tx).originalTxID)
+				fmt.Printf("worker %d executing, execut txid %d, batchID %d, %d\n", e.workerID, (*tx).originalTxID, (*tx).BatchID, len(batch))
 				(*tx).StartTime = time.Now()
 				e.Execute(*tx)
 				e.statistics.JournalExecute()
@@ -227,6 +227,7 @@ func (e *HarmonyExecutor) Run() {
 				tx := &batch[i]
 				e.Verify(*tx)
 				if (*tx).FlagConflict {
+					fmt.Printf("worker %d executing, abort txid %d, batchID %d\n", e.workerID, (*tx).originalTxID, (*tx).BatchID)
 					e.PrepareLockTable(*tx)
 					if tools.TraceAbort {
 						tools.TraceAbortMutex.Lock()
@@ -239,6 +240,7 @@ func (e *HarmonyExecutor) Run() {
 			// 确保所有 worker 的 Verify 都完成，
 			// 这样 ApplyWriteSets 中 filter FlagConflict 时看到的是最终状态
 			e.barrier.ArriveAndWait()
+			fmt.Println()
 
 			// 阶段 2b: 所有 worker 并行 Commit
 			for i := range batch {
@@ -716,11 +718,11 @@ func (executor *HarmonyExecutor) Fallback(tx *HarmonyTransaction) {
 		for !should_wait.Committed.Load() {
 			runtime.Gosched()
 		}
-		if tools.TraceAbort {
-			tools.TraceAbortMutex.Lock()
-			delete(ariaAbortTxs[should_wait.BlockID], should_wait.originalTxID)
-			tools.TraceAbortMutex.Unlock()
-		}
+		//if tools.TraceAbort {
+		//	tools.TraceAbortMutex.Lock()
+		//	delete(ariaAbortTxs[should_wait.BlockID], should_wait.originalTxID)
+		//	tools.TraceAbortMutex.Unlock()
+		//}
 	}
 
 	readSet := make(map[string]bool)
