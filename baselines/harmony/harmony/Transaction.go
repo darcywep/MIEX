@@ -21,8 +21,8 @@ type HarmonyTransaction struct {
 	StartTime    time.Time
 	LocalGet     map[string]string
 	LocalPut     map[string]string
-	MinOut       uint32
-	MaxIn        uint32
+	MinOut       int32
+	MaxIn        int32
 	OutBatchID   uint32
 	InBatchID    uint32
 }
@@ -35,8 +35,8 @@ func NewHarmonyTransaction(inner *common.BasicTransaction, id uint32, batchID ui
 		BatchID:      batchID,
 		BlockID:      blockID,
 		originalTxID: originalTxID,
-		MinOut:       id + 1,
-		MaxIn:        0,
+		MinOut:       int32(id + 1),
+		MaxIn:        -1000000,
 		OutBatchID:   batchID,
 		InBatchID:    batchID,
 		StartTime:    time.Now(), // 使用当前时间作为开始时间

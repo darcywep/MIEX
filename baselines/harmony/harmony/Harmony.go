@@ -251,6 +251,11 @@ func (e *HarmonyExecutor) Run() {
 				e.Verify(*tx)
 				if (*tx).FlagConflict {
 					e.PrepareLockTable(*tx)
+					//if tools.TraceAbort {
+					//	tools.TraceAbortMutex.Lock()
+					//	ariaAbortTxs[(*tx).BlockID][(*tx).originalTxID] = *tx
+					//	tools.TraceAbortMutex.Unlock()
+					//}
 				} else {
 					e.Commit(*tx)
 					latency := time.Since((*tx).StartTime).Microseconds()
@@ -385,11 +390,7 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 	for i := range batch {
 		tx := &batch[i]
 		if (*tx).FlagConflict {
-			if tools.TraceAbort {
-				tools.TraceAbortMutex.Lock()
-				ariaAbortTxs[int((*tx).BlockID)][int((*tx).originalTxID)] = *tx
-				tools.TraceAbortMutex.Unlock()
-			}
+
 			e.Fallback(*tx)
 			e.statistics.JournalExecute()
 			latency := time.Since((*tx).StartTime).Microseconds()
@@ -440,7 +441,7 @@ func (executor *HarmonyExecutor) Execute(tx *HarmonyTransaction) {
 		tx.Tx.Vertex.WriteKeys[key1] = "value"
 		tx.Tx.Vertex.WriteKeys[key2] = "value"
 
-		tx.Tx.Vertex.ReadKeys[key2] = "value"
+		tx.Tx.Vertex.ReadKeys[key1] = "value"
 		tx.Tx.Vertex.ReadKeys[key2] = "value"
 
 		//tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
@@ -474,20 +475,26 @@ func (executor *HarmonyExecutor) Verify(tx *HarmonyTransaction) {
 		// if tx.min_out < tx.id and tx.min_out <= tx.max_in, then conflict
 		//   if tx.batch_id = tx.in_batch_id, then abort
 		// meanwhile, if tx.min_out < tx.id and tx.out_batch_id < tx.batch_id, then abort
-		if tx.MinOut < tx.ID && tx.MinOut <= tx.MaxIn && tx.BatchID == tx.InBatchID {
+		if tx.MinOut < int32(tx.ID) && tx.MinOut <= tx.MaxIn && tx.BatchID == tx.InBatchID {
 			tx.FlagConflict = true
-		} else if tx.MinOut < tx.ID && tx.OutBatchID < tx.BatchID {
+		} else if tx.MinOut < int32(tx.ID) && tx.OutBatchID < tx.BatchID {
 			tx.FlagConflict = true
 		}
 	} else {
 		// when inter block is disabled, then
 		// if tx.min_out < tx.id and tx.min_out <= tx.max_in, then conflict
-		if tx.MinOut < tx.ID && tx.MinOut <= tx.MaxIn {
+		if tx.MinOut < int32(tx.ID) && tx.MinOut <= tx.MaxIn {
 			tx.FlagConflict = true
 		}
 	}
+
 	if tx.FlagConflict == true {
 		//fmt.Printf("交易 %d 中止 \n", tx.ID)
+		//if tools.TraceAbort {
+		//	tools.TraceAbortMutex.Lock()
+		//	ariaAbortTxs[tx.BlockID][tx.originalTxID] = tx
+		//	tools.TraceAbortMutex.Unlock()
+		//}
 	} else {
 		//fmt.Printf("交易 %d 可以提交 \n", tx.ID)
 	}
@@ -558,6 +565,12 @@ func (executor *HarmonyExecutor) Fallback(tx *HarmonyTransaction) {
 			// 等待，可以添加一些退避策略
 			runtime.Gosched()
 		}
+		if tools.TraceAbort {
+			tools.TraceAbortMutex.Lock()
+			delete(ariaAbortTxs[should_wait.BlockID], should_wait.originalTxID)
+			//ariaAbortTxs[tx.BlockID][tx.originalTxID] = tx
+			tools.TraceAbortMutex.Unlock()
+		}
 	}
 
 	readSet := make(map[string]bool)
@@ -625,7 +638,7 @@ func (he *HarmonyExecutor) ExecutorSetStorage2(tx *HarmonyTransaction, writeSet 
 	//fmt.Printf("tx %s fallbacking, write: %s", tx.ID, keys)
 }
 
-// handleGetStorage 处理读存储操作
+// ExecutorGetStorage 处理读存储操作
 func (he *HarmonyExecutor) ExecutorGetStorage(tx *HarmonyTransaction, readSet map[string]bool) {
 	var keys []string
 	for key := range readSet {
@@ -648,7 +661,7 @@ func (he *HarmonyExecutor) ExecutorGetStorage(tx *HarmonyTransaction, readSet ma
 	//fmt.Printf("tx %s read: %s", tx.ID, strings.Join(keys, " "))
 }
 
-// handleSetStorage 处理写存储操作
+// ExecutorSetStorage 处理写存储操作
 func (he *HarmonyExecutor) ExecutorSetStorage(tx *HarmonyTransaction, writeSet map[string]bool, value string) {
 	var keys []string
 	for key := range writeSet {

@@ -38,12 +38,12 @@ func NewHarmonyTable(partitions int) *HarmonyTable {
 func (ht *HarmonyTable) OnSeeingRWDependency(Ti *HarmonyTransaction, Tj *HarmonyTransaction) {
 	//fmt.Printf("handle r-w dependency: %d:%d -> %d:%d", Tj.BatchID, Tj.ID, Ti.BatchID, Ti.ID)
 
-	if Ti.ID < Tj.MinOut {
-		Tj.MinOut = Ti.ID
+	if int32(Ti.ID) < Tj.MinOut {
+		Tj.MinOut = int32(Ti.ID)
 		Tj.OutBatchID = Ti.BatchID
 	}
-	if Tj.ID > Ti.MaxIn {
-		Ti.MaxIn = Tj.ID
+	if int32(Tj.ID) > Ti.MaxIn {
+		Ti.MaxIn = int32(Tj.ID)
 		Ti.InBatchID = Tj.BatchID
 	}
 }
