@@ -208,7 +208,7 @@ func (e *HarmonyExecutor) Run() {
 
 			for i := range batch {
 				tx := &batch[i]
-				fmt.Printf("worker %d executing, execut txid %d, batchID %d, %d\n", e.workerID, (*tx).originalTxID, (*tx).BatchID, len(batch))
+				//fmt.Printf("worker %d executing, execut txid %d, batchID %d, %d\n", e.workerID, (*tx).originalTxID, (*tx).BatchID, len(batch))
 				(*tx).StartTime = time.Now()
 				e.Execute(*tx)
 				e.statistics.JournalExecute()
@@ -227,7 +227,7 @@ func (e *HarmonyExecutor) Run() {
 				tx := &batch[i]
 				e.Verify(*tx)
 				if (*tx).FlagConflict {
-					fmt.Printf("worker %d executing, abort txid %d, batchID %d\n", e.workerID, (*tx).originalTxID, (*tx).BatchID)
+					//fmt.Printf("worker %d executing, abort txid %d, batchID %d\n", e.workerID, (*tx).originalTxID, (*tx).BatchID)
 					e.PrepareLockTable(*tx)
 					if tools.TraceAbort {
 						tools.TraceAbortMutex.Lock()
@@ -240,7 +240,7 @@ func (e *HarmonyExecutor) Run() {
 			// 确保所有 worker 的 Verify 都完成，
 			// 这样 ApplyWriteSets 中 filter FlagConflict 时看到的是最终状态
 			e.barrier.ArriveAndWait()
-			fmt.Println()
+			//fmt.Println()
 
 			// 阶段 2b: 所有 worker 并行 Commit
 			for i := range batch {
@@ -301,7 +301,7 @@ func (e *HarmonyExecutor) Run() {
 			// stage 3: fallback
 			e.barrier.ArriveAndWait()
 
-			fmt.Printf("worker %d fallbacking \n", e.workerID)
+			//fmt.Printf("worker %d fallbacking \n", e.workerID)
 
 			for i := range batch {
 				tx := &batch[i]
@@ -317,7 +317,7 @@ func (e *HarmonyExecutor) Run() {
 			e.barrier.ArriveAndWait()
 			if e.workerID == 0 {
 			}
-			fmt.Printf("worker %d cleaning up \n", e.workerID)
+			//fmt.Printf("worker %d cleaning up \n", e.workerID)
 
 			for i := range batch {
 				tx := &batch[i]
@@ -340,11 +340,12 @@ func (e *HarmonyExecutor) Run() {
 				}
 			}
 
-			elapsed := time.Since(beginTime)
+			//elapsed := time.Since(beginTime)
+			_ = time.Since(beginTime)
 
-			fmt.Printf("CommitCount= %d \n", e.statistics.CommitCount.Load())
-			fmt.Printf("交易实际被执行总次数 %d \n", e.statistics.ExecCount.Load())
-			fmt.Printf("交易处理吞吐(TPS)= %f \n", float64(e.statistics.CommitCount.Load())/(elapsed.Seconds()))
+			//fmt.Printf("CommitCount= %d \n", e.statistics.CommitCount.Load())
+			//fmt.Printf("交易实际被执行总次数 %d \n", e.statistics.ExecCount.Load())
+			//fmt.Printf("交易处理吞吐(TPS)= %f \n", float64(e.statistics.CommitCount.Load())/(elapsed.Seconds()))
 		}
 	}
 }
