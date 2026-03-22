@@ -44,3 +44,26 @@ func (tg *TxGenerator) GenerateWorkload(blockTxs []types.Transactions) []*Block 
 	}
 	return blocks
 }
+
+func (tg *TxGenerator) GenerateWorkloadForHarmonyAbort(blockTxs []types.Transactions) []*Block {
+	blockNum := len(blockTxs)
+	blocks := make([]*Block, 0, blockNum)
+
+	txid := 1 // 全局交易ID，从1开始递增
+	for i := 0; i < blockNum; i++ {
+		txsLen := len(blockTxs[i])
+		txs := make([]*BasicTransaction, 0, txsLen)
+
+		for j := 0; j < txsLen; j++ {
+			readKeys := make(map[string]string)
+			writeKeys := make(map[string]string)
+
+			tx := tg.GenerateTransaction(uint32(txid), i, j, readKeys, writeKeys, blockTxs[i][j])
+			txs = append(txs, tx)
+			txid++ // 递增全局交易ID
+		}
+
+		blocks = append(blocks, NewBlock(i, txs)) // 添加区块至 blocks
+	}
+	return blocks
+}

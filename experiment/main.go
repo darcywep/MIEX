@@ -3,6 +3,7 @@ package main
 import (
 	"Janus/baselines/aria/aria"
 	"Janus/baselines/harmony/harmony"
+	newHarmony "Janus/baselines/harmony/new_harmony"
 	"Janus/baselines/optme/optme"
 	"Janus/baselines/schain/schain"
 	janusConfig "Janus/config"
@@ -210,6 +211,9 @@ func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan str
 	} else if baseline == "Non_Maximum_Commit_Validation" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, janusClassicAbort.Run(blockTxs, levm))
+	} else if baseline == "newHarmony" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, newHarmony.Run(blockTxs, levm))
 	}
 }
 
@@ -361,8 +365,8 @@ func main() {
 			"_fln(" + strconv.Itoa(input.FibonacciLoopNum) + ")" +
 			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
 		tpssAndLatency [][][]float64 = make([][][]float64, 0)
-		baselines                    = []string{"janus", "harmony", "optme", "aria"}
-		//baselines = []string{"janus", "optme"}
+		//baselines                    = []string{"janus", "harmony", "optme", "Non_Maximum_Commit_Validation"}
+		baselines = []string{"janus", "newHarmony", "Non_Maximum_Commit_Validation"}
 		//baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX"}
 		//baselines = []string{"Non_Maximum_Commit_Validation"}
 	)
