@@ -14,29 +14,33 @@ type HarmonyTransaction struct {
 	EthTx        *types.Transaction
 	BlockID      int
 	originalTxID int
-	ID           uint32
-	BatchID      uint32
+	ID           int32
+	BatchID      int32
 	FlagConflict bool
 	Committed    atomic.Bool
 	StartTime    time.Time
 	LocalGet     map[string]string
 	LocalPut     map[string]string
-	MinOut       uint32
-	MaxIn        uint32
-	OutBatchID   uint32
-	InBatchID    uint32
+	MinOut       int32
+	MaxIn        int32
+	OutBatchID   int32
+	InBatchID    int32
+	IsRealAbort  int
 }
 
 // NewHarmonyTransaction 构造函数
-func NewHarmonyTransaction(inner *common.BasicTransaction, id uint32, batchID uint32, blockID, originalTxID int) *HarmonyTransaction {
+func NewHarmonyTransaction(inner *common.BasicTransaction, id int32, batchID int32, blockID, originalTxID int) *HarmonyTransaction {
 	return &HarmonyTransaction{
 		Tx:           inner,
 		ID:           id,
 		BatchID:      batchID,
 		BlockID:      blockID,
 		originalTxID: originalTxID,
+		//MinOut:       id + 1,
+		//MaxIn:        0,
 		MinOut:       id + 1,
 		MaxIn:        0,
+		FlagConflict: false,
 		OutBatchID:   batchID,
 		InBatchID:    batchID,
 		StartTime:    time.Now(), // 使用当前时间作为开始时间

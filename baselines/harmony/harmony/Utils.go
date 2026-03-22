@@ -37,7 +37,6 @@ func NewHarmonyTable(partitions int) *HarmonyTable {
 // Tj the transaction read key
 func (ht *HarmonyTable) OnSeeingRWDependency(Ti *HarmonyTransaction, Tj *HarmonyTransaction) {
 	//fmt.Printf("handle r-w dependency: %d:%d -> %d:%d", Tj.BatchID, Tj.ID, Ti.BatchID, Ti.ID)
-
 	if Ti.ID < Tj.MinOut {
 		Tj.MinOut = Ti.ID
 		Tj.OutBatchID = Ti.BatchID

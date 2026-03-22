@@ -104,6 +104,7 @@ type HarmonyExecutor struct {
 	workerID         uint32
 	batchIdx         uint32
 	levm             *lvm.LEVM
+	abortCount       atomic.Int64 // 添加中止计数
 }
 
 func NewHarmonyExecutor(harmony *Harmony, workerID uint32, batchTxs [][]*HarmonyTransaction, levm *lvm.LEVM) *HarmonyExecutor {
@@ -122,12 +123,14 @@ func NewHarmonyExecutor(harmony *Harmony, workerID uint32, batchTxs [][]*Harmony
 		workerID:         workerID,
 		batchIdx:         0,
 		levm:             levm,
+		abortCount:       atomic.Int64{}, // 初始化
 	}
 }
 
 func (h *Harmony) Start(levm *lvm.LEVM) {
 	fmt.Println("harmony ready to start...")
 
+	h.enableInterBlock = false
 	// split blocks into batches
 	batches := make([][][]*HarmonyTransaction, 0, len(h.blocks))
 
@@ -157,7 +160,7 @@ func (h *Harmony) Start(levm *lvm.LEVM) {
 				tx := txs[j+k]
 				txID := tx.Txid
 				txInner := tx
-				batch[batchIdx] = append(batch[batchIdx], NewHarmonyTransaction(txInner, txID, uint32(batchID), i, tx.OriginalTxID))
+				batch[batchIdx] = append(batch[batchIdx], NewHarmonyTransaction(txInner, int32(txID), int32(batchID), i, tx.OriginalTxID))
 			}
 			index++
 		}
@@ -205,8 +208,6 @@ func (h *Harmony) Start(levm *lvm.LEVM) {
 // Run 执行交易
 func (e *HarmonyExecutor) Run() {
 
-	//fmt.Println("harmony executor is running...")
-
 	if e.enableInterBlock {
 		fmt.Printf("worker %d size of batchTxs %d", e.workerID, len(e.batchTxs))
 		// 流式处理区块
@@ -239,12 +240,11 @@ func (e *HarmonyExecutor) Run() {
 
 			// stage 2: verify + commit
 			e.barrier.ArriveAndWait()
-
 			//fmt.Printf("worker %d verifying", e.workerID)
-			var beginTime time.Time
-			if e.workerID == 0 {
-				beginTime = time.Now()
-			}
+			//var beginTime time.Time
+			//if e.workerID == 0 {
+			//	beginTime = time.Now()
+			//}
 
 			for i := range batch {
 				tx := &batch[i]
@@ -265,7 +265,7 @@ func (e *HarmonyExecutor) Run() {
 			//	e.statistics.JournalRollbackExecution(uint32(phaseTime))
 			//}
 
-			fmt.Printf("worker %d fallbacking \n", e.workerID)
+			//fmt.Printf("worker %d fallbacking \n", e.workerID)
 
 			//if e.workerID == 0 {
 			//	beginTime = time.Now()
@@ -287,18 +287,36 @@ func (e *HarmonyExecutor) Run() {
 				//phaseTime := time.Since(beginTime).Microseconds()
 				//e.statistics.JournalReExecution(phaseTime)
 			}
-			fmt.Printf("worker %d cleaning up \n", e.workerID)
+			//fmt.Printf("worker %d cleaning up \n", e.workerID)
 
 			for i := range batch {
 				tx := &batch[i]
 				e.CleanLockTable(*tx)
 			}
 
-			elapsed := time.Since(beginTime)
+			//elapsed := time.Since(beginTime)
 
-			fmt.Printf("CommitCount= %d \n", e.statistics.CommitCount.Load())
-			fmt.Printf("交易实际被执行总次数 %d \n", e.statistics.ExecCount.Load())
-			fmt.Printf("交易处理吞吐(TPS)= %f \n", float64(e.statistics.CommitCount.Load())/(elapsed.Seconds()))
+			//fmt.Printf("CommitCount= %d \n", e.statistics.CommitCount.Load())
+			//fmt.Printf("交易实际被执行总次数 %d \n", e.statistics.ExecCount.Load())
+			//fmt.Printf("交易处理吞吐(TPS)= %f \n", float64(e.statistics.CommitCount.Load())/(elapsed.Seconds()))
+
+			//beginTime = time.Now()
+
+			for i := range batch {
+				tx := &batch[i]
+				if (*tx).FlagConflict {
+					if tools.TraceAbort {
+						tools.TraceAbortMutex.Lock()
+						ariaAbortTxs[int((*tx).BlockID)][int((*tx).originalTxID)] = *tx
+						tools.TraceAbortMutex.Unlock()
+					}
+					e.Fallback(*tx)
+					e.statistics.JournalExecute()
+					latency := time.Since((*tx).StartTime).Microseconds()
+					e.statistics.JournalCommit(uint32(latency))
+					//e.statistics.JournalRollback(tx.CountOverheads())
+				}
+			}
 		}
 	}
 }
@@ -458,6 +476,7 @@ func (executor *HarmonyExecutor) Execute(tx *HarmonyTransaction) {
 	for key, _ := range tx.Tx.Vertex.ReadKeys { // 填充读集
 		readSet[key] = true
 	}
+
 	executor.ExecutorGetStorage(tx, readSet)
 
 	for key, _ := range tx.Tx.Vertex.WriteKeys { // 填充写集
@@ -486,11 +505,9 @@ func (executor *HarmonyExecutor) Verify(tx *HarmonyTransaction) {
 			tx.FlagConflict = true
 		}
 	}
-	if tx.FlagConflict == true {
-		//fmt.Printf("交易 %d 中止 \n", tx.ID)
-	} else {
-		//fmt.Printf("交易 %d 可以提交 \n", tx.ID)
-	}
+	//if tx.FlagConflict == true {
+	//	fmt.Printf("交易 %d 中止 \n", tx.ID)
+	//}
 }
 
 // / @brief commit written values into table
@@ -500,9 +517,21 @@ func (executor *HarmonyExecutor) Commit(tx *HarmonyTransaction) {
 			(*entry).Value = value
 		})
 	}
+	// 标记交易已提交，唤醒等待该交易的 Fallback 交易
+	tx.Committed.Store(true)
 	// atomic.AddUint64(&executor.counter, 1)
 	//fmt.Printf("tx %d committed", tx.ID)
 }
+
+//func (executor *HarmonyExecutor) Commit(tx *HarmonyTransaction) {
+//	for key, value := range tx.LocalPut {
+//		executor.table.table.Put(key, func(entry *HarmonyEntry) {
+//			(*entry).Value = value
+//		})
+//	}
+//	// atomic.AddUint64(&executor.counter, 1)
+//	//fmt.Printf("tx %d committed", tx.ID)
+//}
 
 // / @brief put transaction id (local id) into table
 func (executor *HarmonyExecutor) PrepareLockTable(tx *HarmonyTransaction) {
@@ -520,8 +549,7 @@ func (executor *HarmonyExecutor) PrepareLockTable(tx *HarmonyTransaction) {
 
 // / @brief fallback execution without constant
 func (executor *HarmonyExecutor) Fallback(tx *HarmonyTransaction) {
-
-	//// get the latest dependency and wait on it
+	// get the latest dependency and wait on it
 	var should_wait *HarmonyTransaction = nil
 	// 定义条件函数替代宏
 	cond := func(_tx *HarmonyTransaction) bool {
@@ -552,10 +580,17 @@ func (executor *HarmonyExecutor) Fallback(tx *HarmonyTransaction) {
 		})
 	}
 
-	// 等待依赖事务提交
+	// 等待依赖事务提交（添加超时和退避策略）
 	if should_wait != nil {
+		backoff := 1
+		maxBackoff := 1000
 		for !should_wait.Committed.Load() {
-			// 等待，可以添加一些退避策略
+			// 指数退避，避免空转消耗 CPU
+			time.Sleep(time.Duration(backoff) * time.Microsecond)
+			backoff = backoff * 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
 			runtime.Gosched()
 		}
 	}
@@ -576,12 +611,73 @@ func (executor *HarmonyExecutor) Fallback(tx *HarmonyTransaction) {
 	_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
 	tools.PanicError("Transaction Execute", err)
 
-	//executor.Execute(tx)
-	//tx.Execute()
+	// 标记交易已提交
 	tx.Committed.Store(true)
-	//// atomic.AddUint64(&executor.counter, 1)
-	//fmt.Printf("tx %d committed", tx.ID)
 }
+
+//func (executor *HarmonyExecutor) Fallback(tx *HarmonyTransaction) {
+//
+//	//// get the latest dependency and wait on it
+//	var should_wait *HarmonyTransaction = nil
+//	// 定义条件函数替代宏
+//	cond := func(_tx *HarmonyTransaction) bool {
+//		return _tx.ID < tx.ID && (should_wait == nil || _tx.ID > should_wait.ID)
+//	}
+//
+//	for key := range tx.LocalPut {
+//		executor.lockTable.table.Get(key, func(entry HarmonyLockEntry) {
+//			for _, _tx := range entry.DepsGet {
+//				if cond(_tx) {
+//					should_wait = _tx
+//				}
+//			}
+//			for _, _tx := range entry.DepsPut {
+//				if cond(_tx) {
+//					should_wait = _tx
+//				}
+//			}
+//		})
+//	}
+//	for key := range tx.LocalGet {
+//		executor.lockTable.table.Get(key, func(entry HarmonyLockEntry) {
+//			for _, _tx := range entry.DepsPut {
+//				if cond(_tx) {
+//					should_wait = _tx
+//				}
+//			}
+//		})
+//	}
+//
+//	// 等待依赖事务提交
+//	if should_wait != nil {
+//		for !should_wait.Committed.Load() {
+//			// 等待，可以添加一些退避策略
+//			runtime.Gosched()
+//		}
+//	}
+//
+//	readSet := make(map[string]bool)
+//	for key := range tx.LocalGet {
+//		readSet[key] = true
+//	}
+//
+//	writeSet := make(map[string]bool)
+//	for key := range tx.LocalPut {
+//		writeSet[key] = true
+//	}
+//
+//	executor.ExecutorGetStorage2(tx, readSet)
+//	executor.ExecutorSetStorage2(tx, writeSet, "value")
+//
+//	_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
+//	tools.PanicError("Transaction Execute", err)
+//
+//	//executor.Execute(tx)
+//	//tx.Execute()
+//	tx.Committed.Store(true)
+//	//// atomic.AddUint64(&executor.counter, 1)
+//	//fmt.Printf("tx %d committed", tx.ID)
+//}
 
 // / @brief clean up the lock table
 func (executor *HarmonyExecutor) CleanLockTable(tx *HarmonyTransaction) {
@@ -627,43 +723,115 @@ func (he *HarmonyExecutor) ExecutorSetStorage2(tx *HarmonyTransaction, writeSet 
 
 // handleGetStorage 处理读存储操作
 func (he *HarmonyExecutor) ExecutorGetStorage(tx *HarmonyTransaction, readSet map[string]bool) {
-	var keys []string
 	for key := range readSet {
-		keys = append(keys, key)
-		value := ""
-
+		var value string
 		he.table.table.Put(key, func(entry *HarmonyEntry) {
 			value = (*entry).Value
-			// update put_txs' max_in and tx's min_out
+
+			// 只找到 ID 小于 tx.ID 的最大写者（最后一个写者）
+			var lastWriter *HarmonyTransaction
 			for _, _tx := range (*entry).ReservedPutTxs {
-				if _tx == tx {
-					continue
+				if _tx.ID < tx.ID {
+					if lastWriter == nil || _tx.ID > lastWriter.ID {
+						lastWriter = _tx
+					}
 				}
-				he.table.OnSeeingRWDependency(_tx, tx)
 			}
+
+			// 只与最后一个写者建立 RAW 依赖
+			if lastWriter != nil {
+				he.table.OnSeeingRWDependency(lastWriter, tx)
+			}
+
+			// 记录当前交易的读行为
 			(*entry).ReservedGetTxs = append((*entry).ReservedGetTxs, tx)
 		})
 		tx.LocalGet[key] = value
 	}
-	//fmt.Printf("tx %s read: %s", tx.ID, strings.Join(keys, " "))
 }
+
+//func (he *HarmonyExecutor) ExecutorGetStorage(tx *HarmonyTransaction, readSet map[string]bool) {
+//	for key := range readSet {
+//		he.table.table.Put(key, func(entry *HarmonyEntry) {
+//			// 找到在你之前（_tx.ID < tx.ID）且 ID 最大的那个写者
+//			var lastWriter *HarmonyTransaction
+//			for _, _tx := range (*entry).ReservedPutTxs {
+//				if _tx.ID < tx.ID {
+//					if lastWriter == nil || _tx.ID > lastWriter.ID {
+//						lastWriter = _tx
+//					}
+//				}
+//			}
+//
+//			// 只有找到了这个确定的 RAW 依赖，才更新状态
+//			if lastWriter != nil {
+//				he.table.OnSeeingRWDependency(lastWriter, tx)
+//			}
+//
+//			// 记录当前交易的读行为
+//			(*entry).ReservedGetTxs = append((*entry).ReservedGetTxs, tx)
+//		})
+//	}
+//}
 
 // handleSetStorage 处理写存储操作
 func (he *HarmonyExecutor) ExecutorSetStorage(tx *HarmonyTransaction, writeSet map[string]bool, value string) {
-	var keys []string
 	for key := range writeSet {
-		keys = append(keys, key)
 		tx.LocalPut[key] = value
 		he.table.table.Put(key, func(entry *HarmonyEntry) {
-			// update get_txs' min_out and tx's max_in
+			// 只找到 ID 小于 tx.ID 的最大读者（最后一个读者）
+			// 用于 WAR 依赖检测
+			var lastReader *HarmonyTransaction
 			for _, _tx := range (*entry).ReservedGetTxs {
-				if _tx == tx {
-					continue
+				if _tx.ID < tx.ID {
+					if lastReader == nil || _tx.ID > lastReader.ID {
+						lastReader = _tx
+					}
 				}
-				he.table.OnSeeingRWDependency(tx, _tx)
 			}
+
+			// 只与最后一个读者建立 WAR 依赖
+			if lastReader != nil {
+				he.table.OnSeeingRWDependency(tx, lastReader)
+			}
+
+			// 更新所有读者的依赖（WAW 依赖需要与所有更早的写者建立）
+			// 但为了性能，通常只与最后一个写者建立 WAW 依赖
+			var lastWriter *HarmonyTransaction
+			for _, _tx := range (*entry).ReservedPutTxs {
+				if _tx.ID < tx.ID {
+					if lastWriter == nil || _tx.ID > lastWriter.ID {
+						lastWriter = _tx
+					}
+				}
+			}
+
+			// 只与最后一个写者建立 WAW 依赖
+			if lastWriter != nil {
+				he.table.OnSeeingRWDependency(lastWriter, tx)
+			}
+
+			// 记录当前交易的写行为
 			(*entry).ReservedPutTxs = append((*entry).ReservedPutTxs, tx)
 		})
 	}
-	//log.Printf("tx %s write: %s", tx.ID, strings.Join(keys, " "))
 }
+
+//func (he *HarmonyExecutor) ExecutorSetStorage(tx *HarmonyTransaction, writeSet map[string]bool, value string) {
+//	var keys []string
+//	for key := range writeSet {
+//		keys = append(keys, key)
+//		tx.LocalPut[key] = value
+//		he.table.table.Put(key, func(entry *HarmonyEntry) {
+//			// update get_txs' min_out and tx's max_in
+//			for _, _tx := range (*entry).ReservedGetTxs {
+//				if _tx == tx {
+//					continue
+//				}
+//				he.table.OnSeeingRWDependency(tx, _tx)
+//			}
+//			(*entry).ReservedPutTxs = append((*entry).ReservedPutTxs, tx)
+//		})
+//	}
+//	//log.Printf("tx %s write: %s", tx.ID, strings.Join(keys, " "))
+//}

@@ -36,6 +36,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	fmt.Printf("交易实际被执行总次数 %d \n", harmonyInstance.Statistics.ExecCount.Load())
 	tps := float64(harmonyInstance.Statistics.CommitCount.Load()) / (elapsed.Seconds())
 	fmt.Printf("交易处理吞吐(TPS)= %f \n", tps)
+
 	if tools.TraceAbort {
 		abortSum := 0
 		var cost float64 = 0.0
