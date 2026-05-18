@@ -84,7 +84,7 @@ type InputData struct {
 
 func init() {
 	stateConfig = &database.StateDBConfig{
-		Path:    "/root/alldb/smallbank_database",
+		Path:    janusConfig.SmallbankDatabasePath,
 		Cache:   16000,
 		Handles: 16000,
 	}

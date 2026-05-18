@@ -1,6 +1,7 @@
 package database
 
 import (
+	janusConfig "Janus/config"
 	"path/filepath"
 	"runtime"
 
@@ -67,7 +68,7 @@ func init() {
 		Handles: 32768,
 	}
 	SmallBankStateDBConfig = &StateDBConfig{
-		Path:    "/root/alldb/smallbank_database",
+		Path:    janusConfig.SmallbankDatabasePath,
 		Cache:   0,
 		Handles: 0,
 	}

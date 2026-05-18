@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math/big"
 	"math/rand"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/chinuy/zipf"
@@ -14,7 +16,14 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-const ContractBasePath = "/root/Janus/contract_example/"
+var ContractBasePath string
+
+func init() {
+	// 在 init 中计算项目根目录
+	_, filename, _, _ := runtime.Caller(0)
+	ProjectRoot := filepath.Dir(filepath.Dir(filename))
+	ContractBasePath = filepath.Join(ProjectRoot, "contract_example")
+}
 
 // GenerateAddresses 生成指定范围的伪地址
 func GenerateAddresses(start, end int) []common.Address {

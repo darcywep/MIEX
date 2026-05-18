@@ -14,7 +14,7 @@ var chainConfig *params.ChainConfig
 
 func init() {
 	stateConfig = &database.StateDBConfig{
-		Path:    "/root/alldb/smallbank_database",
+		Path:    janusConfig.SmallbankDatabasePath,
 		Cache:   4096,
 		Handles: 4096,
 	}
