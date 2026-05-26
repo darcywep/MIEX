@@ -1,7 +1,6 @@
 package database
 
 import (
-	janusConfig "Janus/config"
 	"path/filepath"
 	"runtime"
 
@@ -13,19 +12,19 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 )
 
-type pebbleConfig struct {
-	file      string
-	cache     int // MB
-	handles   int
-	namespace string
-	readonly  bool
+type PebbleConfig struct {
+	File      string
+	Cache     int // MB
+	Handles   int
+	Namespace string
+	Readonly  bool
 }
 
-type rawConfig struct {
-	ancient          string // ancients directory
-	era              string // era files directory
-	metricsNamespace string // prefix added to freezer metric names
-	readOnly         bool
+type RawConfig struct {
+	Ancient          string // ancients directory
+	Era              string // era files directory
+	MetricsNamespace string // prefix added to freezer metric names
+	ReadOnly         bool
 }
 
 type StateDBConfig struct {
@@ -35,8 +34,8 @@ type StateDBConfig struct {
 }
 
 var path string
-var defaultPebbleConfig *pebbleConfig
-var defaultRawConfig *rawConfig
+var DefaultPebbleConfig *PebbleConfig
+var DefaultRawConfig *RawConfig
 var DefaultStateDBConfig *StateDBConfig
 var SmallBankStateDBConfig *StateDBConfig
 
@@ -47,19 +46,19 @@ func init() {
 		path = "/data/ethereum/execution/geth/chaindata"
 		//path = "/root/ethereum/execution/geth/chaindata"
 	}
-	defaultPebbleConfig = &pebbleConfig{
-		file:      path,
-		cache:     21462, // 如果内存较小，请修改
-		handles:   524288,
-		namespace: "eth/db/chaindata/",
-		readonly:  true,
+	DefaultPebbleConfig = &PebbleConfig{
+		File:      path,
+		Cache:     21462, // 如果内存较小，请修改
+		Handles:   524288,
+		Namespace: "eth/db/chaindata/",
+		Readonly:  true,
 	}
 
-	defaultRawConfig = &rawConfig{
-		ancient:          filepath.Join(path, "ancient"),
-		era:              "",
-		metricsNamespace: "eth/db/chaindata/",
-		readOnly:         true,
+	DefaultRawConfig = &RawConfig{
+		Ancient:          filepath.Join(path, "ancient"),
+		Era:              "",
+		MetricsNamespace: "eth/db/chaindata/",
+		ReadOnly:         true,
 	}
 
 	DefaultStateDBConfig = &StateDBConfig{
@@ -68,7 +67,7 @@ func init() {
 		Handles: 32768,
 	}
 	SmallBankStateDBConfig = &StateDBConfig{
-		Path:    janusConfig.SmallbankDatabasePath,
+		Path:    "/root/alldb/smallbank_database",
 		Cache:   0,
 		Handles: 0,
 	}
