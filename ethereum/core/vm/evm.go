@@ -356,6 +356,9 @@ func (evm *EVM) CallCode(caller common.Address, addr common.Address, input []byt
 		// The contract is a scoped environment for this execution context only.
 		contract := NewContract(caller, caller, value, gas, evm.jumpDests)
 		contract.SetCallCode(evm.resolveCodeHash(addr), evm.resolveCode(addr))
+		// CALLCODE 执行 addr 的代码，但 ADDRESS 仍保持 caller 上下文。
+		// 单独保存 addr，便于 replay 把耗时归属到代码拥有者。
+		contract.CodeAddress = addr
 		ret, err = evm.Run(contract, input, false)
 		gas = contract.Gas
 	}
@@ -400,6 +403,9 @@ func (evm *EVM) DelegateCall(originCaller common.Address, caller common.Address,
 		// Note: The value refers to the original value from the parent call.
 		contract := NewContract(originCaller, caller, value, gas, evm.jumpDests)
 		contract.SetCallCode(evm.resolveCodeHash(addr), evm.resolveCode(addr))
+		// DELEGATECALL 也会在执行 addr 代码时保留 caller 上下文。
+		// CodeAddress 用来让合约耗时聚合跟随实际执行的代码。
+		contract.CodeAddress = addr
 		ret, err = evm.Run(contract, input, false)
 		gas = contract.Gas
 	}

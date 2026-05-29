@@ -37,7 +37,11 @@ type Contract struct {
 
 	Code     []byte
 	CodeHash common.Hash
-	Input    []byte
+	// CodeAddress 表示当前实际执行代码所属的账户。
+	// 对 CALLCODE 和 DELEGATECALL 来说，EVM 的 ADDRESS 需要保持调用上下文，
+	// 但 replay 聚合 contractAddress_methodSelector 时应归属到代码拥有者。
+	CodeAddress common.Address
+	Input       []byte
 
 	// is the execution frame represented by this object a contract deployment
 	IsDeployment bool
@@ -54,11 +58,14 @@ func NewContract(caller common.Address, address common.Address, value *uint256.I
 		jumpDests = newMapJumpDests()
 	}
 	return &Contract{
-		caller:    caller,
-		address:   address,
-		jumpDests: jumpDests,
-		Gas:       gas,
-		value:     value,
+		caller:  caller,
+		address: address,
+		// 默认情况下，普通 CALL/CREATE 执行的就是 ADDRESS 暴露出来的账户。
+		// CALLCODE/DELEGATECALL 会在创建 Contract 后覆盖 CodeAddress。
+		CodeAddress: address,
+		jumpDests:   jumpDests,
+		Gas:         gas,
+		value:       value,
 	}
 }
 
