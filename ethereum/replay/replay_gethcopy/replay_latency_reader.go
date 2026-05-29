@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"Janus/ethereum/replay/replay_config"
+
 	"github.com/cockroachdb/pebble"
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -111,6 +113,79 @@ func ReadReplayContractMethodLatency(reader *ReplayLatencyReader, contractAddres
 	return aggregate, nil
 }
 
+// TestReadReplayLatency 从 replay_config 配置的区块范围读取 latency/rw，
+// 最后选择第一个迭代到的合约函数，再通过正式读取函数打印该合约的 latency 信息。
+// 这是 replay 写入后的本地读测试入口，reader 只打开一次，避免连续读取多个区块时反复 open Pebble。
+func TestReadReplayLatency() error {
+	reader, err := NewReplayLatencyReader()
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	startBlockNumber := replay_config.StartBlockNumber.Uint64()
+	finishBlockNumber := replay_config.FinishBlockNumber.Uint64()
+	addSpan := replay_config.AddSpan.Uint64()
+	if addSpan == 0 {
+		return fmt.Errorf("replay_config.AddSpan 不能为 0")
+	}
+
+	fmt.Printf("\n========== Replay Latency Read Test ==========\n")
+	fmt.Printf("LatencyDB: %s\n", reader.Path())
+	fmt.Printf("Blocks: [%d, %d)\n", startBlockNumber, finishBlockNumber)
+
+	for blockNumber := startBlockNumber; blockNumber < finishBlockNumber; blockNumber += addSpan {
+		blockValue, err := ReadReplayBlockLatency(reader, blockNumber)
+		if err != nil {
+			return fmt.Errorf("读取区块 latency 失败 block=%d: %w", blockNumber, err)
+		}
+		fmt.Printf("\n[Block %d] tx_count=%d\n", blockValue.BlockNumber, len(blockValue.Txs))
+		for _, tx := range blockValue.Txs {
+			if tx == nil {
+				continue
+			}
+			fmt.Printf("  txid=%d txhash=%s latency_ns=%.2f read=%v write=%v",
+				tx.TxIndex, tx.TxHash, tx.LatencyNS, tx.ReadAddresses, tx.WriteAddresses)
+			if tx.Error != "" {
+				fmt.Printf(" error=%s", tx.Error)
+			}
+			fmt.Printf("\n")
+		}
+	}
+
+	contractAddress, methodSelector, err := firstReplayLatencyContractMethod(reader)
+	if err != nil {
+		return err
+	}
+	aggregates, err := ReadReplayContractLatencies(reader, contractAddress)
+	if err != nil {
+		return fmt.Errorf("读取合约 latency 失败 contract=%s: %w", contractAddress, err)
+	}
+	fmt.Printf("\n[First Contract] address=%s method_count=%d\n", contractAddress, len(aggregates))
+	for selector, aggregate := range aggregates {
+		fmt.Printf("  selector=%s count=%d avg_latency_ns=%.2f avg_inclusive_latency_ns=%.2f total_latency_ns=%.2f total_inclusive_latency_ns=%.2f\n",
+			selector,
+			aggregate.Count,
+			aggregate.AverageLatencyNS,
+			aggregate.AverageInclusiveLatencyNS,
+			aggregate.TotalLatencyNS,
+			aggregate.TotalInclusiveLatencyNS,
+		)
+	}
+	aggregate, err := ReadReplayContractMethodLatency(reader, contractAddress, methodSelector)
+	if err != nil {
+		return fmt.Errorf("读取合约方法 latency 失败 contract=%s selector=%s: %w", contractAddress, methodSelector, err)
+	}
+	fmt.Printf("[First Contract Method] key=%s count=%d avg_latency_ns=%.2f avg_inclusive_latency_ns=%.2f\n",
+		aggregate.Key,
+		aggregate.Count,
+		aggregate.AverageLatencyNS,
+		aggregate.AverageInclusiveLatencyNS,
+	)
+	fmt.Printf("==============================================\n\n")
+	return nil
+}
+
 // blockLatencyValueFromJSON 从 <blockNumber> 的 JSON value 还原区块交易数组。
 func blockLatencyValueFromJSON(value []byte) (*blockLatencyValue, error) {
 	blockValue := new(blockLatencyValue)
@@ -142,6 +217,34 @@ func replayLatencyGet(db *pebble.DB, key string) ([]byte, error) {
 	value := make([]byte, len(data))
 	copy(value, data)
 	return value, nil
+}
+
+// firstReplayLatencyContractMethod 返回 LatencyDB 中第一个迭代到的合约函数 key。
+// 区块 key 是纯数字，合约 key 是 contractAddress_methodSelector，因此找到第一个合法下划线 key 即可。
+func firstReplayLatencyContractMethod(reader *ReplayLatencyReader) (string, string, error) {
+	iter, err := reader.db.NewIter(&pebble.IterOptions{})
+	if err != nil {
+		return "", "", err
+	}
+	defer iter.Close()
+
+	for iter.First(); iter.Valid(); iter.Next() {
+		key := string(iter.Key())
+		parts := strings.SplitN(key, "_", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		contractAddress := normalizeContractAddress(parts[0])
+		methodSelector := normalizeMethodSelector(parts[1])
+		if contractAddress == "" || methodSelector == "" {
+			continue
+		}
+		return contractAddress, methodSelector, nil
+	}
+	if err := iter.Error(); err != nil {
+		return "", "", err
+	}
+	return "", "", fmt.Errorf("LatencyDB 中没有找到合约 latency 记录")
 }
 
 // newReplayLatencyIterator 构造只扫描指定前缀的原生 Pebble iterator。
