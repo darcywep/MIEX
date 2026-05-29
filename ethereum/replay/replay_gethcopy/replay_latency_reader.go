@@ -144,8 +144,8 @@ func TestReadReplayLatency() error {
 			if tx == nil {
 				continue
 			}
-			fmt.Printf("  txid=%d txhash=%s latency_ns=%.2f read=%v write=%v",
-				tx.TxIndex, tx.TxHash, tx.LatencyNS, tx.ReadAddresses, tx.WriteAddresses)
+			fmt.Printf("  txid=%d txhash=%s latency_us=%.2f read=%v write=%v",
+				tx.TxIndex, tx.TxHash, tx.LatencyNS/1000, tx.ReadAddresses, tx.WriteAddresses)
 			if tx.Error != "" {
 				fmt.Printf(" error=%s", tx.Error)
 			}

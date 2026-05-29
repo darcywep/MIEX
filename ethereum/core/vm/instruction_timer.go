@@ -103,7 +103,7 @@ func CloseTxLatencyTrace(workerID int) TxLatencyTraceResult {
 	}
 	result := TxLatencyTraceResult{}
 	LoadTxCost[workerID] = false
-	result.OpcodeLatencyNS = opCodeCallNumbersCost(OpCodeCallNumbers[workerID])
+	result.OpcodeLatencyNS = opCodeCallNumbersLatencyNS(OpCodeCallNumbers[workerID])
 
 	LoadEVMWallTime[workerID] = false
 	result.EVMWallTimeNS = EVMWallTimeNS[workerID]
@@ -176,8 +176,9 @@ func RecordOpCodeExecution(workerID int, opCode OpCode) {
 	}
 }
 
-// OpCodeAverageTime 返回 replay 估算使用的单条 opcode 平均耗时。
-// 如果某条 opcode 没有计时数据，则使用 InstructionAverageTime 兜底。
+// OpCodeAverageTime 返回内存中保存的单条 opcode 平均耗时。
+// 这里保持旧 TxCost 逻辑不变：InstructionTimers 加载时已经做过 /100，本函数不再乘回。
+// replay latency 需要 ns 时，统一走 opCodeCallNumbersLatencyNS，避免影响 CloseTxCost。
 func OpCodeAverageTime(opCode OpCode) float64 {
 	op := int(opCode)
 	if op >= 0 && op < len(InstructionTimers) && InstructionTimers[op] != nil {
@@ -257,7 +258,7 @@ func ExitContractLatencyFrame(workerID int) {
 	frame := stack[len(stack)-1]
 	// frame 退出时才把 opcode 次数换算成当前 frame 自身耗时。
 	// 子 frame 一定先于父 frame 退出，所以这里可以直接累加子 frame 的 InclusiveLatencyNS。
-	frame.LatencyNS = opCodeCallNumbersCost(frame.opCodeCallNumbers)
+	frame.LatencyNS = opCodeCallNumbersLatencyNS(frame.opCodeCallNumbers)
 	frame.InclusiveLatencyNS = frame.LatencyNS
 	for _, child := range frame.Children {
 		frame.InclusiveLatencyNS += child.InclusiveLatencyNS
@@ -280,7 +281,7 @@ func contractMethodSelector(input []byte, isDeployment bool) string {
 }
 
 // opCodeCallNumbersCost 把一组 opcode 次数统一换算成 InstructionTimers 估算耗时。
-// 交易级和合约 frame 级统计共用这段逻辑，保证两边的换算公式一致。
+// 这个函数保留旧 TxCost 的单位，不乘回 instructionTimingScale，避免改变原有 TxCost 语义。
 func opCodeCallNumbersCost(numbers []int) (cost float64) {
 	for opCode, number := range numbers {
 		if number == 0 {
@@ -289,6 +290,13 @@ func opCodeCallNumbersCost(numbers []int) (cost float64) {
 		cost += OpCodeAverageTime(OpCode(opCode)) * float64(number)
 	}
 	return cost
+}
+
+// opCodeCallNumbersLatencyNS 把 opcode 次数换算成 replay latency 使用的纳秒值。
+// InstructionTimers 加载时做过 /100，所以 replay 估算时在这里乘回 100；
+// 这样交易 latency 和合约 latency 是 ns，同时不影响旧 CloseTxCost。
+func opCodeCallNumbersLatencyNS(numbers []int) float64 {
+	return opCodeCallNumbersCost(numbers) * instructionTimingScale
 }
 
 // InstructionTiming 存储单个指令的计时信息
@@ -300,7 +308,10 @@ type InstructionTiming struct {
 }
 
 var InstructionTimers []*InstructionTiming
-var InstructionAverageTime = float64(50) / 100
+
+const instructionTimingScale = 100
+
+var InstructionAverageTime = float64(50) / instructionTimingScale
 
 func init() {
 	timings, err := LoadTimings(config.InstructionTimingFilePath)
