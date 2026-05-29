@@ -11,6 +11,14 @@
           </mappings>
         </serverdata>
       </paths>
+      <paths name="bcds79">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/Janus" local="$PROJECT_DIR$" web="/" />
+            <mapping local="" />
+          </mappings>
+        </serverdata>
+      </paths>
     </serverData>
     <option name="myAutoUpload" value="ALWAYS" />
   </component>

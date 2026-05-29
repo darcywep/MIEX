@@ -521,7 +521,10 @@ func ReplayWithRecordOpCodeTiming() {
 	// 设置更激进的GC参数
 	debug.SetGCPercent(50) // GC触发阈值降低到50%（默认100%）
 
-	for blockNumber := replay_config.StartBlockNumber; blockNumber.Cmp(replay_config.FinishBlockNumber) == -1; blockNumber = blockNumber.Add(blockNumber, replay_config.AddSpan) {
+	// big.Int 的 Add 会修改接收者；这里必须复制 StartBlockNumber，
+	// 否则 replay 循环结束后会把 replay_config.StartBlockNumber 推进到 FinishBlockNumber，
+	// 后面的读测试就会看到空区间 [FinishBlockNumber, FinishBlockNumber)。
+	for blockNumber := new(big.Int).Set(replay_config.StartBlockNumber); blockNumber.Cmp(replay_config.FinishBlockNumber) == -1; blockNumber = blockNumber.Add(blockNumber, replay_config.AddSpan) {
 
 		blockCount++
 
