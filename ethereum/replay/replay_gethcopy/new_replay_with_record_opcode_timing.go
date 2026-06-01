@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/big"
 	"os"
-	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"sort"
@@ -46,9 +45,9 @@ const (
 )
 
 var (
-	// replayLatencyDBDirName 配置 replay latency Pebble 在项目根目录下的目录名。
-	// 默认写入 <项目根目录>/LatencyDB；需要切换目录时只改这里，路径推导逻辑保持不变。
-	replayLatencyDBDirName = "LatencyDB"
+	// replayLatencyDBPathName 配置 replay latency Pebble 的固定落盘路径。
+	// 当前服务器运行环境要求写入 /home/bcds/LatencyDB。
+	replayLatencyDBPathName = "/home/bcds/LatencyDB"
 )
 
 // txLatencyRecord 是 replay 内部使用的单笔交易 latency 摘要。
@@ -73,8 +72,9 @@ type txLatencyRecord struct {
 // blockLatencyValue 是交易 latency 主表真正落盘的 value。
 // key 只到区块号：<blockNumber>，value 中的 txs 数组保存该区块全部交易。
 type blockLatencyValue struct {
-	BlockNumber uint64             `json:"block_number"`
-	Txs         []*txLatencyRecord `json:"txs"`
+	BlockNumber    uint64                     `json:"block_number"`
+	SummaryLatency *replayLatencySummaryValue `json:"summary_latency,omitempty"`
+	Txs            []*txLatencyRecord         `json:"txs"`
 }
 
 // contractLatencyAggregate 是某个 contractAddress_methodSelector 在整个 replay 区间内的累计平均。
@@ -133,12 +133,9 @@ func openReplayLatencyDB(readonly bool) (*pebble.DB, string, error) {
 }
 
 // replayLatencyDBPath 返回 latency Pebble 的输出路径。
-// 路径固定在项目根目录下的 LatencyDB，不依赖程序从哪个目录启动。
+// 当前固定写入 /home/bcds/LatencyDB，和以太坊 chaindata 完全分离。
 func replayLatencyDBPath() string {
-	_, filename, _, _ := runtime.Caller(0)
-	// 当前文件在 ethereum/replay/replay_gethcopy 下，向上四级回到项目根目录。
-	projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filename))))
-	return filepath.Join(projectRoot, replayLatencyDBDirName)
+	return replayLatencyDBPathName
 }
 
 // newBlockLatencyRecorder 复用跨区块的 aggregate map；

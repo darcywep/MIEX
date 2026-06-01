@@ -18,6 +18,19 @@ type BlockLatencyRecord = blockLatencyValue
 // ContractLatencyAggregate 暴露给读取函数调用方使用，表示一个合约函数的累计平均 latency。
 type ContractLatencyAggregate = contractLatencyAggregate
 
+const replayLatencySummaryKey = "summary_latency"
+const replayLatencyReadTestBlockLimit = 5
+
+// replayLatencySummaryValue 是写入 summary_latency 的统计结果。
+// avg/min/max 仍然使用 LatencyDB 中的 ns 单位；greater/lower 字段表示交易数量。
+type replayLatencySummaryValue struct {
+	AvgLatencyNS         float64 `json:"avg_latencyt"`
+	MinLatencyNS         float64 `json:"min"`
+	MaxLatencyNS         float64 `json:"max"`
+	GreaterAvgLatencyCnt uint64  `json:"greater_avg_latency"`
+	LowerAvgLatencyCnt   uint64  `json:"lower_avg_latency"`
+}
+
 // ReplayLatencyReader 持有只读 Pebble 句柄。
 // 调用方批量读取多个区块或多个合约时，应复用同一个 reader，避免重复 open/close LatencyDB。
 type ReplayLatencyReader struct {
@@ -113,6 +126,81 @@ func ReadReplayContractMethodLatency(reader *ReplayLatencyReader, contractAddres
 	return aggregate, nil
 }
 
+// UpdateReplayLatencyStatistics 从已有 LatencyDB 中读取每个区块的 txs，计算区块级和全局 latency summary 并写回。
+// 区块仍写回原 blockNumber key，保留 block_number 和 txs，只新增 summary_latency 字段。
+// 全局 summary 写入 key=summary_latency，value 只包含 avg/min/max/greater/lower 五个统计字段。
+func UpdateReplayLatencyStatistics() error {
+	db, path, err := openReplayLatencyDB(false)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	startBlockNumber := replay_config.StartBlockNumber.Uint64()
+	finishBlockNumber := replay_config.FinishBlockNumber.Uint64()
+	addSpan := replay_config.AddSpan.Uint64()
+	if addSpan == 0 {
+		return fmt.Errorf("replay_config.AddSpan 不能为 0")
+	}
+
+	globalSummary := &replayLatencySummaryValue{}
+	totalLatencyNS := float64(0)
+	totalTxCount := uint64(0)
+
+	fmt.Printf("\n========== Replay Latency Summary Update ==========\n")
+	fmt.Printf("LatencyDB: %s\n", path)
+	fmt.Printf("Blocks: [%d, %d)\n", startBlockNumber, finishBlockNumber)
+
+	for blockNumber := startBlockNumber; blockNumber < finishBlockNumber; blockNumber += addSpan {
+		blockValue, err := readReplayBlockLatencyValue(db, blockNumber)
+		if err != nil {
+			return fmt.Errorf("读取区块 latency 失败 block=%d: %w", blockNumber, err)
+		}
+		blockSummary, blockTotalLatencyNS, blockTxCount := summarizeReplayTxLatencies(blockValue.Txs)
+		blockValue.SummaryLatency = blockSummary
+		if err := writeReplayLatencyJSON(db, latencyBlockKey(blockNumber), blockValue); err != nil {
+			return fmt.Errorf("写回区块 summary_latency 失败 block=%d: %w", blockNumber, err)
+		}
+
+		totalLatencyNS += blockTotalLatencyNS
+		totalTxCount += blockTxCount
+		updateGlobalLatencyMinMax(globalSummary, blockSummary, totalTxCount == blockTxCount)
+		fmt.Printf("[Block %d] tx_count=%d avg_us=%.2f min_us=%.2f max_us=%.2f greater=%d lower=%d\n",
+			blockValue.BlockNumber,
+			blockTxCount,
+			blockSummary.AvgLatencyNS/1000,
+			blockSummary.MinLatencyNS/1000,
+			blockSummary.MaxLatencyNS/1000,
+			blockSummary.GreaterAvgLatencyCnt,
+			blockSummary.LowerAvgLatencyCnt,
+		)
+	}
+
+	if totalTxCount > 0 {
+		globalSummary.AvgLatencyNS = totalLatencyNS / float64(totalTxCount)
+	}
+	greater, lower, err := countReplayLatencyAroundAverage(db, startBlockNumber, finishBlockNumber, addSpan, globalSummary.AvgLatencyNS)
+	if err != nil {
+		return err
+	}
+	globalSummary.GreaterAvgLatencyCnt = greater
+	globalSummary.LowerAvgLatencyCnt = lower
+	if err := writeReplayLatencyJSON(db, replayLatencySummaryKey, globalSummary); err != nil {
+		return fmt.Errorf("写回全局 summary_latency 失败: %w", err)
+	}
+
+	fmt.Printf("[Summary] tx_count=%d avg_us=%.2f min_us=%.2f max_us=%.2f greater=%d lower=%d\n",
+		totalTxCount,
+		globalSummary.AvgLatencyNS/1000,
+		globalSummary.MinLatencyNS/1000,
+		globalSummary.MaxLatencyNS/1000,
+		globalSummary.GreaterAvgLatencyCnt,
+		globalSummary.LowerAvgLatencyCnt,
+	)
+	fmt.Printf("===================================================\n\n")
+	return nil
+}
+
 // TestReadReplayLatency 从 replay_config 配置的区块范围读取 latency/rw，
 // 最后选择第一个迭代到的合约函数，再通过正式读取函数打印该合约的 latency 信息。
 // 这是 replay 写入后的本地读测试入口，reader 只打开一次，避免连续读取多个区块时反复 open Pebble。
@@ -134,12 +222,22 @@ func TestReadReplayLatency() error {
 	fmt.Printf("LatencyDB: %s\n", reader.Path())
 	fmt.Printf("Blocks: [%d, %d)\n", startBlockNumber, finishBlockNumber)
 
-	for blockNumber := startBlockNumber; blockNumber < finishBlockNumber; blockNumber += addSpan {
+	printedBlockCount := uint64(0)
+	for blockNumber := startBlockNumber; blockNumber < finishBlockNumber && printedBlockCount < replayLatencyReadTestBlockLimit; blockNumber += addSpan {
 		blockValue, err := ReadReplayBlockLatency(reader, blockNumber)
 		if err != nil {
 			return fmt.Errorf("读取区块 latency 失败 block=%d: %w", blockNumber, err)
 		}
 		fmt.Printf("\n[Block %d] tx_count=%d\n", blockValue.BlockNumber, len(blockValue.Txs))
+		if blockValue.SummaryLatency != nil {
+			fmt.Printf("  summary_latency avg_us=%.2f min_us=%.2f max_us=%.2f greater=%d lower=%d\n",
+				blockValue.SummaryLatency.AvgLatencyNS/1000,
+				blockValue.SummaryLatency.MinLatencyNS/1000,
+				blockValue.SummaryLatency.MaxLatencyNS/1000,
+				blockValue.SummaryLatency.GreaterAvgLatencyCnt,
+				blockValue.SummaryLatency.LowerAvgLatencyCnt,
+			)
+		}
 		for _, tx := range blockValue.Txs {
 			if tx == nil {
 				continue
@@ -151,6 +249,7 @@ func TestReadReplayLatency() error {
 			}
 			fmt.Printf("\n")
 		}
+		printedBlockCount++
 	}
 
 	contractAddress, methodSelector, err := firstReplayLatencyContractMethod(reader)
@@ -219,6 +318,96 @@ func replayLatencyGet(db *pebble.DB, key string) ([]byte, error) {
 	return value, nil
 }
 
+// readReplayBlockLatencyValue 直接从原生 Pebble 读取一个区块的 blockLatencyValue。
+func readReplayBlockLatencyValue(db *pebble.DB, blockNumber uint64) (*blockLatencyValue, error) {
+	data, err := replayLatencyGet(db, latencyBlockKey(blockNumber))
+	if err != nil {
+		return nil, err
+	}
+	return blockLatencyValueFromJSON(data)
+}
+
+// summarizeReplayTxLatencies 计算一组交易的平均、最小、最大以及高于/低于平均值的数量。
+func summarizeReplayTxLatencies(txs []*txLatencyRecord) (*replayLatencySummaryValue, float64, uint64) {
+	summary := &replayLatencySummaryValue{}
+	totalLatencyNS := float64(0)
+	txCount := uint64(0)
+	for _, tx := range txs {
+		if tx == nil {
+			continue
+		}
+		txCount++
+		totalLatencyNS += tx.LatencyNS
+		if txCount == 1 || tx.LatencyNS < summary.MinLatencyNS {
+			summary.MinLatencyNS = tx.LatencyNS
+		}
+		if txCount == 1 || tx.LatencyNS > summary.MaxLatencyNS {
+			summary.MaxLatencyNS = tx.LatencyNS
+		}
+	}
+	if txCount > 0 {
+		summary.AvgLatencyNS = totalLatencyNS / float64(txCount)
+	}
+	for _, tx := range txs {
+		if tx == nil {
+			continue
+		}
+		if tx.LatencyNS > summary.AvgLatencyNS {
+			summary.GreaterAvgLatencyCnt++
+		}
+		if tx.LatencyNS < summary.AvgLatencyNS {
+			summary.LowerAvgLatencyCnt++
+		}
+	}
+	return summary, totalLatencyNS, txCount
+}
+
+// updateGlobalLatencyMinMax 将区块 min/max 合并到全局 summary。
+func updateGlobalLatencyMinMax(globalSummary, blockSummary *replayLatencySummaryValue, firstNonEmptyBlock bool) {
+	if blockSummary == nil || (blockSummary.MinLatencyNS == 0 && blockSummary.MaxLatencyNS == 0) {
+		return
+	}
+	if firstNonEmptyBlock || blockSummary.MinLatencyNS < globalSummary.MinLatencyNS {
+		globalSummary.MinLatencyNS = blockSummary.MinLatencyNS
+	}
+	if firstNonEmptyBlock || blockSummary.MaxLatencyNS > globalSummary.MaxLatencyNS {
+		globalSummary.MaxLatencyNS = blockSummary.MaxLatencyNS
+	}
+}
+
+// countReplayLatencyAroundAverage 根据全局平均值统计高于和低于平均值的交易数量。
+func countReplayLatencyAroundAverage(db *pebble.DB, startBlockNumber, finishBlockNumber, addSpan uint64, avgLatencyNS float64) (uint64, uint64, error) {
+	greater := uint64(0)
+	lower := uint64(0)
+	for blockNumber := startBlockNumber; blockNumber < finishBlockNumber; blockNumber += addSpan {
+		blockValue, err := readReplayBlockLatencyValue(db, blockNumber)
+		if err != nil {
+			return 0, 0, fmt.Errorf("读取区块 latency 失败 block=%d: %w", blockNumber, err)
+		}
+		for _, tx := range blockValue.Txs {
+			if tx == nil {
+				continue
+			}
+			if tx.LatencyNS > avgLatencyNS {
+				greater++
+			}
+			if tx.LatencyNS < avgLatencyNS {
+				lower++
+			}
+		}
+	}
+	return greater, lower, nil
+}
+
+// writeReplayLatencyJSON 将统计结果以 JSON 写回 LatencyDB。
+func writeReplayLatencyJSON(db *pebble.DB, key string, value interface{}) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return db.Set([]byte(key), data, pebble.Sync)
+}
+
 // firstReplayLatencyContractMethod 返回 LatencyDB 中第一个迭代到的合约函数 key。
 // 区块 key 是纯数字，合约 key 是 contractAddress_methodSelector，因此找到第一个合法下划线 key 即可。
 func firstReplayLatencyContractMethod(reader *ReplayLatencyReader) (string, string, error) {
@@ -230,6 +419,9 @@ func firstReplayLatencyContractMethod(reader *ReplayLatencyReader) (string, stri
 
 	for iter.First(); iter.Valid(); iter.Next() {
 		key := string(iter.Key())
+		if key == replayLatencySummaryKey {
+			continue
+		}
 		parts := strings.SplitN(key, "_", 2)
 		if len(parts) != 2 {
 			continue
