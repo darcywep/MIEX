@@ -3,6 +3,7 @@ package replay_gethcopy
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"Janus/ethereum/replay/replay_config"
@@ -19,16 +20,96 @@ type BlockLatencyRecord = blockLatencyValue
 type ContractLatencyAggregate = contractLatencyAggregate
 
 const replayLatencySummaryKey = "summary_latency"
-const replayLatencyReadTestBlockLimit = 5
+const replayLatencyReadTestBlockLimit = 1
 
 // replayLatencySummaryValue 是写入 summary_latency 的统计结果。
-// avg/min/max 仍然使用 LatencyDB 中的 ns 单位；greater/lower 字段表示交易数量。
+// avg/min/max/lower_avg 仍然使用 LatencyDB 中的 ns 单位；greater/lower 字段表示交易数量。
 type replayLatencySummaryValue struct {
-	AvgLatencyNS         float64 `json:"avg_latencyt"`
-	MinLatencyNS         float64 `json:"min"`
-	MaxLatencyNS         float64 `json:"max"`
-	GreaterAvgLatencyCnt uint64  `json:"greater_avg_latency"`
-	LowerAvgLatencyCnt   uint64  `json:"lower_avg_latency"`
+	AvgLatencyNS              float64           `json:"avg_latencyt"`
+	MinLatencyNS              float64           `json:"min"`
+	MaxLatencyNS              float64           `json:"max"`
+	LowerAvgLatencyNS         float64           `json:"lower_avg_latency"`
+	GreaterAvgLatencyCnt      uint64            `json:"greater_avg_latency"`
+	GreaterLowerAvgLatencyCnt uint64            `json:"greater_lower_avg_latency"`
+	LowerLowerAvgLatencyCnt   uint64            `json:"lower_lower_avg_latency"`
+	LatencyBuckets            map[string]uint64 `json:"-"`
+}
+
+// MarshalJSON 将 latency 分桶作为 summary_latency 的顶层字段写出，例如 latency0_10: 10。
+func (s replayLatencySummaryValue) MarshalJSON() ([]byte, error) {
+	fields := map[string]interface{}{
+		"avg_latencyt":              s.AvgLatencyNS,
+		"min":                       s.MinLatencyNS,
+		"max":                       s.MaxLatencyNS,
+		"lower_avg_latency":         s.LowerAvgLatencyNS,
+		"greater_avg_latency":       s.GreaterAvgLatencyCnt,
+		"greater_lower_avg_latency": s.GreaterLowerAvgLatencyCnt,
+		"lower_lower_avg_latency":   s.LowerLowerAvgLatencyCnt,
+	}
+	for key, count := range s.LatencyBuckets {
+		if count == 0 {
+			continue
+		}
+		fields[key] = count
+	}
+	return json.Marshal(fields)
+}
+
+// UnmarshalJSON 读取 summary_latency 时把 latency0_10 这类动态字段还原到 LatencyBuckets。
+func (s *replayLatencySummaryValue) UnmarshalJSON(data []byte) error {
+	fields := make(map[string]json.RawMessage)
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	*s = replayLatencySummaryValue{}
+	for key, value := range fields {
+		switch key {
+		case "avg_latencyt":
+			if err := json.Unmarshal(value, &s.AvgLatencyNS); err != nil {
+				return err
+			}
+		case "min":
+			if err := json.Unmarshal(value, &s.MinLatencyNS); err != nil {
+				return err
+			}
+		case "max":
+			if err := json.Unmarshal(value, &s.MaxLatencyNS); err != nil {
+				return err
+			}
+		case "lower_avg_latency":
+			if err := json.Unmarshal(value, &s.LowerAvgLatencyNS); err != nil {
+				return err
+			}
+		case "greater_avg_latency":
+			if err := json.Unmarshal(value, &s.GreaterAvgLatencyCnt); err != nil {
+				return err
+			}
+		case "greater_lower_avg_latency":
+			if err := json.Unmarshal(value, &s.GreaterLowerAvgLatencyCnt); err != nil {
+				return err
+			}
+		case "lower_lower_avg_latency":
+			if err := json.Unmarshal(value, &s.LowerLowerAvgLatencyCnt); err != nil {
+				return err
+			}
+		default:
+			if !strings.HasPrefix(key, "latency") {
+				continue
+			}
+			var count uint64
+			if err := json.Unmarshal(value, &count); err != nil {
+				return err
+			}
+			if count == 0 {
+				continue
+			}
+			if s.LatencyBuckets == nil {
+				s.LatencyBuckets = make(map[string]uint64)
+			}
+			s.LatencyBuckets[key] = count
+		}
+	}
+	return nil
 }
 
 // ReplayLatencyReader 持有只读 Pebble 句柄。
@@ -128,7 +209,7 @@ func ReadReplayContractMethodLatency(reader *ReplayLatencyReader, contractAddres
 
 // UpdateReplayLatencyStatistics 从已有 LatencyDB 中读取每个区块的 txs，计算区块级和全局 latency summary 并写回。
 // 区块仍写回原 blockNumber key，保留 block_number 和 txs，只新增 summary_latency 字段。
-// 全局 summary 写入 key=summary_latency，value 只包含 avg/min/max/greater/lower 五个统计字段。
+// 全局 summary 写入 key=summary_latency，value 包含 avg/min/max/lower_avg、相应数量统计和 latency 分桶。
 func UpdateReplayLatencyStatistics() error {
 	db, path, err := openReplayLatencyDB(false)
 	if err != nil {
@@ -150,7 +231,6 @@ func UpdateReplayLatencyStatistics() error {
 	fmt.Printf("\n========== Replay Latency Summary Update ==========\n")
 	fmt.Printf("LatencyDB: %s\n", path)
 	fmt.Printf("Blocks: [%d, %d)\n", startBlockNumber, finishBlockNumber)
-
 	for blockNumber := startBlockNumber; blockNumber < finishBlockNumber; blockNumber += addSpan {
 		blockValue, err := readReplayBlockLatencyValue(db, blockNumber)
 		if err != nil {
@@ -165,37 +245,46 @@ func UpdateReplayLatencyStatistics() error {
 		totalLatencyNS += blockTotalLatencyNS
 		totalTxCount += blockTxCount
 		updateGlobalLatencyMinMax(globalSummary, blockSummary, totalTxCount == blockTxCount)
-		fmt.Printf("[Block %d] tx_count=%d avg_us=%.2f min_us=%.2f max_us=%.2f greater=%d lower=%d\n",
+		mergeReplayLatencyBuckets(globalSummary, blockSummary)
+		fmt.Printf("[Block %d] tx_count=%d avg_us=%.2f lower_avg_us=%.2f min_us=%.2f max_us=%.2f greater_avg=%d greater_lower_avg=%d lower_lower_avg=%d buckets=%s\n",
 			blockValue.BlockNumber,
 			blockTxCount,
 			blockSummary.AvgLatencyNS/1000,
+			blockSummary.LowerAvgLatencyNS/1000,
 			blockSummary.MinLatencyNS/1000,
 			blockSummary.MaxLatencyNS/1000,
 			blockSummary.GreaterAvgLatencyCnt,
-			blockSummary.LowerAvgLatencyCnt,
+			blockSummary.GreaterLowerAvgLatencyCnt,
+			blockSummary.LowerLowerAvgLatencyCnt,
+			formatReplayLatencyBuckets(blockSummary.LatencyBuckets),
 		)
 	}
 
 	if totalTxCount > 0 {
 		globalSummary.AvgLatencyNS = totalLatencyNS / float64(totalTxCount)
 	}
-	greater, lower, err := countReplayLatencyAroundAverage(db, startBlockNumber, finishBlockNumber, addSpan, globalSummary.AvgLatencyNS)
+	greaterAvg, lowerAvgLatencyNS, greaterLowerAvg, lowerLowerAvg, err := calculateReplayLatencyAroundAverage(db, startBlockNumber, finishBlockNumber, addSpan, globalSummary.AvgLatencyNS)
 	if err != nil {
 		return err
 	}
-	globalSummary.GreaterAvgLatencyCnt = greater
-	globalSummary.LowerAvgLatencyCnt = lower
+	globalSummary.GreaterAvgLatencyCnt = greaterAvg
+	globalSummary.LowerAvgLatencyNS = lowerAvgLatencyNS
+	globalSummary.GreaterLowerAvgLatencyCnt = greaterLowerAvg
+	globalSummary.LowerLowerAvgLatencyCnt = lowerLowerAvg
 	if err := writeReplayLatencyJSON(db, replayLatencySummaryKey, globalSummary); err != nil {
 		return fmt.Errorf("写回全局 summary_latency 失败: %w", err)
 	}
 
-	fmt.Printf("[Summary] tx_count=%d avg_us=%.2f min_us=%.2f max_us=%.2f greater=%d lower=%d\n",
+	fmt.Printf("[Summary] tx_count=%d avg_us=%.2f lower_avg_us=%.2f min_us=%.2f max_us=%.2f greater_avg=%d greater_lower_avg=%d lower_lower_avg=%d buckets=%s\n",
 		totalTxCount,
 		globalSummary.AvgLatencyNS/1000,
+		globalSummary.LowerAvgLatencyNS/1000,
 		globalSummary.MinLatencyNS/1000,
 		globalSummary.MaxLatencyNS/1000,
 		globalSummary.GreaterAvgLatencyCnt,
-		globalSummary.LowerAvgLatencyCnt,
+		globalSummary.GreaterLowerAvgLatencyCnt,
+		globalSummary.LowerLowerAvgLatencyCnt,
+		formatReplayLatencyBuckets(globalSummary.LatencyBuckets),
 	)
 	fmt.Printf("===================================================\n\n")
 	return nil
@@ -221,6 +310,24 @@ func TestReadReplayLatency() error {
 	fmt.Printf("\n========== Replay Latency Read Test ==========\n")
 	fmt.Printf("LatencyDB: %s\n", reader.Path())
 	fmt.Printf("Blocks: [%d, %d)\n", startBlockNumber, finishBlockNumber)
+	globalData, err := replayLatencyGet(reader.db, replayLatencySummaryKey)
+	if err != nil {
+		return fmt.Errorf("读取全局 summary_latency 失败: %w", err)
+	}
+	globalSummary := new(replayLatencySummaryValue)
+	if err := json.Unmarshal(globalData, globalSummary); err != nil {
+		return fmt.Errorf("解析全局 summary_latency 失败: %w", err)
+	}
+	fmt.Printf("[Summary] summary_latency avg_us=%.2f lower_avg_us=%.2f min_us=%.2f max_us=%.2f greater_avg=%d greater_lower_avg=%d lower_lower_avg=%d buckets=%s\n",
+		globalSummary.AvgLatencyNS/1000,
+		globalSummary.LowerAvgLatencyNS/1000,
+		globalSummary.MinLatencyNS/1000,
+		globalSummary.MaxLatencyNS/1000,
+		globalSummary.GreaterAvgLatencyCnt,
+		globalSummary.GreaterLowerAvgLatencyCnt,
+		globalSummary.LowerLowerAvgLatencyCnt,
+		formatReplayLatencyBuckets(globalSummary.LatencyBuckets),
+	)
 
 	printedBlockCount := uint64(0)
 	for blockNumber := startBlockNumber; blockNumber < finishBlockNumber && printedBlockCount < replayLatencyReadTestBlockLimit; blockNumber += addSpan {
@@ -230,12 +337,15 @@ func TestReadReplayLatency() error {
 		}
 		fmt.Printf("\n[Block %d] tx_count=%d\n", blockValue.BlockNumber, len(blockValue.Txs))
 		if blockValue.SummaryLatency != nil {
-			fmt.Printf("  summary_latency avg_us=%.2f min_us=%.2f max_us=%.2f greater=%d lower=%d\n",
+			fmt.Printf("  summary_latency avg_us=%.2f lower_avg_us=%.2f min_us=%.2f max_us=%.2f greater_avg=%d greater_lower_avg=%d lower_lower_avg=%d buckets=%s\n",
 				blockValue.SummaryLatency.AvgLatencyNS/1000,
+				blockValue.SummaryLatency.LowerAvgLatencyNS/1000,
 				blockValue.SummaryLatency.MinLatencyNS/1000,
 				blockValue.SummaryLatency.MaxLatencyNS/1000,
 				blockValue.SummaryLatency.GreaterAvgLatencyCnt,
-				blockValue.SummaryLatency.LowerAvgLatencyCnt,
+				blockValue.SummaryLatency.GreaterLowerAvgLatencyCnt,
+				blockValue.SummaryLatency.LowerLowerAvgLatencyCnt,
+				formatReplayLatencyBuckets(blockValue.SummaryLatency.LatencyBuckets),
 			)
 		}
 		for _, tx := range blockValue.Txs {
@@ -344,10 +454,13 @@ func summarizeReplayTxLatencies(txs []*txLatencyRecord) (*replayLatencySummaryVa
 		if txCount == 1 || tx.LatencyNS > summary.MaxLatencyNS {
 			summary.MaxLatencyNS = tx.LatencyNS
 		}
+		addReplayLatencyBucket(summary, tx.LatencyNS)
 	}
 	if txCount > 0 {
 		summary.AvgLatencyNS = totalLatencyNS / float64(txCount)
 	}
+	lowerAvgTotalLatencyNS := float64(0)
+	lowerAvgTxCount := uint64(0)
 	for _, tx := range txs {
 		if tx == nil {
 			continue
@@ -356,10 +469,79 @@ func summarizeReplayTxLatencies(txs []*txLatencyRecord) (*replayLatencySummaryVa
 			summary.GreaterAvgLatencyCnt++
 		}
 		if tx.LatencyNS < summary.AvgLatencyNS {
-			summary.LowerAvgLatencyCnt++
+			lowerAvgTxCount++
+			lowerAvgTotalLatencyNS += tx.LatencyNS
+		}
+	}
+	if lowerAvgTxCount > 0 {
+		summary.LowerAvgLatencyNS = lowerAvgTotalLatencyNS / float64(lowerAvgTxCount)
+		for _, tx := range txs {
+			if tx == nil {
+				continue
+			}
+			if tx.LatencyNS > summary.LowerAvgLatencyNS {
+				summary.GreaterLowerAvgLatencyCnt++
+			}
+			if tx.LatencyNS < summary.LowerAvgLatencyNS {
+				summary.LowerLowerAvgLatencyCnt++
+			}
 		}
 	}
 	return summary, totalLatencyNS, txCount
+}
+
+// addReplayLatencyBucket 按 10us 宽度统计交易 latency 分布，只记录出现过交易的区间。
+func addReplayLatencyBucket(summary *replayLatencySummaryValue, latencyNS float64) {
+	if summary.LatencyBuckets == nil {
+		summary.LatencyBuckets = make(map[string]uint64)
+	}
+	summary.LatencyBuckets[replayLatencyBucketKey(latencyNS)]++
+}
+
+// mergeReplayLatencyBuckets 把单区块 latency 分布合并到全局 summary。
+func mergeReplayLatencyBuckets(globalSummary, blockSummary *replayLatencySummaryValue) {
+	if blockSummary == nil || len(blockSummary.LatencyBuckets) == 0 {
+		return
+	}
+	if globalSummary.LatencyBuckets == nil {
+		globalSummary.LatencyBuckets = make(map[string]uint64)
+	}
+	for key, count := range blockSummary.LatencyBuckets {
+		globalSummary.LatencyBuckets[key] += count
+	}
+}
+
+// replayLatencyBucketKey 把纳秒 latency 映射到 [N,N+10)us 区间，例如 latency10_20。
+func replayLatencyBucketKey(latencyNS float64) string {
+	latencyUS := int(latencyNS / 1000)
+	if latencyUS < 0 {
+		latencyUS = 0
+	}
+	lower := (latencyUS / 10) * 10
+	upper := lower + 10
+	return fmt.Sprintf("latency%d_%d", lower, upper)
+}
+
+// formatReplayLatencyBuckets 按 key 排序后格式化 latency 分桶，便于读测试输出检查。
+func formatReplayLatencyBuckets(buckets map[string]uint64) string {
+	if len(buckets) == 0 {
+		return "{}"
+	}
+	keys := make([]string, 0, len(buckets))
+	for key := range buckets {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var builder strings.Builder
+	builder.WriteString("{")
+	for i, key := range keys {
+		if i > 0 {
+			builder.WriteString(", ")
+		}
+		builder.WriteString(fmt.Sprintf("%s:%d", key, buckets[key]))
+	}
+	builder.WriteString("}")
+	return builder.String()
 }
 
 // updateGlobalLatencyMinMax 将区块 min/max 合并到全局 summary。
@@ -375,28 +557,55 @@ func updateGlobalLatencyMinMax(globalSummary, blockSummary *replayLatencySummary
 	}
 }
 
-// countReplayLatencyAroundAverage 根据全局平均值统计高于和低于平均值的交易数量。
-func countReplayLatencyAroundAverage(db *pebble.DB, startBlockNumber, finishBlockNumber, addSpan uint64, avgLatencyNS float64) (uint64, uint64, error) {
-	greater := uint64(0)
-	lower := uint64(0)
+// calculateReplayLatencyAroundAverage 先计算低于 avg_latency 的平均时延 lower_avg_latency，
+// 再统计大于 avg_latency、大于 lower_avg_latency 和小于 lower_avg_latency 的交易数量。
+func calculateReplayLatencyAroundAverage(db *pebble.DB, startBlockNumber, finishBlockNumber, addSpan uint64, avgLatencyNS float64) (uint64, float64, uint64, uint64, error) {
+	greaterAvg := uint64(0)
+	lowerAvgTotalLatencyNS := float64(0)
+	lowerAvgTxCount := uint64(0)
 	for blockNumber := startBlockNumber; blockNumber < finishBlockNumber; blockNumber += addSpan {
 		blockValue, err := readReplayBlockLatencyValue(db, blockNumber)
 		if err != nil {
-			return 0, 0, fmt.Errorf("读取区块 latency 失败 block=%d: %w", blockNumber, err)
+			return 0, 0, 0, 0, fmt.Errorf("读取区块 latency 失败 block=%d: %w", blockNumber, err)
 		}
 		for _, tx := range blockValue.Txs {
 			if tx == nil {
 				continue
 			}
 			if tx.LatencyNS > avgLatencyNS {
-				greater++
+				greaterAvg++
 			}
 			if tx.LatencyNS < avgLatencyNS {
-				lower++
+				lowerAvgTxCount++
+				lowerAvgTotalLatencyNS += tx.LatencyNS
 			}
 		}
 	}
-	return greater, lower, nil
+	if lowerAvgTxCount == 0 {
+		return greaterAvg, 0, 0, 0, nil
+	}
+
+	lowerAvgLatencyNS := lowerAvgTotalLatencyNS / float64(lowerAvgTxCount)
+	greaterLowerAvg := uint64(0)
+	lowerLowerAvg := uint64(0)
+	for blockNumber := startBlockNumber; blockNumber < finishBlockNumber; blockNumber += addSpan {
+		blockValue, err := readReplayBlockLatencyValue(db, blockNumber)
+		if err != nil {
+			return 0, 0, 0, 0, fmt.Errorf("读取区块 latency 失败 block=%d: %w", blockNumber, err)
+		}
+		for _, tx := range blockValue.Txs {
+			if tx == nil {
+				continue
+			}
+			if tx.LatencyNS > lowerAvgLatencyNS {
+				greaterLowerAvg++
+			}
+			if tx.LatencyNS < lowerAvgLatencyNS {
+				lowerLowerAvg++
+			}
+		}
+	}
+	return greaterAvg, lowerAvgLatencyNS, greaterLowerAvg, lowerLowerAvg, nil
 }
 
 // writeReplayLatencyJSON 将统计结果以 JSON 写回 LatencyDB。
