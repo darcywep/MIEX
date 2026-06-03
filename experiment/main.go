@@ -1,406 +1,88 @@
 package main
 
 import (
-	"Janus/baselines/aria/aria"
-	"Janus/baselines/harmony/harmony"
-	newHarmony "Janus/baselines/harmony/new_harmony"
-	"Janus/baselines/optme/optme"
-	"Janus/baselines/schain/schain"
-	janusConfig "Janus/config"
-	lvm "Janus/core/evm"
-	"Janus/ethereum/config"
-	"Janus/ethereum/core/types"
-	"Janus/ethereum/core/vm"
-	"Janus/ethereum/database"
-	"Janus/januscore/janus"
-	janusClassicAbort "Janus/januscore/janus_classic_abort"
-	"Janus/monitor"
-	"Janus/tools"
-	"bytes"
-	"encoding/json"
-	"flag"
+	"Janus/experiment/realworkload"
+	"Janus/experiment/synthetic"
 	"fmt"
-	"math/big"
-	"time"
-
-	//"io"
-	//"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"strconv"
-	"sync"
-
-	"github.com/ethereum/go-ethereum/params"
-	"github.com/xuri/excelize/v2"
+	"os"
+	"strings"
 )
 
-var stateConfig *database.StateDBConfig
-var chainConfig *params.ChainConfig
-
-var (
-	threadNumber  = 8
-	blockNumber   = 10   // 总的交易数量
-	blockTxNumber = 2000 // 每个区块的交易数量
-	skew          = 1.01
-
-	addressNumberRate = 4 // 总共生成多少个地址 = blockTxSum * addressNumberRate
-
-	// longTxCountRate + shortTxCountRate = 1
-	longTxCountRate  = 0.5 // 长交易的比例
-	shortTxCountRate = 0.5 // 短交易的比例
-
-	waterMarkAlpha = 1.5 // 水位线参数 α
-	waterMarkBeta  = 3.5 // 水位线参数 β
-
-	fibonacciN                  = 10    // -1: 代表随机生成
-	shortTxFibonacciLoopNumber  = 20    // 循环执行 fibonacciLoopNumber 次斐波那契计算
-	longTxFibonacciLoopNumber   = 40    // 循环执行 fibonacciLoopNumber 次斐波那契计算
-	recursiveCalculateFibonacci = false // 是否使用递归计算斐波那契
-	traceAbort                  = false // 是否追踪丢弃
-)
-
-type InputData struct {
-	Baseline     string
-	ThreadNumber int
-	BlockNumber  int
-	BlockTxNum   int
-
-	Skew float64
-
-	LongTxCountRate  float64
-	ShortTxCountRate float64
-
-	WaterMarkAlpha float64
-	WaterMarkBeta  float64
-
-	FibonacciN                  int
-	FibonacciLoopNum            int
-	RecursiveCalculateFibonacci bool
-	TraceAbort                  bool
-
-	Txs [][][]int
-}
-
-func init() {
-	stateConfig = &database.StateDBConfig{
-		Path:    janusConfig.SmallbankDatabasePath,
-		Cache:   16000,
-		Handles: 16000,
-	}
-	chainConfig = config.TestChainConfig
-}
-
-func runTool(binary string, input InputData) {
-
-	data, err := json.Marshal(input)
-	if err != nil {
-		panic(err)
-	}
-
-	cmd := exec.Command(binary)
-
-	cmd.Stdin = bytes.NewReader(data)
-
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		fmt.Println("error:", err)
-	}
-
-	fmt.Println("------", binary, "------")
-	fmt.Println(string(out))
-}
-
-func runProject(path string, input InputData) {
-
-	data, _ := json.Marshal(input)
-
-	cmd := exec.Command("go", "run", "main.go")
-
-	cmd.Dir = path
-	cmd.Stdin = bytes.NewReader(data)
-
-	out, err := cmd.CombinedOutput()
-
-	fmt.Println("====", path, "====")
-	fmt.Println(string(out))
-
-	if err != nil {
-		fmt.Println("error:", err)
-	}
-}
-
-func writeTPSResultToExcel(filename string, baselines []string, tpssAndLatency [][][]float64) error {
-	f := excelize.NewFile()
-
-	sheet := "TPS"
-	_, err := f.NewSheet(sheet)
-	if err != nil {
-		return err
-	}
-
-	// 标题行
-	err = f.SetCellValue(sheet, "A1", "Baseline")
-	if err != nil {
-		return err
-	}
-	err = f.SetCellValue(sheet, "B1", "TPS")
-	if err != nil {
-		return err
-	}
-	err = f.SetCellValue(sheet, "C1", "Latency (s)")
-	if err != nil {
-		return err
-	}
-
-	for i := 0; i < len(baselines) && i < len(tpssAndLatency); i++ {
-		row := i + 2
-		err = f.SetCellValue(sheet, fmt.Sprintf("A%d", row), baselines[i])
-		if err != nil {
-			return err
-		}
-		err = f.SetCellValue(sheet, fmt.Sprintf("B%d", row), tpssAndLatency[i][0][0])
-		if err != nil {
-			return err
-		}
-		err = f.SetCellValue(sheet, fmt.Sprintf("C%d", row), tpssAndLatency[i][1][0])
-		if err != nil {
-			return err
-		}
-	}
-
-	// 删除默认Sheet1
-	err = f.DeleteSheet("Sheet1")
-	if err != nil {
-		return err
-	}
-
-	return f.SaveAs(filename)
-}
-
-func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan struct{}, signalWg *sync.WaitGroup, blockTxs []types.Transactions, levm *lvm.LEVM) {
-	monitorFilePath := filepath.Join(janusConfig.MonitorBasePath, baseline+"/"+baseFileName)
-	//if baseline == "Non_Prioritied" {
-	//	go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-	//	*tpss = append(*tpss, janus_calssic_occ.Run(blockTxs, levm))
-	//} else if baseline == "Non_Concurrent_Graph_Construct" {
-	//	go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-	//	*tpss = append(*tpss, janusClassicDAG.Run(blockTxs, levm))
-	//} else if baseline == "Non_Maximum_Commit_Validation" {
-	//	go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-	//	*tpss = append(*tpss, janusClassicAbort.Run(blockTxs, levm))
-	//} else if baseline == "MIEX" {
-	//	go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-	//	*tpss = append(*tpss, janus.Run(blockTxs, levm))
-	//}
-	if baseline == "harmony" {
-		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		*tpss = append(*tpss, harmony.Run(blockTxs, levm))
-	} else if baseline == "schain" {
-		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		*tpss = append(*tpss, schain.Run(blockTxs, levm))
-	} else if baseline == "optme" {
-		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		*tpss = append(*tpss, optme.Run(blockTxs, levm))
-	} else if baseline == "aria" {
-		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		*tpss = append(*tpss, aria.Run(blockTxs, levm))
-	} else if baseline == "janus" {
-		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		*tpss = append(*tpss, janus.Run(blockTxs, levm))
-	} else if baseline == "Non_Maximum_Commit_Validation" {
-		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		*tpss = append(*tpss, janusClassicAbort.Run(blockTxs, levm))
-	} else if baseline == "newHarmony" {
-		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		*tpss = append(*tpss, newHarmony.Run(blockTxs, levm))
-	}
-}
-
+// main 是 experiment 的统一启动入口。
+// 为了不破坏原来的合成实验启动方式，默认和直接传 flag 时仍运行 synthetic。
+// 真实以太坊负载必须显式使用 ethereum/real/realworkload 子命令。
 func main() {
-
-	baseline := flag.String("baseline", "all",
-		"baseline:\n"+
-			"\tall      run all baseline\n"+
-			"\tschian   run schain\n"+
-			"\toptme    run optme\n"+
-			"\taria     run aria\n"+
-			"\tharmony  run harmony\n"+
-			"\tserial   run serial\n"+
-			"\tblockstm run blockstm\n"+
-			"\tjanus    run janus")
-
-	fmt.Println(baseline)
-
-	flag.IntVar(&threadNumber, "t", 8, "threads number")
-	flag.IntVar(&blockNumber, "b", 10, "blocks number")
-	flag.IntVar(&blockTxNumber, "bt", 2000, "transactions per block")
-
-	flag.Float64Var(&skew, "sk", 0.5, "zipf skew")
-
-	flag.IntVar(&addressNumberRate, "ar", 4,
-		"address number rate = blockTxSum * addressNumberRate")
-
-	flag.Float64Var(&longTxCountRate, "lr", 0.5,
-		"long transaction rate (long + short = 1)")
-	flag.Float64Var(&shortTxCountRate, "sr", 0.5,
-		"short transaction rate (long + short = 1)")
-
-	flag.Float64Var(&waterMarkAlpha, "wa", 1.5, "water mark alpha")
-	flag.Float64Var(&waterMarkBeta, "wb", 3.5, "water mark beta")
-
-	flag.IntVar(&fibonacciN, "f", 10,
-		"fibonacci number (-1 means randomly generated, 0 is not available)")
-	//flag.IntVar(&fibonacciN, "f", 10,
-	//	"short transaction fibonacci number (-1 means randomly generated, 0 is not available)")
-	flag.IntVar(&shortTxFibonacciLoopNumber, "sfln", 20,
-		"short transaction fibonacci loop number (0 is not available)")
-	flag.IntVar(&longTxFibonacciLoopNumber, "lfln", 40,
-		"long transaction fibonacci loop number (0 is not available)")
-
-	flag.BoolVar(&recursiveCalculateFibonacci, "r", false,
-		"recursive calculate fibonacci (default false)")
-	flag.BoolVar(&traceAbort, "ta", false,
-		"trace transaction abort (must run janus first when it is \"true\", must be \"false\" when test performance)")
-	flag.Parse()
-	fmt.Println(
-		"baseline:", *baseline,
-		"\nthreadNumber:", threadNumber,
-		"\nblockNumber:", blockNumber,
-		"\nblockTxNumber:", blockTxNumber,
-		"\nskew:", skew,
-		"\naddressNumberRate:", addressNumberRate,
-		"\nlongTxCountRate:", longTxCountRate,
-		"\nshortTxCountRate:", shortTxCountRate,
-		"\nwaterMarkAlpha:", waterMarkAlpha,
-		"\nwaterMarkBeta:", waterMarkBeta,
-		"\nfibonacciN:", fibonacciN,
-		"\nshortTxFibonacciLoopNumber:", shortTxFibonacciLoopNumber,
-		"\nlongTxFibonacciLoopNumber:", longTxFibonacciLoopNumber,
-		"\nrecursiveCalculateFibonacci:", recursiveCalculateFibonacci,
-		"\ntraceAbort:", traceAbort,
-	)
-
-	if *baseline != "all" && *baseline != "harmony" && *baseline != "schain" && *baseline != "optme" &&
-		*baseline != "aria" && *baseline != "serial" && *baseline != "janus" && *baseline != "blockstm" {
-		fmt.Println("baseline is invalid")
+	mode, args := splitExperimentMode(os.Args[1:])
+	var err error
+	switch mode {
+	case "ethereum", "real", "realworkload":
+		err = realworkload.Run(args)
+	case "synthetic", "old":
+		err = synthetic.Run(args)
+	case "help", "-h", "--help":
+		printUsage()
 		return
+	default:
+		err = fmt.Errorf("unknown experiment mode: %s", mode)
 	}
-
-	blocksInfo := make([][][]int, 0, blockNumber)
-	for i := 0; i < blockNumber; i++ {
-		// 生成交易（Zipf 控制冲突率）
-		// txsInfo [][]int = [from, to, txType, fibonacciN]
-		txsInfo := tools.GenerateBaseTransaction(blockTxNumber*addressNumberRate, int(float64(blockTxNumber)*longTxCountRate),
-			int(float64(blockTxNumber)*shortTxCountRate), fibonacciN, shortTxFibonacciLoopNumber, longTxFibonacciLoopNumber, skew)
-		fmt.Printf("区块%d: 生成交易数量: %d\n", i, len(txsInfo)) // 生成交易基础信息
-		blocksInfo = append(blocksInfo, txsInfo)
-	}
-
-	input := InputData{
-		Baseline:     *baseline,
-		ThreadNumber: threadNumber,
-		BlockNumber:  blockNumber,
-		BlockTxNum:   blockTxNumber,
-
-		Skew: skew,
-
-		WaterMarkAlpha: waterMarkAlpha,
-		WaterMarkBeta:  waterMarkBeta,
-
-		LongTxCountRate:  longTxCountRate,
-		ShortTxCountRate: shortTxCountRate,
-
-		FibonacciN:                  fibonacciN,
-		FibonacciLoopNum:            longTxFibonacciLoopNumber,
-		RecursiveCalculateFibonacci: recursiveCalculateFibonacci,
-		TraceAbort:                  traceAbort,
-
-		Txs: blocksInfo,
-	}
-
-	//data, _ := io.ReadAll(os.Stdin)
-	//
-	//err := json.Unmarshal(data, &input)
-	//if err != nil {
-	//	panic(err)
-	//}
-
-	//if *baseline == "blockstm" {
-	//	runProject("/root/Janus_blockstm", input)
-	//	return
-	//}
-	//if *baseline != "all" {
-	//	fmt.Println("run Janus")
-	//	runProject("/root/Janus", input)
-	//	return
-	//}
-	//runProject("/root/Janus", input)
-	//runProject("/root/Janus_blockstm", input)
-	janusConfig.AllThreadNum = input.ThreadNumber
-	janusConfig.Skew = input.Skew
-	janusConfig.AllBlocksTxSum = input.BlockNumber * input.BlockTxNum
-	janusConfig.BlockSize = input.BlockTxNum
-	janusConfig.WaterMarkAlpha = input.WaterMarkAlpha
-	janusConfig.WaterMarkBeta = input.WaterMarkBeta
-	tools.TraceAbort = input.TraceAbort
-
-	if janusConfig.AllThreadNum == 0 {
-		vm.InitTxCost(1)
-	} else {
-		vm.InitTxCost(janusConfig.AllThreadNum)
-	}
-
-	runtime.GOMAXPROCS(janusConfig.AllThreadNum + 2)
-	fmt.Printf("GOMAXPROCS set to: %d\n", runtime.GOMAXPROCS(0))
-	var (
-		baseFileName = "t(" + strconv.Itoa(input.ThreadNumber) + ")" +
-			"_bt(" + strconv.Itoa(input.BlockNumber) + ")" +
-			"_sk(" + fmt.Sprintf("%f", input.Skew) + ")" +
-			"_lr(" + fmt.Sprintf("%f", input.LongTxCountRate) + ")" +
-			"_sr(" + fmt.Sprintf("%f", input.ShortTxCountRate) + ")" +
-			"_wa(" + fmt.Sprintf("%f", input.WaterMarkAlpha) + ")" +
-			"_wb(" + fmt.Sprintf("%f", input.WaterMarkBeta) + ")" +
-			"_f(" + strconv.Itoa(input.FibonacciN) + ")" +
-			"_fln(" + strconv.Itoa(input.FibonacciLoopNum) + ")" +
-			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
-		tpssAndLatency [][][]float64 = make([][][]float64, 0)
-		//baselines                    = []string{"janus", "harmony", "optme", "Non_Maximum_Commit_Validation"}
-		baselines = []string{"janus", "optme", "newHarmony", "Non_Maximum_Commit_Validation"}
-		//baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX"}
-		//baselines = []string{"Non_Maximum_Commit_Validation"}
-	)
-
-	blockNum := janusConfig.AllBlocksTxSum / janusConfig.BlockSize
-	blockTxs := make([]types.Transactions, 0) // 每个block的交易集合
-	for i := 0; i < blockNum; i++ {
-		ethTxs := tools.GenerateTxsFormBriefTx(input.Txs[i], input.RecursiveCalculateFibonacci)
-		blockTxs = append(blockTxs, ethTxs)
-	}
-
-	fmt.Println("正在预读取状态...")
-	levm := lvm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
-	for _, txs := range blockTxs {
-		lvm.PreReadState(txs, levm)
-	}
-	defer levm.AllDB().Close()
-
-	if input.Baseline != "all" {
-		baselines = []string{input.Baseline}
-	}
-
-	for _, bl := range baselines {
-		signalChan := make(chan struct{})
-		signalWg := new(sync.WaitGroup)
-		signalWg.Add(1)
-		run(bl, baseFileName, &tpssAndLatency, signalChan, signalWg, blockTxs, levm)
-		signalChan <- struct{}{}
-		close(signalChan)
-		signalWg.Wait()
-		fmt.Println()
-	}
-	err := writeTPSResultToExcel(filepath.Join(janusConfig.MonitorBasePath, "tps"+"/"+baseFileName), baselines, tpssAndLatency)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
+}
+
+func splitExperimentMode(args []string) (string, []string) {
+	if len(args) == 0 {
+		return "synthetic", args
+	}
+	if args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+		return "help", nil
+	}
+	if strings.HasPrefix(args[0], "-") {
+		return "synthetic", args
+	}
+	return args[0], args[1:]
+}
+
+func printUsage() {
+	fmt.Println("Usage:")
+	fmt.Println("  go run ./experiment [synthetic flags]")
+	fmt.Println("  go run ./experiment synthetic [synthetic flags]")
+	fmt.Println("  go run ./experiment ethereum [ethereum real workload flags]")
+	fmt.Println()
+	fmt.Println("Modes:")
+	fmt.Println("  synthetic   原来的合成负载实验；默认模式。直接传 -baseline/-t/-b/-bt 等旧参数仍会进入这里。")
+	fmt.Println("  ethereum    真实以太坊负载实验；从 LatencyDB 读取区块 [21000001, 21100001) 的 tx latency/rw。")
+	fmt.Println()
+	fmt.Println("Synthetic examples:")
+	fmt.Println("  go run ./experiment -baseline janus -t 8 -b 10 -bt 2000")
+	fmt.Println("  go run ./experiment synthetic -baseline all -t 8 -b 10 -bt 2000 -sk 0.5 -lr 0.5 -sr 0.5")
+	fmt.Println()
+	fmt.Println("Synthetic flags:")
+	fmt.Println("  -baseline  all | harmony | schain | optme | aria | serial | janus | blockstm")
+	fmt.Println("             选择要运行的 baseline；默认 all。")
+	fmt.Println("  -t         worker thread number；默认 8。")
+	fmt.Println("  -b         blocks number；合成负载生成的区块数量，默认 10。")
+	fmt.Println("  -bt        transactions per block；每个合成区块的交易数量，默认 2000。")
+	fmt.Println("  -sk        zipf skew；控制合成交易地址热点/冲突倾斜度，默认 0.5。")
+	fmt.Println("  -ar        address number rate；地址数量 = blockTxNumber * ar，默认 4。")
+	fmt.Println("  -lr        long transaction rate；长交易比例，默认 0.5。")
+	fmt.Println("  -sr        short transaction rate；短交易比例，默认 0.5。")
+	fmt.Println("  -wa        water mark alpha；Janus 水位线 alpha，默认 1.5。")
+	fmt.Println("  -wb        water mark beta；Janus 水位线 beta，默认 3.5。")
+	fmt.Println("  -f         fibonacci number；-1 表示随机生成，默认 10。")
+	fmt.Println("  -sfln      short transaction fibonacci loop number；默认 20。")
+	fmt.Println("  -lfln      long transaction fibonacci loop number；默认 40。")
+	fmt.Println("  -r         recursive calculate fibonacci；是否递归计算斐波那契，默认 false。")
+	fmt.Println("  -ta        trace transaction abort；是否追踪丢弃交易，默认 false。")
+	fmt.Println()
+	fmt.Println("Ethereum real workload examples:")
+	fmt.Println("  go run ./experiment ethereum -baseline janus -t 8 -latency 50")
+	fmt.Println("  go run ./experiment ethereum -baseline all -t 8 -latency 50")
+	fmt.Println()
+	fmt.Println("Ethereum flags:")
+	fmt.Println("  -baseline  janus | optme | newHarmony | Non_Maximum_Commit_Validation | harmony | schain | aria | serial | all")
+	fmt.Println("             选择要运行的 baseline；默认 janus。")
+	fmt.Println("  -t         worker thread number；默认 8。")
+	fmt.Println("  -latency   long/short threshold in microseconds；tx latency < threshold 为短交易，否则为长交易，默认 50。")
 }

@@ -1,7 +1,6 @@
 package janus_calssic_occ
 
 import (
-	janusConfig "Janus/config"
 	"Janus/ethereum/core/vm"
 
 	//"Janus/ethereum/core/types"
@@ -12,28 +11,20 @@ import (
 
 // executeTransaction 执行交易
 func (pe *PipelineEngine) executeTransaction(jtx *janusTransaction, workerID int) {
-	readSet := make(map[string]struct{})
-	writeSet := make(map[string]struct{})
 	tx := jtx.Tx
 
-	vm.OpenTxCost(workerID)
-	//fmt.Println("inputs:", common.Bytes2Hex(tx.Data()))
-	_, err := pe.levms[workerID].CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
-	tools.PanicError("Janus Tx Execute ", err)
-	jtx.ExecutionCost = vm.CloseTxCost(workerID)
-
-	if tx.TxType == janusConfig.ShortTx {
-		key1 := tx.From().String()
-		key2 := tx.SmallBankTo.String()
-		writeSet[key1] = struct{}{}
-		writeSet[key2] = struct{}{}
-		readSet[key1] = struct{}{}
-		readSet[key2] = struct{}{}
+	// 真实以太坊负载不再进入 EVM：按 LatencyDB 的 latency 忙等，并直接使用 LatencyDB 读写集。
+	// 合成负载保持原来的 EVM 执行和 opcode cost 统计。
+	if tools.ExecuteSimulatedTransaction(tx) {
+		jtx.ExecutionCost = tools.SimulatedTransactionCost(tx)
 	} else {
-		key1 := tx.SmallBankTo.String()
-		writeSet[key1] = struct{}{}
-		readSet[key1] = struct{}{}
+		vm.OpenTxCost(workerID)
+		//fmt.Println("inputs:", common.Bytes2Hex(tx.Data()))
+		_, err := pe.levms[workerID].CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
+		tools.PanicError("Janus Tx Execute ", err)
+		jtx.ExecutionCost = vm.CloseTxCost(workerID)
 	}
+	readSet, writeSet := tools.TransactionReadWriteSet(tx)
 
 	jtx.rwSet = &ReadWriteSet{
 		TxID:       jtx.OriginalIdx,
@@ -49,25 +40,14 @@ func (pe *PipelineEngine) executeTransaction(jtx *janusTransaction, workerID int
 
 // reExecuteTransaction 重执行交易
 func (pe *PipelineEngine) reExecuteTransaction(oldRWSet *ReadWriteSet, workerID int) *ReadWriteSet {
-	readSet := make(map[string]struct{})
-	writeSet := make(map[string]struct{})
 	tx := oldRWSet.Tx.Tx
 
-	_, err := pe.levms[workerID].CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
-	tools.PanicError("Janus Tx ReExecute", err)
-
-	if tx.TxType == janusConfig.ShortTx {
-		key1 := tx.From().String()
-		key2 := tx.SmallBankTo.String()
-		writeSet[key1] = struct{}{}
-		writeSet[key2] = struct{}{}
-		readSet[key1] = struct{}{}
-		readSet[key2] = struct{}{}
-	} else {
-		key1 := tx.SmallBankTo.String()
-		writeSet[key1] = struct{}{}
-		readSet[key1] = struct{}{}
+	// 重执行阶段同样走模拟分支，避免 abort 后重新进入真实 EVM 导致执行失败。
+	if !tools.ExecuteSimulatedTransaction(tx) {
+		_, err := pe.levms[workerID].CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
+		tools.PanicError("Janus Tx ReExecute", err)
 	}
+	readSet, writeSet := tools.TransactionReadWriteSet(tx)
 
 	rwSet := &ReadWriteSet{
 		TxID:       oldRWSet.TxID,

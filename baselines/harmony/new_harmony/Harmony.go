@@ -2,7 +2,6 @@ package newHarmony
 
 import (
 	"Janus/baselines/common"
-	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/tools"
 	"fmt"
@@ -514,21 +513,13 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 // 对应论文 Section 3.1: simulation step
 func (executor *HarmonyExecutor) Execute(tx *HarmonyTransaction) {
 
-	_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
-	tools.PanicError("Transaction Execute", err)
-
-	if tx.Tx.EthTx.TxType == janusConfig.ShortTx {
-		key1 := tx.Tx.EthTx.From().String()
-		key2 := tx.Tx.EthTx.SmallBankTo.String()
-		tx.Tx.Vertex.WriteKeys[key1] = "value"
-		tx.Tx.Vertex.WriteKeys[key2] = "value"
-		tx.Tx.Vertex.ReadKeys[key1] = "value"
-		tx.Tx.Vertex.ReadKeys[key2] = "value"
-	} else {
-		key1 := tx.Tx.EthTx.SmallBankTo.String()
-		tx.Tx.Vertex.WriteKeys[key1] = "value"
-		tx.Tx.Vertex.ReadKeys[key1] = "value"
+	if !tools.ExecuteSimulatedTransaction(tx.Tx.EthTx) {
+		_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
+		tools.PanicError("Transaction Execute", err)
 	}
+
+	// 真实负载直接使用 LatencyDB 读写集；合成负载仍回退到 SmallBank 规则。
+	tools.FillStringReadWriteSet(tx.Tx.EthTx, tx.Tx.Vertex.ReadKeys, tx.Tx.Vertex.WriteKeys)
 
 	readSet := make(map[string]bool)
 	writeSet := make(map[string]bool)
@@ -742,8 +733,10 @@ func (executor *HarmonyExecutor) Fallback(tx *HarmonyTransaction) {
 	executor.ExecutorGetStorage2(tx, readSet)
 
 	// Step 2: 基于最新值重新执行合约逻辑
-	_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
-	tools.PanicError("Transaction Fallback Execute", err)
+	if !tools.ExecuteSimulatedTransaction(tx.Tx.EthTx) {
+		_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
+		tools.PanicError("Transaction Fallback Execute", err)
+	}
 
 	// Step 3: 将执行结果写入 table
 	executor.ExecutorSetStorage2(tx, writeSet, "value")

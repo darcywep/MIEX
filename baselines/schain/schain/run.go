@@ -27,7 +27,7 @@ func init() {
 func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	fmt.Println("=== Run SChain ===")
 
-	blockNum := janusConfig.AllBlocksTxSum / janusConfig.BlockSize
+	blockNum := len(blockTxs)
 
 	start2 := time.Now()
 	for i := 0; i < blockNum; i++ {

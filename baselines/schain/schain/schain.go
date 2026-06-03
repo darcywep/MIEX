@@ -1,7 +1,6 @@
 package schain
 
 import (
-	"Janus/config"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/ethereum/core/types"
@@ -37,16 +36,11 @@ func TestSerialExecution(txs []*types.Transaction, levm *lvm.LEVM) {
 	for _, tx := range txs {
 		//fmt.Println(common.Bytes2Hex(tx.Data()))
 		//fmt.Println("newLevm.AllDB().StateDB.GetBalance(*tx.From())", *tx.From(), *tx.To(), newLevm.AllDB().StateDB.GetBalance(*tx.From()))
-		_, err := newLevm.CallContractUseStateDB(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0), levm.AllDB().StateDB)
-		tools.PanicError("SChain TestSerialExecution", err)
-		tx.WriteKeys = make([]string, 0)
-		tx.ReadKeys = make([]string, 0)
-		if tx.TxType == config.ShortTx {
-			tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
-			tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
-		} else {
-			tx.WriteKeys = append(tx.ReadKeys, tx.SmallBankTo.String())
+		if !tools.ExecuteSimulatedTransaction(tx) {
+			_, err := newLevm.CallContractUseStateDB(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0), levm.AllDB().StateDB)
+			tools.PanicError("SChain TestSerialExecution", err)
 		}
+		tools.FillTransactionReadWriteKeys(tx)
 	}
 }
 
@@ -74,15 +68,12 @@ func GetRWSetByOCC(txs []*types.Transaction, levm *lvm.LEVM) {
 			defer wg.Done()
 			for tx := range txsChan {
 				//fmt.Println(common.Bytes2Hex(tx.Data()))
-				_, err := newLevm.CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
-				tools.PanicError("SChain GetRWSetByOCC Execute", err)
-				tx.WriteKeys = make([]string, 0)
-				tx.ReadKeys = make([]string, 0)
-				tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
-				tx.ReadKeys = append(tx.ReadKeys, tx.From().String())
-				tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
-				tx.ReadKeys = append(tx.ReadKeys, tx.SmallBankTo.String())
-				//if tx.TxType == config.ShortTx {
+				if !tools.ExecuteSimulatedTransaction(tx) {
+					_, err := newLevm.CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
+					tools.PanicError("SChain GetRWSetByOCC Execute", err)
+				}
+				tools.FillTransactionReadWriteKeys(tx)
+				//if tx.TxType == janusConfig.ShortTx {
 				//	tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
 				//	tx.ReadKeys = append(tx.ReadKeys, tx.From().String())
 				//	tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
@@ -115,12 +106,12 @@ func SChain(txs []*types.Transaction, levm *lvm.LEVM) {
 		}
 		close(activePeepTxsChan)
 		wg := new(sync.WaitGroup)
-		wg.Add(config.AllThreadNum)
+		wg.Add(janusConfig.AllThreadNum)
 		newLevms := make([]*lvm.LEVM, 0, janusConfig.AllThreadNum)
 		for i := 0; i < janusConfig.AllThreadNum; i++ {
 			newLevms = append(newLevms, levm.Copy())
 		}
-		for k := 0; k < config.AllThreadNum; k++ {
+		for k := 0; k < janusConfig.AllThreadNum; k++ {
 			go runTx(wg, newLevms[k], activePeepTxsChan, nil)
 		}
 		wg.Wait()
@@ -145,7 +136,7 @@ func SChainParallelUp(txs []*types.Transaction, levm *lvm.LEVM) {
 	activePeepTxsChan := make(chan *types.Transaction, len(txs))
 	finishExecutionSignalChan := make(chan struct{}, len(txs))
 	wg := new(sync.WaitGroup)
-	wg.Add(config.AllThreadNum)
+	wg.Add(janusConfig.AllThreadNum)
 	go func() {
 		runtime.LockOSThread()
 		defer wg.Done()
@@ -194,7 +185,7 @@ func SChainParallelUp(txs []*types.Transaction, levm *lvm.LEVM) {
 	for i := 0; i < janusConfig.AllThreadNum-1; i++ {
 		newLevms = append(newLevms, levm.Copy())
 	}
-	for k := 0; k < config.AllThreadNum-1; k++ {
+	for k := 0; k < janusConfig.AllThreadNum-1; k++ {
 		go runTx(wg, newLevms[k], activePeepTxsChan, finishExecutionSignalChan)
 	}
 	wg.Wait()
@@ -329,16 +320,11 @@ func runTx(wg *sync.WaitGroup, levm *lvm.LEVM, activePeepTxsChan chan *types.Tra
 	defer wg.Done()
 	runtime.LockOSThread()
 	for tx := range activePeepTxsChan {
-		_, err := levm.CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
-		tools.PanicError("SChain Tx Execute", err)
-		tx.WriteKeys = make([]string, 0)
-		tx.ReadKeys = make([]string, 0)
-		if tx.TxType == config.ShortTx {
-			tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
-			tx.WriteKeys = append(tx.WriteKeys, tx.To().String())
-		} else {
-			tx.WriteKeys = append(tx.ReadKeys, tx.To().String())
+		if !tools.ExecuteSimulatedTransaction(tx) {
+			_, err := levm.CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
+			tools.PanicError("SChain Tx Execute", err)
 		}
+		tools.FillTransactionReadWriteKeys(tx)
 		if finishExecutionSignal != nil {
 			finishExecutionSignal <- struct{}{}
 		}

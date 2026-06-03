@@ -31,7 +31,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	fmt.Printf("Water Mark Alpha: %.1f\n", janusConfig.WaterMarkAlpha)
 	fmt.Printf("Water Mark Beta: %.1f\n\n", janusConfig.WaterMarkBeta)
 
-	blockNum := janusConfig.AllBlocksTxSum / janusConfig.BlockSize
+	blockNum := len(blockTxs)
 	numThreads := janusConfig.AllThreadNum
 
 	// 创建批次生成器

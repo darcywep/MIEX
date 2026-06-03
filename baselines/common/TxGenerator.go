@@ -20,9 +20,9 @@ func (g *TxGenerator) GenerateTransaction(txid uint32, originalBlockID, original
 }
 
 func (tg *TxGenerator) GenerateBlock(blockID int, ethTxs types.Transactions) *Block { // 生成的区块中包含EVM可执行交易
-	txs := make([]*BasicTransaction, 0)
+	txs := make([]*BasicTransaction, 0, len(ethTxs))
 
-	for i := 0; i < tg.blockSize; i++ {
+	for i := 0; i < len(ethTxs); i++ {
 		txid := blockID*tg.blockSize + i + 1
 		readKeys := make(map[string]string)
 		writeKeys := make(map[string]string)
@@ -35,35 +35,23 @@ func (tg *TxGenerator) GenerateBlock(blockID int, ethTxs types.Transactions) *Bl
 }
 
 func (tg *TxGenerator) GenerateWorkload(blockTxs []types.Transactions) []*Block {
-	blocks := make([]*Block, 0)
-	blockNum := tg.txNum / tg.blockSize // 区块数目
+	blocks := make([]*Block, 0, len(blockTxs))
+	txid := uint32(1)
 
-	for i := 0; i < blockNum; i++ {
-		block := tg.GenerateBlock(i, blockTxs[i]) // 生成区块，i为区块号
-		blocks = append(blocks, block)            // 添加区块至 blocks
+	for blockID, ethTxs := range blockTxs {
+		txs := make([]*BasicTransaction, 0, len(ethTxs))
+		for txIndex, ethTx := range ethTxs {
+			readKeys := make(map[string]string)
+			writeKeys := make(map[string]string)
+			tx := tg.GenerateTransaction(txid, blockID, txIndex, readKeys, writeKeys, ethTx)
+			txs = append(txs, tx)
+			txid++
+		}
+		blocks = append(blocks, NewBlock(blockID, txs))
 	}
 	return blocks
 }
 
 func (tg *TxGenerator) GenerateWorkloadForHarmonyAbort(blockTxs []types.Transactions) []*Block {
-	blockNum := len(blockTxs)
-	blocks := make([]*Block, 0, blockNum)
-
-	txid := 1 // 全局交易ID，从1开始递增
-	for i := 0; i < blockNum; i++ {
-		txsLen := len(blockTxs[i])
-		txs := make([]*BasicTransaction, 0, txsLen)
-
-		for j := 0; j < txsLen; j++ {
-			readKeys := make(map[string]string)
-			writeKeys := make(map[string]string)
-
-			tx := tg.GenerateTransaction(uint32(txid), i, j, readKeys, writeKeys, blockTxs[i][j])
-			txs = append(txs, tx)
-			txid++ // 递增全局交易ID
-		}
-
-		blocks = append(blocks, NewBlock(i, txs)) // 添加区块至 blocks
-	}
-	return blocks
+	return tg.GenerateWorkload(blockTxs)
 }

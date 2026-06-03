@@ -2,7 +2,6 @@ package optme
 
 import (
 	"Janus/baselines/common"
-	"Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/tools"
 
@@ -42,20 +41,10 @@ func NewOptmeTransaction(tx *common.BasicTransaction, blockid uint32, originalTx
 // 即将换成EVM逻辑
 func (t *OptmeTransaction) Execute(levm *lvm.LEVM) {
 	//tools.CatStorageState = true
-	_, err := levm.CallContract(*t.Tx.EthTx.From(), *t.Tx.EthTx.To(), t.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
-	tools.PanicError("OptmeTransaction Execute", err)
-
-	if t.Tx.EthTx.TxType == config.ShortTx {
-		key1 := t.Tx.EthTx.From().String()
-		key2 := t.Tx.EthTx.SmallBankTo.String()
-		t.Tx.Vertex.WriteKeys[key1] = "value"
-		t.Tx.Vertex.WriteKeys[key2] = "value"
-
-		t.Tx.Vertex.ReadKeys[key2] = "value"
-		t.Tx.Vertex.ReadKeys[key2] = "value"
-	} else {
-		key1 := t.Tx.EthTx.SmallBankTo.String()
-		t.Tx.Vertex.WriteKeys[key1] = "value"
-		t.Tx.Vertex.ReadKeys[key1] = "value"
+	if !tools.ExecuteSimulatedTransaction(t.Tx.EthTx) {
+		_, err := levm.CallContract(*t.Tx.EthTx.From(), *t.Tx.EthTx.To(), t.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
+		tools.PanicError("OptmeTransaction Execute", err)
 	}
+	// 真实负载直接使用 LatencyDB 读写集；合成负载仍回退到 SmallBank 规则。
+	tools.FillStringReadWriteSet(t.Tx.EthTx, t.Tx.Vertex.ReadKeys, t.Tx.Vertex.WriteKeys)
 }

@@ -36,6 +36,9 @@ func NewAriaTransaction(inner janusCommon.BasicTransaction, id, batch uint64, Or
 }
 
 func (tx *AriaTransaction) Execute(levm *lvm.LEVM) {
+	if tools.ExecuteSimulatedTransaction(tx.Inner.EthTx) {
+		return
+	}
 	_, err := levm.CallContract(*tx.Inner.EthTx.From(), *tx.Inner.EthTx.To(), tx.Inner.EthTx.Data(), new(uint256.Int).SetUint64(0))
 	tools.PanicError("AriaTransaction Execute", err)
 }
