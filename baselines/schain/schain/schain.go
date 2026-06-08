@@ -1,7 +1,6 @@
 package schain
 
 import (
-	"Janus/config"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/ethereum/core/types"
@@ -37,16 +36,11 @@ func TestSerialExecution(txs []*types.Transaction, levm *lvm.LEVM) {
 	for _, tx := range txs {
 		//fmt.Println(common.Bytes2Hex(tx.Data()))
 		//fmt.Println("newLevm.AllDB().StateDB.GetBalance(*tx.From())", *tx.From(), *tx.To(), newLevm.AllDB().StateDB.GetBalance(*tx.From()))
-		_, err := newLevm.CallContractUseStateDB(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0), levm.AllDB().StateDB)
-		tools.PanicError("SChain TestSerialExecution", err)
-		tx.WriteKeys = make([]string, 0)
-		tx.ReadKeys = make([]string, 0)
-		if tx.TxType == config.ShortTx {
-			tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
-			tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
-		} else {
-			tx.WriteKeys = append(tx.ReadKeys, tx.SmallBankTo.String())
+		if !tools.ExecuteSimulatedTransaction(tx) {
+			_, err := newLevm.CallContractUseStateDB(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0), levm.AllDB().StateDB)
+			tools.PanicError("SChain TestSerialExecution", err)
 		}
+		tools.FillTransactionReadWriteKeys(tx)
 	}
 }
 
@@ -74,15 +68,12 @@ func GetRWSetByOCC(txs []*types.Transaction, levm *lvm.LEVM) {
 			defer wg.Done()
 			for tx := range txsChan {
 				//fmt.Println(common.Bytes2Hex(tx.Data()))
-				_, err := newLevm.CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
-				tools.PanicError("SChain GetRWSetByOCC Execute", err)
-				tx.WriteKeys = make([]string, 0)
-				tx.ReadKeys = make([]string, 0)
-				tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
-				tx.ReadKeys = append(tx.ReadKeys, tx.From().String())
-				tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
-				tx.ReadKeys = append(tx.ReadKeys, tx.SmallBankTo.String())
-				//if tx.TxType == config.ShortTx {
+				if !tools.ExecuteSimulatedTransaction(tx) {
+					_, err := newLevm.CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
+					tools.PanicError("SChain GetRWSetByOCC Execute", err)
+				}
+				tools.FillTransactionReadWriteKeys(tx)
+				//if tx.TxType == janusConfig.ShortTx {
 				//	tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
 				//	tx.ReadKeys = append(tx.ReadKeys, tx.From().String())
 				//	tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
@@ -115,12 +106,12 @@ func SChain(txs []*types.Transaction, levm *lvm.LEVM) {
 		}
 		close(activePeepTxsChan)
 		wg := new(sync.WaitGroup)
-		wg.Add(config.AllThreadNum)
+		wg.Add(janusConfig.AllThreadNum)
 		newLevms := make([]*lvm.LEVM, 0, janusConfig.AllThreadNum)
 		for i := 0; i < janusConfig.AllThreadNum; i++ {
 			newLevms = append(newLevms, levm.Copy())
 		}
-		for k := 0; k < config.AllThreadNum; k++ {
+		for k := 0; k < janusConfig.AllThreadNum; k++ {
 			go runTx(wg, newLevms[k], activePeepTxsChan, nil)
 		}
 		wg.Wait()
@@ -145,7 +136,7 @@ func SChainParallelUp(txs []*types.Transaction, levm *lvm.LEVM) {
 	activePeepTxsChan := make(chan *types.Transaction, len(txs))
 	finishExecutionSignalChan := make(chan struct{}, len(txs))
 	wg := new(sync.WaitGroup)
-	wg.Add(config.AllThreadNum)
+	wg.Add(janusConfig.AllThreadNum)
 	go func() {
 		runtime.LockOSThread()
 		defer wg.Done()
@@ -194,7 +185,7 @@ func SChainParallelUp(txs []*types.Transaction, levm *lvm.LEVM) {
 	for i := 0; i < janusConfig.AllThreadNum-1; i++ {
 		newLevms = append(newLevms, levm.Copy())
 	}
-	for k := 0; k < config.AllThreadNum-1; k++ {
+	for k := 0; k < janusConfig.AllThreadNum-1; k++ {
 		go runTx(wg, newLevms[k], activePeepTxsChan, finishExecutionSignalChan)
 	}
 	wg.Wait()
@@ -251,7 +242,7 @@ func constructStateAccessSequence(txs []*types.Transaction) (stateAccessSequence
 					isWrite:   false,
 				}
 			}
-			stateAccessSequence[key].sequence = append(stateAccessSequence[key].sequence, accessSequence{tx: tx, readOnly: false})
+			stateAccessSequence[key].sequence = append(stateAccessSequence[key].sequence, accessSequence{tx: tx, readOnly: true})
 		}
 	}
 
@@ -260,57 +251,69 @@ func constructStateAccessSequence(txs []*types.Transaction) (stateAccessSequence
 
 func grantLock(stateAccessSequence map[string]*addressAccessSequence, tx *peepTx) int {
 	lockNumber := 0
-	var lock sync.Mutex
-	// 询问锁并授予锁
+	// 记录本次 grantLock 调用实际推进过的 key。
+	// 如果交易没有拿到所有锁，只能回滚本次推进的 key，不能按 tx 的完整读写集盲目回滚。
+	grantedWriteKeys := make([]string, 0, len(tx.writeKeys))
+	grantedReadKeys := make([]string, 0, len(tx.readKeys))
+
+	// 询问写锁并授予锁。只有当前访问序列正好轮到该交易时，才能推进 lockIndex。
 	for key, _ := range tx.writeKeys {
 		sequence, ok := stateAccessSequence[key]
 		if !ok {
 			panic("peep: key in the sequence is not found")
 		}
-		if !sequence.isWrite && sequence.sequence[sequence.lockIndex].tx.index == tx.index {
+		if canGrantSequenceLock(sequence, tx) {
 			lockNumber++
 			sequence.lockIndex++
 			sequence.isWrite = true
-			lock.Lock()
-			lock.Unlock()
+			grantedWriteKeys = append(grantedWriteKeys, key)
 		}
 	}
+	// 询问读锁并授予锁。读访问不设置 isWrite，但仍需要推进 lockIndex 表示该读依赖已经被调度。
 	for key, _ := range tx.readKeys {
 		sequence, ok := stateAccessSequence[key]
 		if !ok {
 			panic("peep: key in the sequence is not found")
 		}
-		if !sequence.isWrite && sequence.sequence[sequence.lockIndex].tx.index == tx.index {
+		if canGrantSequenceLock(sequence, tx) {
 			lockNumber++
 			sequence.lockIndex++
+			grantedReadKeys = append(grantedReadKeys, key)
 		}
 	}
 
 	if tx.needLockNumber-lockNumber == 0 { // 拿到所有的锁
 		return tx.needLockNumber - lockNumber
 	}
-	// 未拿到所有的锁，返还
+	// 未拿到所有的锁，返还本次调用已经拿到的锁。
 
-	for key, _ := range tx.writeKeys {
+	for _, key := range grantedWriteKeys {
 		sequence, ok := stateAccessSequence[key]
 		if !ok {
 			panic("peep: key in the sequence is not found")
 		}
-		if sequence.isWrite && sequence.sequence[sequence.lockIndex-1].tx.index == tx.index {
+		if sequence.lockIndex > 0 && sequence.isWrite && sequence.sequence[sequence.lockIndex-1].tx.index == tx.index {
 			sequence.isWrite = false
 			sequence.lockIndex--
 		}
 	}
-	for key, _ := range tx.readKeys {
+	for _, key := range grantedReadKeys {
 		sequence, ok := stateAccessSequence[key]
 		if !ok {
 			panic("peep: key in the sequence is not found")
 		}
-		if !sequence.isWrite && sequence.sequence[sequence.lockIndex-1].tx.index == tx.index {
+		if sequence.lockIndex > 0 && !sequence.isWrite && sequence.sequence[sequence.lockIndex-1].tx.index == tx.index {
 			sequence.lockIndex--
 		}
 	}
 	return tx.needLockNumber - lockNumber
+}
+
+func canGrantSequenceLock(sequence *addressAccessSequence, tx *peepTx) bool {
+	if sequence.isWrite || sequence.lockIndex >= len(sequence.sequence) {
+		return false
+	}
+	return sequence.sequence[sequence.lockIndex].tx.index == tx.index
 }
 
 func releaseLock(stateAccessSequence map[string]*addressAccessSequence, tx *peepTx) {
@@ -329,16 +332,11 @@ func runTx(wg *sync.WaitGroup, levm *lvm.LEVM, activePeepTxsChan chan *types.Tra
 	defer wg.Done()
 	runtime.LockOSThread()
 	for tx := range activePeepTxsChan {
-		_, err := levm.CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
-		tools.PanicError("SChain Tx Execute", err)
-		tx.WriteKeys = make([]string, 0)
-		tx.ReadKeys = make([]string, 0)
-		if tx.TxType == config.ShortTx {
-			tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
-			tx.WriteKeys = append(tx.WriteKeys, tx.To().String())
-		} else {
-			tx.WriteKeys = append(tx.ReadKeys, tx.To().String())
+		if !tools.ExecuteSimulatedTransaction(tx) {
+			_, err := levm.CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
+			tools.PanicError("SChain Tx Execute", err)
 		}
+		tools.FillTransactionReadWriteKeys(tx)
 		if finishExecutionSignal != nil {
 			finishExecutionSignal <- struct{}{}
 		}

@@ -66,6 +66,15 @@ type Transaction struct {
 	ReadKeys    []string
 	SmallBankTo common.Address
 
+	// SimulationEnabled 标记这笔交易是否来自 LatencyDB 的真实负载模拟。
+	// 开启后执行层不再进入真实 EVM，而是按 SimulationLatencyNS 忙等并使用预置读写集。
+	SimulationEnabled bool
+	// SimulationLatencyNS 保存模拟执行需要占用 CPU 的时间，单位为纳秒。
+	SimulationLatencyNS int64
+	// SimulationReadKeys/SimulationWriteKeys 保存 LatencyDB 中按 Address 采集的读写集。
+	SimulationReadKeys  []string
+	SimulationWriteKeys []string
+
 	// caches
 	hash atomic.Pointer[common.Hash]
 	size atomic.Uint64
@@ -331,6 +340,44 @@ func (tx *Transaction) SetFrom(addr common.Address) {
 
 func (tx *Transaction) From() *common.Address {
 	return tx.fromAddress
+}
+
+// SetSimulation 写入真实以太坊负载模拟所需的 latency 和读写集。
+// 调用方传入 LatencyDB 中的纳秒级 latency；执行阶段会用它做 CPU 忙等。
+func (tx *Transaction) SetSimulation(latencyNS int64, readKeys, writeKeys []string) {
+	tx.SimulationEnabled = true
+	tx.SimulationLatencyNS = latencyNS
+	tx.SimulationReadKeys = append([]string(nil), readKeys...)
+	tx.SimulationWriteKeys = append([]string(nil), writeKeys...)
+}
+
+// IsSimulation 判断当前交易是否走 LatencyDB 模拟执行路径。
+func (tx *Transaction) IsSimulation() bool {
+	return tx != nil && tx.SimulationEnabled
+}
+
+// SimulationLatency 返回模拟执行需要忙等的时间。
+func (tx *Transaction) SimulationLatency() time.Duration {
+	if tx == nil || tx.SimulationLatencyNS <= 0 {
+		return 0
+	}
+	return time.Duration(tx.SimulationLatencyNS)
+}
+
+// SimulationReadSet 返回模拟交易的读集副本，避免调用方修改交易内部缓存。
+func (tx *Transaction) SimulationReadSet() []string {
+	if tx == nil {
+		return nil
+	}
+	return append([]string(nil), tx.SimulationReadKeys...)
+}
+
+// SimulationWriteSet 返回模拟交易的写集副本，避免调用方修改交易内部缓存。
+func (tx *Transaction) SimulationWriteSet() []string {
+	if tx == nil {
+		return nil
+	}
+	return append([]string(nil), tx.SimulationWriteKeys...)
 }
 
 // Cost returns (gas * gasPrice) + (blobGas * blobGasPrice) + value.

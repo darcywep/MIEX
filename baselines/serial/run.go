@@ -18,8 +18,10 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	for _, txs := range blockTxs {
 		levmCopy := levm.Copy()
 		for _, tx := range txs {
-			_, err := levmCopy.CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
-			tools.PanicError("Serial Tx Execute ", err)
+			if !tools.ExecuteSimulatedTransaction(tx) {
+				_, err := levmCopy.CallContract(*tx.From(), *tx.To(), tx.Data(), new(uint256.Int).SetUint64(0))
+				tools.PanicError("Serial Tx Execute ", err)
+			}
 		}
 	}
 	end2 := time.Since(start2)

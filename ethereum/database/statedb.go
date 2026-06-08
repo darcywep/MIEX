@@ -23,7 +23,8 @@ type AllDBForState struct {
 }
 
 func NewAllDBForState(stateConfig *StateDBConfig, blockNumber *big.Int, stateRoot common.Hash, isVerkle, readonly bool) (*AllDBForState, error) {
-	diskPath := filepath.Join(stateConfig.Path, "snapshot_"+blockNumber.String())
+	diskPath := filepath.Join(stateConfig.Path, "snapshot_"+blockNumber.String()+"_prod")
+	fmt.Println("diskPath:", diskPath)
 	// 打开/创建新的链数据库
 	levelDB, err := leveldb.New(diskPath, stateConfig.Cache, stateConfig.Handles, "state_snapshot", readonly)
 	if err != nil {
@@ -50,6 +51,7 @@ func (a *AllDBForState) UpdateStateDB(stateRoot common.Hash) error {
 	if stateRoot == a.StateRoot {
 		return nil
 	}
+	a.StateDB = nil
 	statedb, err := state.New(stateRoot, a.BlockChainStateDB)
 	if err != nil {
 		return fmt.Errorf("create state db: " + err.Error())

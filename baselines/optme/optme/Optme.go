@@ -2,7 +2,6 @@ package optme
 
 import (
 	"Janus/baselines/common"
-	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/tools"
 	"fmt"
@@ -87,9 +86,9 @@ func (optme *OptME) Start() {
 
 		//blockid++
 		txs := block.GetTxs()
-		batch := make([]*OptmeTransaction, 0, janusConfig.BlockSize)
+		batch := make([]*OptmeTransaction, 0, len(txs))
 
-		for i := 0; i < janusConfig.BlockSize; i++ {
+		for i := 0; i < len(txs); i++ {
 			txid++
 			txs[i].Txid = uint32(txid)
 			optmeTx := NewOptmeTransaction(txs[i], uint32(blockid), i, blockIndex)

@@ -2,7 +2,6 @@ package harmony
 
 import (
 	"Janus/baselines/common"
-	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/tools"
 	"fmt"
@@ -27,6 +26,12 @@ type Harmony struct {
 	barrier          *HarmonyBarrier // 使用WaitGroup模拟barrier，或者使用其他同步机制
 	counter          atomic.Int32
 	workers          []*HarmonyExecutor
+}
+
+func traceHarmonyWorkerLog(format string, args ...interface{}) {
+	if tools.TraceHarmonyWorkerLog {
+		fmt.Printf(format, args...)
+	}
 }
 
 func NewHarmony(
@@ -60,6 +65,7 @@ type HarmonyBarrier struct {
 	parties      int
 	mu           sync.Mutex
 	current      int
+	generation   int
 	cond         *sync.Cond
 }
 
@@ -76,17 +82,21 @@ func (b *HarmonyBarrier) ArriveAndWait() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	generation := b.generation
 	b.current++
 
 	if b.current == b.parties {
-		// 最后一个到达的goroutine
+		// 最后一个到达的 goroutine 负责推进代次并唤醒其他等待者。
+		b.current = 0
+		b.generation++
 		if b.onCompletion != nil {
 			b.onCompletion()
 		}
-		b.current = 0
 		b.cond.Broadcast() // 唤醒所有等待的goroutine
 	} else {
-		b.cond.Wait() // 等待其他goroutine
+		for generation == b.generation {
+			b.cond.Wait() // 等待其他 goroutine 进入下一代次
+		}
 	}
 }
 
@@ -126,7 +136,7 @@ func NewHarmonyExecutor(harmony *Harmony, workerID uint32, batchTxs [][]*Harmony
 }
 
 func (h *Harmony) Start(levm *lvm.LEVM) {
-	fmt.Println("harmony ready to start...")
+	traceHarmonyWorkerLog("harmony ready to start...\n")
 
 	// split blocks into batches
 	batches := make([][][]*HarmonyTransaction, 0, len(h.blocks))
@@ -208,7 +218,7 @@ func (e *HarmonyExecutor) Run() {
 	//fmt.Println("harmony executor is running...")
 
 	if e.enableInterBlock {
-		fmt.Printf("worker %d size of batchTxs %d", e.workerID, len(e.batchTxs))
+		traceHarmonyWorkerLog("worker %d size of batchTxs %d\n", e.workerID, len(e.batchTxs))
 		// 流式处理区块
 		e.barrier.ArriveAndWait()
 		e.InterBlockExecute(e.NextBatch())
@@ -228,7 +238,7 @@ func (e *HarmonyExecutor) Run() {
 
 			for i := range batch {
 				tx := &batch[i]
-				fmt.Printf("worker %d executing, execut txid %d", e.workerID, (*tx).originalTxID)
+				traceHarmonyWorkerLog("worker %d executing, execut txid %d\n", e.workerID, (*tx).originalTxID)
 				// 记录开始时间
 				(*tx).StartTime = time.Now()
 				// 执行交易并处理读写依赖
@@ -250,7 +260,7 @@ func (e *HarmonyExecutor) Run() {
 				tx := &batch[i]
 				e.Verify(*tx)
 				if (*tx).FlagConflict {
-					fmt.Printf("worker %d executing, abort txid %d", e.workerID, (*tx).originalTxID)
+					traceHarmonyWorkerLog("worker %d executing, abort txid %d\n", e.workerID, (*tx).originalTxID)
 					e.PrepareLockTable(*tx)
 					//if tools.TraceAbort {
 					//	tools.TraceAbortMutex.Lock()
@@ -259,6 +269,7 @@ func (e *HarmonyExecutor) Run() {
 					//}
 				} else {
 					e.Commit(*tx)
+					(*tx).Committed.Store(true)
 					latency := time.Since((*tx).StartTime).Microseconds()
 					e.statistics.JournalCommit(uint32(latency))
 				}
@@ -271,7 +282,7 @@ func (e *HarmonyExecutor) Run() {
 			//	e.statistics.JournalRollbackExecution(uint32(phaseTime))
 			//}
 
-			fmt.Printf("worker %d fallbacking \n", e.workerID)
+			traceHarmonyWorkerLog("worker %d fallbacking\n", e.workerID)
 
 			//if e.workerID == 0 {
 			//	beginTime = time.Now()
@@ -293,7 +304,7 @@ func (e *HarmonyExecutor) Run() {
 				//phaseTime := time.Since(beginTime).Microseconds()
 				//e.statistics.JournalReExecution(phaseTime)
 			}
-			fmt.Printf("worker %d cleaning up \n", e.workerID)
+			traceHarmonyWorkerLog("worker %d cleaning up\n", e.workerID)
 
 			for i := range batch {
 				tx := &batch[i]
@@ -302,9 +313,9 @@ func (e *HarmonyExecutor) Run() {
 
 			elapsed := time.Since(beginTime)
 
-			fmt.Printf("CommitCount= %d \n", e.statistics.CommitCount.Load())
-			fmt.Printf("交易实际被执行总次数 %d \n", e.statistics.ExecCount.Load())
-			fmt.Printf("交易处理吞吐(TPS)= %f \n", float64(e.statistics.CommitCount.Load())/(elapsed.Seconds()))
+			traceHarmonyWorkerLog("CommitCount= %d\n", e.statistics.CommitCount.Load())
+			traceHarmonyWorkerLog("交易实际被执行总次数 %d\n", e.statistics.ExecCount.Load())
+			traceHarmonyWorkerLog("交易处理吞吐(TPS)= %f\n", float64(e.statistics.CommitCount.Load())/(elapsed.Seconds()))
 		}
 	}
 }
@@ -312,7 +323,7 @@ func (e *HarmonyExecutor) Run() {
 // NextBatch 获取执行器的下一批交易
 func (e *HarmonyExecutor) NextBatch() []*HarmonyTransaction {
 	if e.batchIdx >= uint32(len(e.batchTxs)) {
-		fmt.Printf("worker %d no more batch", e.workerID)
+		traceHarmonyWorkerLog("worker %d no more batch\n", e.workerID)
 		return nil
 	}
 	batch := e.batchTxs[e.batchIdx]
@@ -373,6 +384,7 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 			e.PrepareLockTable(*tx)
 		} else {
 			e.Commit(*tx)
+			(*tx).Committed.Store(true)
 			latency := time.Since((*tx).StartTime).Microseconds()
 			e.statistics.JournalCommit(uint32(latency))
 		}
@@ -420,7 +432,7 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 			//phaseTime := time.Since(beginTime).Microseconds()
 			//e.statistics.JournalReExecution(phaseTime)
 		}
-		fmt.Printf("worker %d cleaning up batch %d \n", e.workerID, e.batchIdx)
+		traceHarmonyWorkerLog("worker %d cleaning up batch %d\n", e.workerID, e.batchIdx)
 		for i := range batch {
 			tx := &batch[i]
 			e.CleanLockTable(*tx)
@@ -432,27 +444,12 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 func (executor *HarmonyExecutor) Execute(tx *HarmonyTransaction) {
 	//tools.CatStorageState = true
 
-	_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
-	tools.PanicError("Transaction Execute", err)
-
-	if tx.Tx.EthTx.TxType == janusConfig.ShortTx {
-
-		key1 := tx.Tx.EthTx.From().String()
-		key2 := tx.Tx.EthTx.SmallBankTo.String()
-		tx.Tx.Vertex.WriteKeys[key1] = "value"
-		tx.Tx.Vertex.WriteKeys[key2] = "value"
-
-		tx.Tx.Vertex.ReadKeys[key1] = "value"
-		tx.Tx.Vertex.ReadKeys[key2] = "value"
-
-		//tx.WriteKeys = append(tx.WriteKeys, tx.From().String())
-		//tx.WriteKeys = append(tx.WriteKeys, tx.SmallBankTo.String())
-	} else {
-		//tx.WriteKeys = append(tx.ReadKeys, tx.SmallBankTo.String())
-		key1 := tx.Tx.EthTx.SmallBankTo.String()
-		tx.Tx.Vertex.WriteKeys[key1] = "value"
-		tx.Tx.Vertex.ReadKeys[key1] = "value"
+	if !tools.ExecuteSimulatedTransaction(tx.Tx.EthTx) {
+		_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
+		tools.PanicError("Transaction Execute", err)
 	}
+	// 真实负载直接使用 LatencyDB 读写集；合成负载仍回退到 SmallBank 规则。
+	tools.FillStringReadWriteSet(tx.Tx.EthTx, tx.Tx.Vertex.ReadKeys, tx.Tx.Vertex.WriteKeys)
 
 	readSet := make(map[string]bool)
 	writeSet := make(map[string]bool)
@@ -587,8 +584,10 @@ func (executor *HarmonyExecutor) Fallback(tx *HarmonyTransaction) {
 	executor.ExecutorGetStorage2(tx, readSet)
 	executor.ExecutorSetStorage2(tx, writeSet, "value")
 
-	_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
-	tools.PanicError("Transaction Execute", err)
+	if !tools.ExecuteSimulatedTransaction(tx.Tx.EthTx) {
+		_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
+		tools.PanicError("Transaction Execute", err)
+	}
 
 	//executor.Execute(tx)
 	//tx.Execute()

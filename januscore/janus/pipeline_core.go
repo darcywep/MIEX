@@ -39,19 +39,19 @@ func (pe *PipelineEngine) Start() {
 
 // Stop 停止引擎
 func (pe *PipelineEngine) Stop() {
-	pe.stopChan <- struct{}{}
 	close(pe.stopChan)
-	close(pe.completeChan)
 	pe.workerWg.Wait()
+	close(pe.completeChan)
 }
 
 // SubmitBlockBatches 提交一个区块的所有批次
 func (pe *PipelineEngine) SubmitBlockBatches(batches []*Batch, jtxs []*janusTransaction) {
+	pe.currentBatchID.Store(-1)
 	pe.janusTransactions = jtxs
 	// 创建批次状态
 	pe.batchStates = make([]*BatchState, len(batches))
 	pe.abortTxs = make([]*janusTransaction, 0)
-	pe.currentBatchID.Store(-1)
+	blockID := pe.currentBlockID.Load() + 1
 
 	for i, batch := range batches {
 		var nextBatch *Batch = nil
@@ -61,6 +61,7 @@ func (pe *PipelineEngine) SubmitBlockBatches(batches []*Batch, jtxs []*janusTran
 
 		state := &BatchState{
 			BatchID:                batch.ID,
+			BlockID:                blockID,
 			Batch:                  batch,
 			NextBatch:              nextBatch,
 			LongTxs:                batch.LongTxs,
@@ -79,10 +80,11 @@ func (pe *PipelineEngine) SubmitBlockBatches(batches []*Batch, jtxs []*janusTran
 		pe.batchStates[i] = state // 设置批次切片
 		if i == 0 {
 			pe.batchStates[i].startTimeOfExecuteCurrentBatchPhase = time.Now() // 进入批次一的执行阶段
-			pe.currentBlockID.Add(1)
-			pe.currentBatchID.Store(0) // 重置为 -1，第一次加载时会变成 0
-			//fmt.Printf("pe.currentBatchID.Load()=%d\n", pe.currentBatchID.Load())
 		}
+	}
+	if len(pe.batchStates) > 0 {
+		pe.currentBlockID.Add(1)
+		pe.currentBatchID.Store(0) // 所有 BatchState 构建完成后，再发布新区块的第一个批次
 	}
 
 	//fmt.Printf("[SubmitBlock] Submitted %d batches for execution\n", len(batches))
@@ -104,13 +106,14 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 		if currentBlockID == -1 { // 等待区块
 			continue
 		}
-		if currentBlockID > pe.workerStaties[workerID].CurrentBlockID {
+		if currentBlockID != pe.workerStaties[workerID].CurrentBlockID {
 			if enableLog {
 				//fmt.Printf("Worker %d is already running, stateId=%d, batch length=%d\n", workerID, stateID, len(pe.batchStates))
 			}
 			pe.workerStaties[workerID].CurrentBlockID = currentBlockID
 			pe.workerStaties[workerID].currentBatchID = -1
 			pe.workerStaties[workerID].Phase = WaitingPhase
+			continue // block 切换只做本地状态重置，下一轮再读取 batch，避免旧 phase 处理新区块 state
 		}
 		stateID := pe.currentBatchID.Load()
 		if stateID >= int32(len(pe.batchStates)) {
@@ -133,6 +136,17 @@ func (pe *PipelineEngine) workerThread(workerID int) {
 
 		state := pe.batchStates[stateID]
 		if state == nil {
+			continue
+		}
+		latestBlockID := pe.currentBlockID.Load()
+		if state.BlockID != latestBlockID || latestBlockID != pe.workerStaties[workerID].CurrentBlockID {
+			// batchStates/currentBatchID/currentBlockID 不是同一个发布快照时，不进入任何执行阶段。
+			// 下一轮 worker 会先完成 block 本地状态同步，再处理对应 batch。
+			if latestBlockID != pe.workerStaties[workerID].CurrentBlockID {
+				pe.workerStaties[workerID].CurrentBlockID = latestBlockID
+				pe.workerStaties[workerID].currentBatchID = -1
+				pe.workerStaties[workerID].Phase = WaitingPhase
+			}
 			continue
 		}
 		if pe.workerStaties[workerID].Phase == ExecuteCurrentBatchPhase {
@@ -497,6 +511,13 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 	if threadNextNumber >= (pe.numThreads+1)/2 {   // 已经有超过一半的线程去执行下一批, 剩下的进行合并state table
 		pairIndex := state.pairIndex // 取一个配对的 threadStateTable
 		state.pairIndex++            // 放行
+		if pairIndex == 0 {
+			now := time.Now()
+			state.startTimeOfMergeStateTablePhase = now // 开始进行合并计时
+			state.startTimeOfExecuteCurrentBatchTail = now
+		}
+		needRecordExecuteTime := state.finishedTreadNum == pe.numThreads
+		tailStart := state.startTimeOfExecuteCurrentBatchTail
 		state.CompletionMu.Unlock()
 		//fmt.Printf("test [Worker %d] [batch %d] len(state.CompletionOrder)=%d, pairIndex=%d\n", workerID, state.BatchID, len(state.CompletionOrder), pairIndex)
 
@@ -515,13 +536,11 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 			return nil, false
 		}
 		pairWorkerID := state.CompletionOrder[pairIndex]
-		if pairIndex == 0 {
-			state.startTimeOfMergeStateTablePhase = time.Now() // 开始进行合并计时
-			state.startTimeOfExecuteCurrentBatchTail = time.Now()
-		}
-		if state.finishedTreadNum == pe.numThreads { // 所有线程完成，添加执行计时
+		if needRecordExecuteTime { // 所有线程完成，添加执行计时
 			pe.timeOfExecuteCurrentBatchPhase += time.Since(state.startTimeOfExecuteCurrentBatchPhase)
-			pe.timeOfExecuteCurrentBatchTail += time.Since(state.startTimeOfExecuteCurrentBatchTail)
+			if !tailStart.IsZero() {
+				pe.timeOfExecuteCurrentBatchTail += time.Since(tailStart)
+			}
 		}
 		return state.ThreadStateTables[pairWorkerID], true // 返回配对的线程ID
 	}

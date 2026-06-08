@@ -17,7 +17,7 @@ var chainConfig *params.ChainConfig
 
 func init() {
 	stateConfig = &database.StateDBConfig{
-		Path:    "/root/alldb/smallbank_database",
+		Path:    janusConfig.SmallbankDatabasePath,
 		Cache:   16000,
 		Handles: 16000,
 	}
@@ -27,7 +27,7 @@ func init() {
 func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	fmt.Println("=== Run SChain ===")
 
-	blockNum := janusConfig.AllBlocksTxSum / janusConfig.BlockSize
+	blockNum := len(blockTxs)
 
 	start2 := time.Now()
 	for i := 0; i < blockNum; i++ {

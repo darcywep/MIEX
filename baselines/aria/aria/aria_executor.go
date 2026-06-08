@@ -2,7 +2,6 @@ package aria
 
 import (
 	optmeCommon "Janus/baselines/common"
-	"Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/tools"
 	"time"
@@ -108,26 +107,9 @@ func (e *AriaExecutor) ProcessOneTx(tx *AriaTransaction) {
 
 // Execute: 填充 LocalGet/LocalPut 并调用 tx.Execute（不要写全局表）
 func (e *AriaExecutor) Execute(tx *AriaTransaction) {
-	if tx.Inner.EthTx.TxType == config.ShortTx {
-		key1 := tx.Inner.EthTx.From().String()
-		key2 := tx.Inner.EthTx.SmallBankTo.String()
-		tx.Inner.Vertex.WriteKeys[key1] = "value"
-		tx.Inner.Vertex.WriteKeys[key2] = "value"
-		tx.Inner.Vertex.ReadKeys[key2] = "value"
-
-		tx.LocalPut[key1] = "value"
-		tx.LocalPut[key2] = "value"
-		tx.LocalGet[key1] = "value"
-		tx.LocalGet[key2] = "value"
-	} else {
-		key1 := tx.Inner.EthTx.SmallBankTo.String()
-		tx.Inner.Vertex.WriteKeys[key1] = "value"
-		tx.Inner.Vertex.ReadKeys[key1] = "value"
-
-		tx.LocalPut[key1] = "value"
-		tx.LocalGet[key1] = "value"
-	}
-
+	// 读写集由 LatencyDB 模拟信息或原 SmallBank 规则统一填充，避免真实负载再依赖 TxType 推导地址。
+	tools.FillStringReadWriteSet(tx.Inner.EthTx, tx.Inner.Vertex.ReadKeys, tx.Inner.Vertex.WriteKeys)
+	tools.FillStringReadWriteSet(tx.Inner.EthTx, tx.LocalGet, tx.LocalPut)
 	tx.Execute(e.levm)
 }
 

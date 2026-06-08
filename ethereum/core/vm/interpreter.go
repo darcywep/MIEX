@@ -18,6 +18,7 @@ package vm
 
 import (
 	"fmt"
+	"time"
 
 	"Janus/ethereum/core/tracing"
 
@@ -115,6 +116,16 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 	if len(contract.Code) == 0 {
 		return nil, nil
 	}
+	// 统计 EVM 字节码执行区间的真实 wall time。
+	// 这里只记录顶层 Run，因为顶层耗时已经包含嵌套合约调用；
+	// 如果每层都累加，会把子调用重复计算。
+	// replay 后续计算 non_evm_latency = tx_wall_latency - evm_wall_latency。
+	if evm.depth == 1 {
+		evmStart := time.Now()
+		defer func() {
+			AddEVMWallTime(evm.WorkerID, time.Since(evmStart))
+		}()
+	}
 
 	var (
 		op          OpCode     // current opcode
@@ -147,6 +158,10 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 		mem.Free()
 	}()
 	contract.Input = input
+	// opcode 执行前先压入一个合约 frame。
+	// 后续每条 opcode 都会由 RecordOpCodeExecution 归属到当前 frame。
+	EnterContractLatencyFrame(evm.WorkerID, contract.CodeAddress, contract.Input, contract.IsDeployment)
+	defer ExitContractLatencyFrame(evm.WorkerID)
 
 	if debug {
 		defer func() { // this deferred method handles exit-with-error
@@ -186,9 +201,9 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 		// Get the operation from the jump table and validate the stack to ensure there are
 		// enough stack items available to perform the operation.
 		op = contract.GetOp(pc)
-		if LoadTxCost[evm.WorkerID] {
-			AddOpCodeCallNumber(evm.WorkerID, op)
-		}
+		// replay 计时的统一入口：每执行一条 opcode，同时更新交易级 opcode 计数
+		// 和当前合约 frame 的估计耗时。
+		RecordOpCodeExecution(evm.WorkerID, op)
 		//fmt.Println(op)
 		operation := jumpTable[op]
 		cost = operation.constantGas // For tracing

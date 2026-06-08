@@ -3,7 +3,14 @@
   <component name="WebServers">
     <option name="servers">
       <webServer id="2f516b40-809d-4084-aef4-5dec2b14137f" name="bcds73">
-        <fileTransfer rootFolder="/root" accessType="SFTP" host="10.1.101.73" port="22" sshConfigId="1ec36a4c-007b-4a93-a3ef-046099aad433" sshConfig="root@10.1.101.73:22 password">
+        <fileTransfer rootFolder="/root" accessType="SFTP" host="10.1.101.73" port="22" sshConfigId="1ec36a4c-007b-4a93-a3ef-046099aad433" sshConfig="bcds73">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+      <webServer id="a1592ea4-7849-4698-bce0-cdd1907ea213" name="bcds79">
+        <fileTransfer rootFolder="/home/bcds" accessType="SFTP" host="10.1.101.79" port="22" sshConfigId="363d7ace-a6bd-4954-a754-f8edaf6513a6" sshConfig="bcds79">
           <advancedOptions>
             <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
           </advancedOptions>

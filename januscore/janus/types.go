@@ -155,6 +155,7 @@ func newStateTableWithWriteSet() *stateTableWithWriteSet {
 // BatchState 批次状态
 type BatchState struct {
 	BatchID   int
+	BlockID   int32 // 记录该 BatchState 属于哪个区块，用于 worker 读取 batch 时的快照校验
 	Batch     *Batch
 	NextBatch *Batch
 

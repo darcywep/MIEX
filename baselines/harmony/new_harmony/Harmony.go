@@ -2,7 +2,6 @@ package newHarmony
 
 import (
 	"Janus/baselines/common"
-	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/tools"
 	"fmt"
@@ -27,6 +26,12 @@ type Harmony struct {
 	barrier          *HarmonyBarrier
 	counter          atomic.Int32
 	workers          []*HarmonyExecutor
+}
+
+func traceHarmonyWorkerLog(format string, args ...interface{}) {
+	if tools.TraceHarmonyWorkerLog {
+		fmt.Printf(format, args...)
+	}
 }
 
 func NewHarmony(
@@ -130,7 +135,7 @@ func NewHarmonyExecutor(harmony *Harmony, workerID uint32, batchTxs [][]*Harmony
 }
 
 func (h *Harmony) Start(levm *lvm.LEVM) {
-	fmt.Println("harmony ready to start...")
+	traceHarmonyWorkerLog("harmony ready to start...\n")
 
 	batches := make([][][]*HarmonyTransaction, 0, len(h.blocks))
 
@@ -189,7 +194,7 @@ func (h *Harmony) Start(levm *lvm.LEVM) {
 func (e *HarmonyExecutor) Run() {
 
 	if e.enableInterBlock {
-		fmt.Printf("worker %d size of batchTxs %d", e.workerID, len(e.batchTxs))
+		traceHarmonyWorkerLog("worker %d size of batchTxs %d\n", e.workerID, len(e.batchTxs))
 		e.barrier.ArriveAndWait()
 		e.InterBlockExecute(e.NextBatch())
 	} else {
@@ -353,7 +358,7 @@ func (e *HarmonyExecutor) Run() {
 // NextBatch 获取执行器的下一批交易
 func (e *HarmonyExecutor) NextBatch() []*HarmonyTransaction {
 	if e.batchIdx >= uint32(len(e.batchTxs)) {
-		fmt.Printf("worker %d no more batch", e.workerID)
+		traceHarmonyWorkerLog("worker %d no more batch\n", e.workerID)
 		return nil
 	}
 	batch := e.batchTxs[e.batchIdx]
@@ -514,21 +519,13 @@ func (e *HarmonyExecutor) InterBlockExecute(batch []*HarmonyTransaction) {
 // 对应论文 Section 3.1: simulation step
 func (executor *HarmonyExecutor) Execute(tx *HarmonyTransaction) {
 
-	_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
-	tools.PanicError("Transaction Execute", err)
-
-	if tx.Tx.EthTx.TxType == janusConfig.ShortTx {
-		key1 := tx.Tx.EthTx.From().String()
-		key2 := tx.Tx.EthTx.SmallBankTo.String()
-		tx.Tx.Vertex.WriteKeys[key1] = "value"
-		tx.Tx.Vertex.WriteKeys[key2] = "value"
-		tx.Tx.Vertex.ReadKeys[key1] = "value"
-		tx.Tx.Vertex.ReadKeys[key2] = "value"
-	} else {
-		key1 := tx.Tx.EthTx.SmallBankTo.String()
-		tx.Tx.Vertex.WriteKeys[key1] = "value"
-		tx.Tx.Vertex.ReadKeys[key1] = "value"
+	if !tools.ExecuteSimulatedTransaction(tx.Tx.EthTx) {
+		_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
+		tools.PanicError("Transaction Execute", err)
 	}
+
+	// 真实负载直接使用 LatencyDB 读写集；合成负载仍回退到 SmallBank 规则。
+	tools.FillStringReadWriteSet(tx.Tx.EthTx, tx.Tx.Vertex.ReadKeys, tx.Tx.Vertex.WriteKeys)
 
 	readSet := make(map[string]bool)
 	writeSet := make(map[string]bool)
@@ -742,8 +739,10 @@ func (executor *HarmonyExecutor) Fallback(tx *HarmonyTransaction) {
 	executor.ExecutorGetStorage2(tx, readSet)
 
 	// Step 2: 基于最新值重新执行合约逻辑
-	_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
-	tools.PanicError("Transaction Fallback Execute", err)
+	if !tools.ExecuteSimulatedTransaction(tx.Tx.EthTx) {
+		_, err := executor.levm.CallContract(*tx.Tx.EthTx.From(), *tx.Tx.EthTx.To(), tx.Tx.EthTx.Data(), new(uint256.Int).SetUint64(0))
+		tools.PanicError("Transaction Fallback Execute", err)
+	}
 
 	// Step 3: 将执行结果写入 table
 	executor.ExecutorSetStorage2(tx, writeSet, "value")
