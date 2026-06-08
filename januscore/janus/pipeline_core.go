@@ -421,7 +421,9 @@ func (pe *PipelineEngine) finalizeMWISResults(state *BatchState, workerID int) {
 		if threadAbortedTxs != nil {
 			for _, txIDs := range threadAbortedTxs {
 				for _, txID := range txIDs {
-					pe.abortTxs = append(pe.abortTxs, finalDag.Nodes[txID].Tx)
+					if abortTx := abortTransactionFromDAGOrList(finalDag, pe.janusTransactions, txID); abortTx != nil {
+						pe.abortTxs = append(pe.abortTxs, abortTx)
+					}
 				}
 			}
 		}
@@ -429,6 +431,18 @@ func (pe *PipelineEngine) finalizeMWISResults(state *BatchState, workerID int) {
 
 	state.startTimeOfReExecutePhase = time.Now()
 	cdr.mwisDone.Store(true) // 标记 MWIS 阶段完成
+}
+
+func abortTransactionFromDAGOrList(dag *ConflictDAG, jtxs []*janusTransaction, txID int) *janusTransaction {
+	if dag != nil {
+		if rwset := dag.Nodes[txID]; rwset != nil && rwset.Tx != nil {
+			return rwset.Tx
+		}
+	}
+	if txID >= 0 && txID < len(jtxs) {
+		return jtxs[txID]
+	}
+	return nil
 }
 
 func (pe *PipelineEngine) executeNextTransaction(atomicIdx *atomic.Int32, txs *[]*janusTransaction, workerID int, state *BatchState) {
