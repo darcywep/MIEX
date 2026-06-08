@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Janus/baselines/mvschedo"
 	"Janus/baselines/optme/optme"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
@@ -127,6 +128,9 @@ func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan str
 	} else if baseline == "MIEX" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, optme.Run(blockTxs, levm))
+	} else if baseline == "mvschedo" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, mvschedo.Run(blockTxs, levm))
 	}
 
 	//if baseline == "harmony" {
@@ -168,7 +172,9 @@ func main() {
 	fmt.Println("Janus running, baseline is", input.Baseline)
 
 	if input.Baseline != "all" && input.Baseline != "harmony" && input.Baseline != "schain" && input.Baseline != "optme" &&
-		input.Baseline != "aria" && input.Baseline != "serial" && input.Baseline != "janus" {
+		input.Baseline != "aria" && input.Baseline != "mvschedo" && input.Baseline != "serial" && input.Baseline != "janus" &&
+		input.Baseline != "Non_Prioritied" && input.Baseline != "Non_Concurrent_Graph_Construct" &&
+		input.Baseline != "Non_Maximum_Commit_Validation" && input.Baseline != "MIEX" {
 		fmt.Println("baseline is invalid")
 		return
 	}
@@ -220,7 +226,7 @@ func main() {
 		//baselines                    = []string{"serial", "harmony", "schain", "optme", "aria", "occ", "janus", "serial_construct_graph"}
 		//baselines = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
 		//baselines = []string{"janus", "serial_construct_graph"}
-		baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX"}
+		baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX", "mvschedo"}
 		//baselines = []string{"Non_Maximum_Commit_Validation"}
 	)
 
