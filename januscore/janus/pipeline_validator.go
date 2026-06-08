@@ -159,10 +159,13 @@ func (pe *PipelineEngine) mergeStateTables(state *BatchState, threadStateTable1,
 	}
 
 	// ========== 合并读写集 ================
-	if len(writeSet2) > len(writeSet1) {
-		writeSet1, writeSet2 = writeSet2, writeSet1
+	// 这里不能把 merge 结果直接指向 writeSet1/writeSet2。
+	// merge 阶段是多 worker 并发执行的，之前的零拷贝写法会让不同 stateTable 共享同一个 map；
+	// 后续另一个 merge 遍历该 map 时，当前 merge 可能同时写入它，从而触发 concurrent map iteration and map write。
+	mergeThreadStateTable.writeSet = make(map[string]struct{}, len(writeSet1)+len(writeSet2))
+	for addr := range writeSet1 {
+		mergeThreadStateTable.writeSet[addr] = struct{}{}
 	}
-	mergeThreadStateTable.writeSet = writeSet1
 	for addr := range writeSet2 {
 		mergeThreadStateTable.writeSet[addr] = struct{}{}
 	}

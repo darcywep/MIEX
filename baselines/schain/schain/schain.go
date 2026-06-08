@@ -242,7 +242,7 @@ func constructStateAccessSequence(txs []*types.Transaction) (stateAccessSequence
 					isWrite:   false,
 				}
 			}
-			stateAccessSequence[key].sequence = append(stateAccessSequence[key].sequence, accessSequence{tx: tx, readOnly: false})
+			stateAccessSequence[key].sequence = append(stateAccessSequence[key].sequence, accessSequence{tx: tx, readOnly: true})
 		}
 	}
 
@@ -251,57 +251,69 @@ func constructStateAccessSequence(txs []*types.Transaction) (stateAccessSequence
 
 func grantLock(stateAccessSequence map[string]*addressAccessSequence, tx *peepTx) int {
 	lockNumber := 0
-	var lock sync.Mutex
-	// 询问锁并授予锁
+	// 记录本次 grantLock 调用实际推进过的 key。
+	// 如果交易没有拿到所有锁，只能回滚本次推进的 key，不能按 tx 的完整读写集盲目回滚。
+	grantedWriteKeys := make([]string, 0, len(tx.writeKeys))
+	grantedReadKeys := make([]string, 0, len(tx.readKeys))
+
+	// 询问写锁并授予锁。只有当前访问序列正好轮到该交易时，才能推进 lockIndex。
 	for key, _ := range tx.writeKeys {
 		sequence, ok := stateAccessSequence[key]
 		if !ok {
 			panic("peep: key in the sequence is not found")
 		}
-		if !sequence.isWrite && sequence.sequence[sequence.lockIndex].tx.index == tx.index {
+		if canGrantSequenceLock(sequence, tx) {
 			lockNumber++
 			sequence.lockIndex++
 			sequence.isWrite = true
-			lock.Lock()
-			lock.Unlock()
+			grantedWriteKeys = append(grantedWriteKeys, key)
 		}
 	}
+	// 询问读锁并授予锁。读访问不设置 isWrite，但仍需要推进 lockIndex 表示该读依赖已经被调度。
 	for key, _ := range tx.readKeys {
 		sequence, ok := stateAccessSequence[key]
 		if !ok {
 			panic("peep: key in the sequence is not found")
 		}
-		if !sequence.isWrite && sequence.sequence[sequence.lockIndex].tx.index == tx.index {
+		if canGrantSequenceLock(sequence, tx) {
 			lockNumber++
 			sequence.lockIndex++
+			grantedReadKeys = append(grantedReadKeys, key)
 		}
 	}
 
 	if tx.needLockNumber-lockNumber == 0 { // 拿到所有的锁
 		return tx.needLockNumber - lockNumber
 	}
-	// 未拿到所有的锁，返还
+	// 未拿到所有的锁，返还本次调用已经拿到的锁。
 
-	for key, _ := range tx.writeKeys {
+	for _, key := range grantedWriteKeys {
 		sequence, ok := stateAccessSequence[key]
 		if !ok {
 			panic("peep: key in the sequence is not found")
 		}
-		if sequence.isWrite && sequence.sequence[sequence.lockIndex-1].tx.index == tx.index {
+		if sequence.lockIndex > 0 && sequence.isWrite && sequence.sequence[sequence.lockIndex-1].tx.index == tx.index {
 			sequence.isWrite = false
 			sequence.lockIndex--
 		}
 	}
-	for key, _ := range tx.readKeys {
+	for _, key := range grantedReadKeys {
 		sequence, ok := stateAccessSequence[key]
 		if !ok {
 			panic("peep: key in the sequence is not found")
 		}
-		if !sequence.isWrite && sequence.sequence[sequence.lockIndex-1].tx.index == tx.index {
+		if sequence.lockIndex > 0 && !sequence.isWrite && sequence.sequence[sequence.lockIndex-1].tx.index == tx.index {
 			sequence.lockIndex--
 		}
 	}
 	return tx.needLockNumber - lockNumber
+}
+
+func canGrantSequenceLock(sequence *addressAccessSequence, tx *peepTx) bool {
+	if sequence.isWrite || sequence.lockIndex >= len(sequence.sequence) {
+		return false
+	}
+	return sequence.sequence[sequence.lockIndex].tx.index == tx.index
 }
 
 func releaseLock(stateAccessSequence map[string]*addressAccessSequence, tx *peepTx) {

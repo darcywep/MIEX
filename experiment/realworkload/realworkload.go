@@ -2,7 +2,6 @@ package realworkload
 
 import (
 	"Janus/baselines/aria/aria"
-	"Janus/baselines/harmony/harmony"
 	newHarmony "Janus/baselines/harmony/new_harmony"
 	"Janus/baselines/optme/optme"
 	"Janus/baselines/schain/schain"
@@ -35,8 +34,8 @@ import (
 const (
 	// realEthereumStartBlockNumber 是本次真实以太坊负载实验的起始区块。
 	realEthereumStartBlockNumber uint64 = 21000001
-	// realEthereumBlockCount 表示从起始区块开始连续读取 10W 个区块。
-	realEthereumBlockCount uint64 = 100000
+	// defaultRealEthereumBlockCount 是真实以太坊负载默认连续读取的区块数量。
+	defaultRealEthereumBlockCount uint64 = 10000
 )
 
 var stateConfig *database.StateDBConfig
@@ -54,14 +53,18 @@ func init() {
 // Run 从 LatencyDB 构建真实以太坊负载，并复用现有 baseline 执行框架做模拟执行。
 func Run(args []string) error {
 	fs := flag.NewFlagSet("ethereum-real", flag.ExitOnError)
-	baseline := fs.String("baseline", "janus", "baseline: all, harmony, schain, optme, aria, janus, Non_Maximum_Commit_Validation, newHarmony")
+	baseline := fs.String("baseline", "janus", "baseline: all, harmony(new_harmony), schain, optme, aria, janus, Non_Maximum_Commit_Validation, newHarmony(alias)")
 	threadNumber := fs.Int("t", 8, "threads number")
+	blockCount := fs.Uint64("b", defaultRealEthereumBlockCount, "number of ethereum blocks to execute from start block")
 	latencyThresholdUS := fs.Float64("latency", 50, "long/short threshold in microseconds; tx latency < threshold is short, otherwise long")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if !validBaseline(*baseline) {
 		return fmt.Errorf("baseline is invalid: %s", *baseline)
+	}
+	if *blockCount == 0 {
+		return fmt.Errorf("ethereum block count must be greater than 0")
 	}
 
 	janusConfig.AllThreadNum = *threadNumber
@@ -76,11 +79,11 @@ func Run(args []string) error {
 	fmt.Println("========== Ethereum Real Workload ==========")
 	fmt.Printf("baseline: %s\n", *baseline)
 	fmt.Printf("threads: %d\n", janusConfig.AllThreadNum)
-	fmt.Printf("blocks: [%d, %d)\n", realEthereumStartBlockNumber, realEthereumStartBlockNumber+realEthereumBlockCount)
+	fmt.Printf("blocks: [%d, %d)\n", realEthereumStartBlockNumber, realEthereumStartBlockNumber+*blockCount)
 	fmt.Printf("latency threshold: %.2f us\n", *latencyThresholdUS)
 	fmt.Printf("GOMAXPROCS set to: %d\n", runtime.GOMAXPROCS(0))
 
-	blockTxs, totalTxs, maxBlockTxs, err := loadEthereumRealBlockTxs(*latencyThresholdUS)
+	blockTxs, totalTxs, maxBlockTxs, err := loadEthereumRealBlockTxs(*latencyThresholdUS, *blockCount)
 	if err != nil {
 		return err
 	}
@@ -94,31 +97,34 @@ func Run(args []string) error {
 	levm := lvm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
 	defer levm.AllDB().Close()
 
-	baselines := []string{"janus", "optme", "newHarmony", "Non_Maximum_Commit_Validation"}
+	baselines := []string{"harmony", "schain", "serial", "optme", "aria", "janus", "Non_Maximum_Commit_Validation"}
 	if *baseline != "all" {
 		baselines = []string{*baseline}
 	}
 	baseFileName := "ethereum_real_start(" + strconv.FormatUint(realEthereumStartBlockNumber, 10) + ")" +
-		"_blocks(" + strconv.FormatUint(realEthereumBlockCount, 10) + ")" +
+		"_blocks(" + strconv.FormatUint(*blockCount, 10) + ")" +
 		"_t(" + strconv.Itoa(janusConfig.AllThreadNum) + ")" +
 		"_latency_us(" + fmt.Sprintf("%.2f", *latencyThresholdUS) + ").xlsx"
 
 	tpssAndLatency := make([][][]float64, 0, len(baselines))
-	for _, bl := range baselines {
+	for i, bl := range baselines {
+		baselineStart := time.Now()
+		fmt.Printf("[Baseline %d/%d] start %s\n", i+1, len(baselines), bl)
 		signalChan := make(chan struct{})
 		signalWg := new(sync.WaitGroup)
 		signalWg.Add(1)
 		runBaseline(bl, baseFileName, &tpssAndLatency, signalChan, signalWg, blockTxs, levm)
-		signalChan <- struct{}{}
 		close(signalChan)
 		signalWg.Wait()
+		fmt.Printf("[Baseline %d/%d] done %s, duration=%v\n", i+1, len(baselines), bl, time.Since(baselineStart))
 		fmt.Println()
 	}
 	return writeTPSResultToExcel(filepath.Join(janusConfig.MonitorBasePath, "tps"+"/"+baseFileName), baselines, tpssAndLatency)
 }
 
 // loadEthereumRealBlockTxs 按区块从 LatencyDB 读取真实交易 latency/rw，并转为模拟交易。
-func loadEthereumRealBlockTxs(latencyThresholdUS float64) ([]types.Transactions, int, int, error) {
+// blockCount 由启动参数 -b 控制，表示从 realEthereumStartBlockNumber 开始连续执行多少个区块。
+func loadEthereumRealBlockTxs(latencyThresholdUS float64, blockCount uint64) ([]types.Transactions, int, int, error) {
 	reader, err := replay_gethcopy.NewReplayLatencyReader()
 	if err != nil {
 		return nil, 0, 0, err
@@ -126,10 +132,10 @@ func loadEthereumRealBlockTxs(latencyThresholdUS float64) ([]types.Transactions,
 	defer reader.Close()
 	fmt.Printf("LatencyDB: %s\n", reader.Path())
 
-	blockTxs := make([]types.Transactions, 0, realEthereumBlockCount)
+	blockTxs := make([]types.Transactions, 0, blockCount)
 	totalTxs := 0
 	maxBlockTxs := 0
-	for offset := uint64(0); offset < realEthereumBlockCount; offset++ {
+	for offset := uint64(0); offset < blockCount; offset++ {
 		blockNumber := realEthereumStartBlockNumber + offset
 		blockValue, err := replay_gethcopy.ReadReplayBlockLatency(reader, blockNumber)
 		if err != nil {
@@ -145,7 +151,7 @@ func loadEthereumRealBlockTxs(latencyThresholdUS float64) ([]types.Transactions,
 			maxBlockTxs = len(ethTxs)
 		}
 		if (offset+1)%1000 == 0 {
-			fmt.Printf("loaded %d/%d blocks, total_txs=%d\n", offset+1, realEthereumBlockCount, totalTxs)
+			fmt.Printf("loaded %d/%d blocks, total_txs=%d\n", offset+1, blockCount, totalTxs)
 		}
 	}
 	return blockTxs, totalTxs, maxBlockTxs, nil
@@ -234,7 +240,8 @@ func runBaseline(baseline, baseFileName string, tpss *[][][]float64, signalChan 
 	monitorFilePath := filepath.Join(janusConfig.MonitorBasePath, baseline+"/"+baseFileName)
 	if baseline == "harmony" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
-		*tpss = append(*tpss, harmony.Run(blockTxs, levm))
+		// 真实以太坊负载默认把 harmony 映射到 new_harmony，避免旧 Harmony 在大规模真实负载下的等待/回退路径卡住。
+		*tpss = append(*tpss, newHarmony.Run(blockTxs, levm))
 	} else if baseline == "schain" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
 		*tpss = append(*tpss, schain.Run(blockTxs, levm))

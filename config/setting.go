@@ -41,7 +41,8 @@ const (
 )
 
 const (
-	MonitorBasePath = "/root/cpu_disk_monitor/"
+	// MonitorBasePath = "/root/cpu_disk_monitor/"
+	MonitorBasePath = "/home/bcds/cpu_disk_monitor/"
 )
 
 const (

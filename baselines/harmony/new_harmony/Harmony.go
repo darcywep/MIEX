@@ -28,6 +28,12 @@ type Harmony struct {
 	workers          []*HarmonyExecutor
 }
 
+func traceHarmonyWorkerLog(format string, args ...interface{}) {
+	if tools.TraceHarmonyWorkerLog {
+		fmt.Printf(format, args...)
+	}
+}
+
 func NewHarmony(
 	blocks []*common.Block,
 	statistics *common.Statistics,
@@ -129,7 +135,7 @@ func NewHarmonyExecutor(harmony *Harmony, workerID uint32, batchTxs [][]*Harmony
 }
 
 func (h *Harmony) Start(levm *lvm.LEVM) {
-	fmt.Println("harmony ready to start...")
+	traceHarmonyWorkerLog("harmony ready to start...\n")
 
 	batches := make([][][]*HarmonyTransaction, 0, len(h.blocks))
 
@@ -188,7 +194,7 @@ func (h *Harmony) Start(levm *lvm.LEVM) {
 func (e *HarmonyExecutor) Run() {
 
 	if e.enableInterBlock {
-		fmt.Printf("worker %d size of batchTxs %d", e.workerID, len(e.batchTxs))
+		traceHarmonyWorkerLog("worker %d size of batchTxs %d\n", e.workerID, len(e.batchTxs))
 		e.barrier.ArriveAndWait()
 		e.InterBlockExecute(e.NextBatch())
 	} else {
@@ -352,7 +358,7 @@ func (e *HarmonyExecutor) Run() {
 // NextBatch 获取执行器的下一批交易
 func (e *HarmonyExecutor) NextBatch() []*HarmonyTransaction {
 	if e.batchIdx >= uint32(len(e.batchTxs)) {
-		fmt.Printf("worker %d no more batch", e.workerID)
+		traceHarmonyWorkerLog("worker %d no more batch\n", e.workerID)
 		return nil
 	}
 	batch := e.batchTxs[e.batchIdx]

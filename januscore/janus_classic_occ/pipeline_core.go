@@ -39,10 +39,9 @@ func (pe *PipelineEngine) Start() {
 
 // Stop 停止引擎
 func (pe *PipelineEngine) Stop() {
-	pe.stopChan <- struct{}{}
 	close(pe.stopChan)
-	close(pe.completeChan)
 	pe.workerWg.Wait()
+	close(pe.completeChan)
 }
 
 // SubmitBlockBatches 提交一个区块的所有批次
@@ -487,6 +486,13 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 	if threadNextNumber >= (pe.numThreads+1)/2 {   // 已经有超过一半的线程去执行下一批, 剩下的进行合并state table
 		pairIndex := state.pairIndex // 取一个配对的 threadStateTable
 		state.pairIndex++            // 放行
+		if pairIndex == 0 {
+			now := time.Now()
+			state.startTimeOfMergeStateTablePhase = now // 开始进行合并计时
+			state.startTimeOfExecuteCurrentBatchTail = now
+		}
+		needRecordExecuteTime := state.finishedTreadNum == pe.numThreads
+		tailStart := state.startTimeOfExecuteCurrentBatchTail
 		state.CompletionMu.Unlock()
 		//fmt.Printf("test [Worker %d] [batch %d] len(state.CompletionOrder)=%d, pairIndex=%d\n", workerID, state.BatchID, len(state.CompletionOrder), pairIndex)
 
@@ -505,13 +511,11 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 			return nil, false
 		}
 		pairWorkerID := state.CompletionOrder[pairIndex]
-		if pairIndex == 0 {
-			state.startTimeOfMergeStateTablePhase = time.Now() // 开始进行合并计时
-			state.startTimeOfExecuteCurrentBatchTail = time.Now()
-		}
-		if state.finishedTreadNum == pe.numThreads { // 所有线程完成，添加执行计时
+		if needRecordExecuteTime { // 所有线程完成，添加执行计时
 			pe.timeOfExecuteCurrentBatchPhase += time.Since(state.startTimeOfExecuteCurrentBatchPhase)
-			pe.timeOfExecuteCurrentBatchTail += time.Since(state.startTimeOfExecuteCurrentBatchTail)
+			if !tailStart.IsZero() {
+				pe.timeOfExecuteCurrentBatchTail += time.Since(tailStart)
+			}
 		}
 		return state.ThreadStateTables[pairWorkerID], true // 返回配对的线程ID
 	}

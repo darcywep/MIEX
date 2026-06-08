@@ -6,6 +6,7 @@ import (
 	newHarmony "Janus/baselines/harmony/new_harmony"
 	"Janus/baselines/optme/optme"
 	"Janus/baselines/schain/schain"
+	"Janus/baselines/serial"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/ethereum/config"
@@ -199,6 +200,9 @@ func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan str
 	} else if baseline == "schain" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, schain.Run(blockTxs, levm))
+	} else if baseline == "serial" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, serial.Run(blockTxs, levm))
 	} else if baseline == "optme" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, optme.Run(blockTxs, levm))
@@ -228,7 +232,8 @@ func Run(args []string) error {
 			"\taria     run aria\n"+
 			"\tharmony  run harmony\n"+
 			"\tserial   run serial\n"+
-			"\tblockstm run blockstm\n"+
+			"\tNon_Maximum_Commit_Validation run Janus without maximum commit validation\n"+
+			"\tnewHarmony run newHarmony\n"+
 			"\tjanus    run janus")
 
 	fmt.Println(baseline)
@@ -284,8 +289,9 @@ func Run(args []string) error {
 		"\ntraceAbort:", traceAbort,
 	)
 
-	if *baseline != "all" && *baseline != "harmony" && *baseline != "schain" && *baseline != "optme" &&
-		*baseline != "aria" && *baseline != "serial" && *baseline != "janus" && *baseline != "blockstm" {
+	if *baseline != "all" && *baseline != "harmony" && *baseline != "schain" && *baseline != "serial" &&
+		*baseline != "optme" && *baseline != "aria" && *baseline != "janus" &&
+		*baseline != "Non_Maximum_Commit_Validation" && *baseline != "newHarmony" {
 		fmt.Println("baseline is invalid")
 		return nil
 	}
@@ -329,17 +335,6 @@ func Run(args []string) error {
 	//	panic(err)
 	//}
 
-	//if *baseline == "blockstm" {
-	//	runProject("/root/Janus_blockstm", input)
-	//	return
-	//}
-	//if *baseline != "all" {
-	//	fmt.Println("run Janus")
-	//	runProject("/root/Janus", input)
-	//	return
-	//}
-	//runProject("/root/Janus", input)
-	//runProject("/root/Janus_blockstm", input)
 	janusConfig.AllThreadNum = input.ThreadNumber
 	janusConfig.Skew = input.Skew
 	janusConfig.AllBlocksTxSum = input.BlockNumber * input.BlockTxNum
@@ -369,7 +364,7 @@ func Run(args []string) error {
 			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
 		tpssAndLatency [][][]float64 = make([][][]float64, 0)
 		//baselines                    = []string{"janus", "harmony", "optme", "Non_Maximum_Commit_Validation"}
-		baselines = []string{"janus", "optme", "newHarmony", "Non_Maximum_Commit_Validation"}
+		baselines = []string{"harmony", "schain", "serial", "optme", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony"}
 		//baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX"}
 		//baselines = []string{"Non_Maximum_Commit_Validation"}
 	)
@@ -397,7 +392,6 @@ func Run(args []string) error {
 		signalWg := new(sync.WaitGroup)
 		signalWg.Add(1)
 		run(bl, baseFileName, &tpssAndLatency, signalChan, signalWg, blockTxs, levm)
-		signalChan <- struct{}{}
 		close(signalChan)
 		signalWg.Wait()
 		fmt.Println()
