@@ -9,6 +9,7 @@ import (
 	"Janus/tools"
 	"fmt"
 	"math/big"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"time"
@@ -217,7 +218,10 @@ func (lvm *LEVM) CallContractUseStateDB(callerAddr, contractAddr common.Address,
 }
 
 func PreReadState(txs []*types.Transaction, levm *LEVM) {
-	abiObject, _, err := tools.LoadContract(tools.ContractBasePath+"smallbank_m_fibonacci.abi", tools.ContractBasePath+"smallbank_m_fibonacci.bin")
+	abiObject, _, err := tools.LoadContract(
+		filepath.Join(tools.ContractBasePath, "smallbank_m_fibonacci.abi"),
+		filepath.Join(tools.ContractBasePath, "smallbank_m_fibonacci.bin"),
+	)
 	tools.PanicError("GenerateSmallBankTxs LoadContract ", err)
 	_ = levm.AllDB().StateDB.GetOrNewStateObject(tools.ContractAddress)
 	_ = levm.AllDB().StateDB.GetCode(tools.ContractAddress)

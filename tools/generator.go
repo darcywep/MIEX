@@ -44,7 +44,7 @@ func GenerateAddresses(start, end int) []common.Address {
 //	txs := make([]*types.Transaction, 0, txCount)
 //	gasPrice := big.NewInt(10)
 //
-//	abiObject, _, err := LoadContract(ContractBasePath+"smallbank_m_fibonacci.abi", ContractBasePath+"smallbank_m_fibonacci.bin")
+//	abiObject, _, err := LoadContract(filepath.Join(ContractBasePath, "smallbank_m_fibonacci.abi"), filepath.Join(ContractBasePath, "smallbank_m_fibonacci.bin"))
 //	PanicError("GenerateSmallBankTxs LoadContract ", err)
 //
 //	ioTxNum, cpuTxNum := 0, 0
@@ -140,7 +140,10 @@ func GenerateSmallBankTxs(addresses []common.Address, shortTxCount, longTxCount,
 	txs := make([]*types.Transaction, 0, txCount)
 	gasPrice := big.NewInt(10)
 
-	abiObject, _, err := LoadContract(ContractBasePath+"smallbank_m_fibonacci.abi", ContractBasePath+"smallbank_m_fibonacci.bin")
+	abiObject, _, err := LoadContract(
+		filepath.Join(ContractBasePath, "smallbank_m_fibonacci.abi"),
+		filepath.Join(ContractBasePath, "smallbank_m_fibonacci.bin"),
+	)
 	PanicError("GenerateSmallBankTxs LoadContract ", err)
 
 	longTxNum, shortTxNum := 0, 0
@@ -209,7 +212,10 @@ func GenerateSmallBankTxs(addresses []common.Address, shortTxCount, longTxCount,
 
 func GenerateTxsFormBriefTx(btxs [][]int, recursive bool) []*types.Transaction {
 	txs := make([]*types.Transaction, 0, len(btxs))
-	abiObject, _, err := LoadContract(ContractBasePath+"smallbank_m_fibonacci.abi", ContractBasePath+"smallbank_m_fibonacci.bin")
+	abiObject, _, err := LoadContract(
+		filepath.Join(ContractBasePath, "smallbank_m_fibonacci.abi"),
+		filepath.Join(ContractBasePath, "smallbank_m_fibonacci.bin"),
+	)
 	PanicError("GenerateSmallBankTxs LoadContract ", err)
 	gasPrice := big.NewInt(10)
 	for _, btx := range btxs {
