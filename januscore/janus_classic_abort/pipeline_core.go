@@ -321,7 +321,7 @@ func (pe *PipelineEngine) solveComponentMWIS(state *BatchState, workerID int) {
 		if enableLog {
 			fmt.Printf("[Worker %d] [batch %d] [MWIS] start solving MWIS with ordered transactions.\n", workerID, pe.workerStaties[workerID].currentBatchID)
 		}
-		committed, aborted := solveGraphFromOrderedTxs(state.allTxs)
+		committed, aborted := solveGraphFromOrderedTxs(state.allTxs, workerID)
 		// 合并提交的交易
 		state.CommittedTxs = append(state.CommittedTxs, committed...)
 
@@ -331,7 +331,12 @@ func (pe *PipelineEngine) solveComponentMWIS(state *BatchState, workerID int) {
 			return
 		}
 
-		finalDag := state.constructDAG.dagQueue[0] // 获取最终 DAG
+		var finalDag *ConflictDAG
+		if len(state.constructDAG.dagQueue) > 0 {
+			finalDag = state.constructDAG.dagQueue[0] // 获取最终 DAG
+		}
+		finalDag = ensureConflictDAGForAbort(finalDag)
+		ensureDAGNodesForTxIDs(finalDag, aborted, pe.janusTransactions, workerID)
 		// 单线程处理丢弃的交易并分配给线程
 		if enableLog {
 			fmt.Println("state.reExecute:", state.reExecute, "aborted:", aborted)
@@ -345,7 +350,9 @@ func (pe *PipelineEngine) solveComponentMWIS(state *BatchState, workerID int) {
 		pe.timeOfCommitMaximumValidationPhase += time.Since(state.startTimeOfCommitMaximumValidationPhase)
 
 		for _, txID := range aborted {
-			pe.abortTxs = append(pe.abortTxs, finalDag.Nodes[txID].Tx)
+			if abortTx := abortTransactionFromDAGOrList(finalDag, pe.janusTransactions, txID); abortTx != nil {
+				pe.abortTxs = append(pe.abortTxs, abortTx)
+			}
 		}
 		state.startTimeOfReExecutePhase = time.Now()
 		state.constructDAG.mwisDone.Store(true)
@@ -355,8 +362,57 @@ func (pe *PipelineEngine) solveComponentMWIS(state *BatchState, workerID int) {
 	pe.workerStaties[workerID].Phase = ReExecutePhase
 }
 
+func ensureConflictDAGForAbort(dag *ConflictDAG) *ConflictDAG {
+	if dag != nil {
+		return dag
+	}
+	return &ConflictDAG{
+		Nodes:  make(map[int]*ReadWriteSet),
+		Edges:  make(map[int]map[int]struct{}),
+		Degree: make(map[int]int),
+		parent: make(map[int]int),
+		rank:   make(map[int]int),
+	}
+}
+
+func ensureDAGNodesForTxIDs(dag *ConflictDAG, txIDs []int, jtxs []*janusTransaction, workerID int) {
+	if dag == nil {
+		return
+	}
+	for _, txID := range txIDs {
+		if txID < 0 || txID >= len(jtxs) || !ensureJanusTransactionRWSet(jtxs[txID], workerID) {
+			continue
+		}
+		if dag.Nodes[txID] == nil {
+			dag.Nodes[txID] = jtxs[txID].rwSet
+		}
+		if dag.Edges[txID] == nil {
+			dag.Edges[txID] = make(map[int]struct{})
+		}
+		if _, ok := dag.Degree[txID]; !ok {
+			dag.Degree[txID] = 0
+		}
+		_ = dag.Find(txID)
+	}
+}
+
+func abortTransactionFromDAGOrList(dag *ConflictDAG, jtxs []*janusTransaction, txID int) *janusTransaction {
+	if dag != nil {
+		if rwset := dag.Nodes[txID]; rwset != nil && rwset.Tx != nil {
+			return rwset.Tx
+		}
+	}
+	if txID >= 0 && txID < len(jtxs) {
+		return jtxs[txID]
+	}
+	return nil
+}
+
 // divideAbortedByComponents 根据连通分量分组丢弃交易
 func divideAbortedByComponents(dag *ConflictDAG, aborted []int) [][]int {
+	if dag == nil {
+		return nil
+	}
 	componentMap := dag.GetConnectedComponents() // 获取连通分量（根节点 -> 分量内节点列表）
 	componentMapByNode := make(map[int]int)      // 节点 -> 连通分量代表
 	abortedComponents := make([][]int, 0)
@@ -489,7 +545,18 @@ func (pe *PipelineEngine) executeNextTransaction(atomicIdx *atomic.Int32, txs *[
 		jtx := (*txs)[idx]
 		var needRun = false
 		if jtx.IsRuned { // 如果已经执行过, 需要检查是否要重新执行
+			if !ensureJanusTransactionRWSet(jtx, workerID) {
+				continue
+			}
+			if state.BatchID <= 0 {
+				appendThreadRWSets(state, jtx, workerID)
+				continue
+			}
 			preState := pe.batchStates[state.BatchID-1] // 如果已经执行过，那么之前必定有一个批次
+			if preState == nil {
+				appendThreadRWSets(state, jtx, workerID)
+				continue
+			}
 			//fmt.Printf("test write set\n")
 			//fmt.Println(preState.writeSet)
 			for readKey, _ := range jtx.rwSet.ReadSet {
@@ -517,10 +584,8 @@ func (pe *PipelineEngine) executeNextTransaction(atomicIdx *atomic.Int32, txs *[
 			continue
 		}
 
-		// 需要执行交易
-		jtx.IsRuned = true
-
 		pe.executeTransaction(jtx, workerID)
+		jtx.IsRuned = true
 		appendThreadRWSets(state, jtx, workerID)
 	}
 }

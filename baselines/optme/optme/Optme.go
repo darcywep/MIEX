@@ -365,7 +365,9 @@ func (opt *OptMETable) ReserveGet(tx *OptmeTransaction, key string) {
 		if entry.BlockIDPut == 0 || entry.BlockIDPut == tx.Blockid { // 读和写属一个区块
 			entry.BlockIDGet = max(entry.BlockIDGet, tx.Blockid) //
 		} else {
-			fmt.Printf("中止交易.......\n")
+			if tools.TraceOptMELog {
+				fmt.Printf("[OptME debug] abort transaction by ReserveGet\n")
+			}
 			tx.Aborted.Store(true) //
 		}
 	})

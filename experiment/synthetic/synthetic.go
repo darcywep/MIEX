@@ -4,7 +4,7 @@ import (
 	"Janus/baselines/aria/aria"
 	"Janus/baselines/harmony/harmony"
 	newHarmony "Janus/baselines/harmony/new_harmony"
-	"Janus/baselines/optme/optme"
+	optmePaper "Janus/baselines/optme_paper/optme_paper"
 	"Janus/baselines/schain/schain"
 	"Janus/baselines/serial"
 	janusConfig "Janus/config"
@@ -22,6 +22,7 @@ import (
 	"flag"
 	"fmt"
 	"math/big"
+	"os"
 	"time"
 
 	//"io"
@@ -132,6 +133,9 @@ func runProject(path string, input InputData) {
 }
 
 func writeTPSResultToExcel(filename string, baselines []string, tpssAndLatency [][][]float64) error {
+	if err := os.MkdirAll(filepath.Dir(filename), 0755); err != nil {
+		return err
+	}
 	f := excelize.NewFile()
 
 	sheet := "TPS"
@@ -179,6 +183,20 @@ func writeTPSResultToExcel(filename string, baselines []string, tpssAndLatency [
 	return f.SaveAs(filename)
 }
 
+func printTPSSummary(baselines []string, tpssAndLatency [][][]float64) {
+	fmt.Println("========== Baseline TPS Summary ==========")
+	fmt.Printf("%-34s %16s %16s\n", "Baseline", "TPS", "Latency(s)")
+	for i, baseline := range baselines {
+		if i >= len(tpssAndLatency) || len(tpssAndLatency[i]) < 2 ||
+			len(tpssAndLatency[i][0]) == 0 || len(tpssAndLatency[i][1]) == 0 {
+			fmt.Printf("%-34s %16s %16s\n", baseline, "N/A", "N/A")
+			continue
+		}
+		fmt.Printf("%-34s %16.2f %16.6f\n", baseline, tpssAndLatency[i][0][0], tpssAndLatency[i][1][0])
+	}
+	fmt.Println("==========================================")
+}
+
 func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan struct{}, signalWg *sync.WaitGroup, blockTxs []types.Transactions, levm *lvm.LEVM) {
 	monitorFilePath := filepath.Join(janusConfig.MonitorBasePath, baseline+"/"+baseFileName)
 	//if baseline == "Non_Prioritied" {
@@ -203,9 +221,9 @@ func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan str
 	} else if baseline == "serial" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, serial.Run(blockTxs, levm))
-	} else if baseline == "optme" {
+	} else if baseline == "optme" || baseline == "optme_paper" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
-		*tpss = append(*tpss, optme.Run(blockTxs, levm))
+		*tpss = append(*tpss, optmePaper.Run(blockTxs, levm))
 	} else if baseline == "aria" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, aria.Run(blockTxs, levm))
@@ -228,7 +246,7 @@ func Run(args []string) error {
 		"baseline:\n"+
 			"\tall      run all baseline\n"+
 			"\tschian   run schain\n"+
-			"\toptme    run optme\n"+
+			"\toptme    run paper-style optme\n"+
 			"\taria     run aria\n"+
 			"\tharmony  run harmony\n"+
 			"\tserial   run serial\n"+
@@ -290,7 +308,7 @@ func Run(args []string) error {
 	)
 
 	if *baseline != "all" && *baseline != "harmony" && *baseline != "schain" && *baseline != "serial" &&
-		*baseline != "optme" && *baseline != "aria" && *baseline != "janus" &&
+		*baseline != "optme" && *baseline != "optme_paper" && *baseline != "aria" && *baseline != "janus" &&
 		*baseline != "Non_Maximum_Commit_Validation" && *baseline != "newHarmony" {
 		fmt.Println("baseline is invalid")
 		return nil
@@ -396,6 +414,7 @@ func Run(args []string) error {
 		signalWg.Wait()
 		fmt.Println()
 	}
+	printTPSSummary(baselines, tpssAndLatency)
 	err := writeTPSResultToExcel(filepath.Join(janusConfig.MonitorBasePath, "tps"+"/"+baseFileName), baselines, tpssAndLatency)
 	if err != nil {
 		return err

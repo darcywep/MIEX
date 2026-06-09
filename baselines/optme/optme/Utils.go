@@ -2,6 +2,7 @@ package optme
 
 import (
 	"Janus/baselines/common"
+	"Janus/tools"
 	"fmt"
 	"runtime"
 	"sort"
@@ -145,7 +146,9 @@ func (u *WriteUnits) sort(readunits *ReadUnits) {
 			if !u.first_update_flag { // 第一次冲突
 				tx.Sequenceid = readunits.max_seq + 1
 				u.first_update_flag = true
-				fmt.Printf("DEBUG: Set sequence for first updater: %d", readunits.max_seq)
+				if tools.TraceOptMELog {
+					fmt.Printf("[OptME debug] set sequence for first updater: %d\n", readunits.max_seq)
+				}
 			} else {
 				//fmt.Printf("DEBUG: abort tx by unit: %v", unit.tx.Tx)
 				unit.tx.Aborted.Store(true) // 剩下交易全部abort
@@ -392,7 +395,6 @@ func (a *AddressBasedConflictGraph) Construct(simulationResult []*OptmeTransacti
 		//	转换写单元
 		writeUnits := a.ConvertToUnits(tx, UnitType(Write), tx.Tx.Vertex.WriteKeys, tx.Tx.Vertex.ReadKeys)
 		//writeUnits := a.ConvertToUnits(tx, UnitType(Write), tx.LocalPut, tx.LocalGet)
-		fmt.Printf(string(len(writeUnits)))
 
 		//	检查同一地址是否已存在更新器
 		if a.CheckUpdaterAlreadyExistInSameAddress(writeUnits) {

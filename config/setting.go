@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 
@@ -40,9 +41,10 @@ const (
 	RecursiveCalculateFibonacci = false // 是否使用递归计算斐波那契
 )
 
-const (
-	// MonitorBasePath = "/root/cpu_disk_monitor/"
-	MonitorBasePath = "/home/bcds/cpu_disk_monitor/"
+var (
+	// MonitorBasePath 是实验监控和 TPS 汇总文件的根目录。
+	// 启动时自动识别当前用户目录，并在该目录下使用 cpu_disk_monitor，避免不同机器硬编码 /home/bcds 或 /root。
+	MonitorBasePath string
 )
 
 const (
@@ -94,4 +96,10 @@ func init() {
 	ProjectRoot := filepath.Dir(filepath.Dir(filename))
 	InstructionTimingFilePath = filepath.Join(ProjectRoot, "config", "instruction_timings.json")
 	SmallbankDatabasePath = filepath.Join(ProjectRoot, "data", "smallbank_database")
+	homeDir, err := os.UserHomeDir()
+	if err != nil || homeDir == "" {
+		homeDir = ProjectRoot
+	}
+	MonitorBasePath = filepath.Join(homeDir, "cpu_disk_monitor")
+	_ = os.MkdirAll(MonitorBasePath, 0755)
 }

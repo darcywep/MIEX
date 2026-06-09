@@ -297,11 +297,10 @@ func (pe *PipelineEngine) awakeOrWaitConstructDAG(state *BatchState, cdr *constr
 			//	state.BatchID, singleNodeCount, multiNodeCount, multiNodeTxCount,
 			//	singleNodeCount+multiNodeTxCount)
 
-			// 初始化连通分量队列
+			// Non_Maximum_Commit_Validation 后续会用 solveGraphFromOrderedTxs 顺序处理整批交易。
+			// 因此这里不能再把 DAG 单节点提前写入 CommittedTxs，否则同一笔交易会被重复计数。
 			for _, nodes := range components {
-				if len(nodes) == 1 {
-					state.CommittedTxs = append(state.CommittedTxs, nodes[0])
-				} else {
+				if len(nodes) > 1 {
 					cdr.componentsQueue = append(cdr.componentsQueue, nodes)
 				}
 			}
@@ -507,16 +506,30 @@ func (pe *PipelineEngine) tryEntryNextBatch(state *BatchState, workerID int, sta
 		if int(batchID) < len(pe.batchStates) {
 			pe.batchStates[batchID].startTimeOfExecuteCurrentBatchPhase = time.Now()
 		}
-		//fmt.Printf("[ERROR] [Batch %d] CommittedTxs=%d != TotalTxs=%d, 丢失=%d笔\n",
-		//	state.BatchID, len(state.CommittedTxs), state.TotalTxs,
-		//	state.TotalTxs-len(state.CommittedTxs))
-		committedTxsNum.Add(int32(len(state.CommittedTxs)))
+		committedTxsNum.Add(int32(uniqueCommittedTxCount(state)))
 		pe.completeBatch(state) // 完成该批次
 	}
 	if enableLog {
 		fmt.Printf("[Worker %d] [batch %d] Finished batch %d, entry new batch %d\n",
 			workerID, pe.workerStaties[workerID].currentBatchID, pe.workerStaties[workerID].currentBatchID, pe.currentBatchID.Load())
 	}
+}
+
+func uniqueCommittedTxCount(state *BatchState) int {
+	if state == nil || len(state.CommittedTxs) == 0 {
+		return 0
+	}
+	seen := make(map[int]struct{}, len(state.CommittedTxs))
+	for _, txID := range state.CommittedTxs {
+		if txID < 0 {
+			continue
+		}
+		seen[txID] = struct{}{}
+	}
+	if len(seen) > state.TotalTxs {
+		return state.TotalTxs
+	}
+	return len(seen)
 }
 
 func (pe *PipelineEngine) changeToNextBatch(state *BatchState, workerID int) bool {
