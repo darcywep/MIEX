@@ -3,6 +3,7 @@ package realworkload
 import (
 	"Janus/baselines/aria/aria"
 	newHarmony "Janus/baselines/harmony/new_harmony"
+	"Janus/baselines/optme/optme"
 	optmePaper "Janus/baselines/optme_paper/optme_paper"
 	"Janus/baselines/schain/schain"
 	"Janus/baselines/serial"
@@ -54,7 +55,7 @@ func init() {
 // Run 从 LatencyDB 构建真实以太坊负载，并复用现有 baseline 执行框架做模拟执行。
 func Run(args []string) error {
 	fs := flag.NewFlagSet("ethereum-real", flag.ExitOnError)
-	baseline := fs.String("baseline", "janus", "baseline: all, harmony(new_harmony), schain, serial, optme, aria, janus, Non_Maximum_Commit_Validation, newHarmony(alias)")
+	baseline := fs.String("baseline", "janus", "baseline: all, harmony(new_harmony), schain, serial, optme, optme_paper, aria, janus, Non_Maximum_Commit_Validation, newHarmony(alias)")
 	threadNumber := fs.Int("t", 8, "threads number")
 	blockCount := fs.Uint64("b", defaultRealEthereumBlockCount, "number of ethereum blocks to execute from start block")
 	latencyThresholdUS := fs.Float64("latency", 50, "long/short threshold in microseconds; tx latency < threshold is short, otherwise long")
@@ -98,7 +99,7 @@ func Run(args []string) error {
 	levm := lvm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
 	defer levm.AllDB().Close()
 
-	baselines := []string{"harmony", "schain", "serial", "optme", "aria", "janus", "Non_Maximum_Commit_Validation"}
+	baselines := []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation"}
 	if *baseline != "all" {
 		baselines = []string{*baseline}
 	}
@@ -250,7 +251,10 @@ func runBaseline(baseline, baseFileName string, tpss *[][][]float64, signalChan 
 	} else if baseline == "serial" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
 		*tpss = append(*tpss, serial.Run(blockTxs, levm))
-	} else if baseline == "optme" || baseline == "optme_paper" {
+	} else if baseline == "optme" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
+		*tpss = append(*tpss, optme.Run(blockTxs, levm))
+	} else if baseline == "optme_paper" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
 		*tpss = append(*tpss, optmePaper.Run(blockTxs, levm))
 	} else if baseline == "aria" {
