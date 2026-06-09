@@ -126,7 +126,7 @@ func (optme *OptME) IntraEpochReordering(simulationResult []*OptmeTransaction, a
 	beginTime := time.Now()
 
 	// 构建ACG
-	acg.ParallelConstruct(simulationResult)
+	acg.ParallelConstruct(simulationResult, optme.numThreads)
 	//acg.Construct(simulationResult)
 	constructTime := time.Now()
 	constructDuration := constructTime.Sub(beginTime).Microseconds()
@@ -152,7 +152,7 @@ func (optme *OptME) IntraEpochReordering(simulationResult []*OptmeTransaction, a
 // ReorderWithACG 使用ACG重排序交易
 func (o *OptME) ReorderWithACG(acg *AddressBasedConflictGraph, simulationResult []*OptmeTransaction, abortedTxs *[]*OptmeTransaction) {
 
-	//acg.ParallelConstruct(simulationResult)
+	//acg.ParallelConstruct(simulationResult, o.numThreads)
 	acg.Construct(simulationResult)
 
 	beginTime := time.Now()

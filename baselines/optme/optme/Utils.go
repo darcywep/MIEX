@@ -4,7 +4,6 @@ import (
 	"Janus/baselines/common"
 	"Janus/tools"
 	"fmt"
-	"runtime"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -420,20 +419,34 @@ func (a *AddressBasedConflictGraph) Construct(simulationResult []*OptmeTransacti
 // ParallelConstruct 并行构建冲突图
 // 参数:
 //   - simulationResult: 模拟结果，包含所有待处理的事务
-func (a *AddressBasedConflictGraph) ParallelConstruct(simulationResult []*OptmeTransaction) {
+//   - threadNum: 显式并发切分数量，来自命令行 -t，而不是机器 CPU 数
+func (a *AddressBasedConflictGraph) ParallelConstruct(simulationResult []*OptmeTransaction, threadNum int) {
 	numOfTxn := len(simulationResult)
-	numCPU := runtime.NumCPU()           // 并行的线程数目
-	chunkSize := max(numOfTxn/numCPU, 1) // 每个线程处理的交易数目
+	if numOfTxn == 0 {
+		return
+	}
+	workerNum := threadNum
+	if workerNum <= 0 {
+		workerNum = 1
+	}
+	if workerNum > numOfTxn {
+		workerNum = numOfTxn
+	}
+	chunkSize := (numOfTxn + workerNum - 1) / workerNum // 每个线程处理的交易数目
 
 	var wg sync.WaitGroup
-	results := make(chan *AddressBasedConflictGraph, numCPU) // 存放生成的冲突图通道
+	partials := make([]*AddressBasedConflictGraph, workerNum)
 
 	// 第一阶段：并行处理子任务
-	for i := 0; i < numOfTxn; i += chunkSize {
-		end := min(i+chunkSize, numOfTxn)
+	for chunkID := 0; chunkID < workerNum; chunkID++ {
+		start := chunkID * chunkSize
+		end := min(start+chunkSize, numOfTxn)
+		if start >= end {
+			continue
+		}
 
 		wg.Add(1)
-		go func(start, end int) {
+		go func(chunkID, start, end int) {
 			defer wg.Done()
 
 			// 创建子数据块
@@ -444,18 +457,19 @@ func (a *AddressBasedConflictGraph) ParallelConstruct(simulationResult []*OptmeT
 			subGraph := NewAddressBasedConflictGraph(a.pool)
 			subGraph.Construct(chunk)
 
-			results <- subGraph
-		}(i, end)
+			partials[chunkID] = subGraph
+		}(chunkID, start, end)
 	}
 
 	// 等待所有子任务完成
 	wg.Wait()
-	close(results)
 
-	// 收集子图结果
-	var subGraphs []*AddressBasedConflictGraph
-	for subGraph := range results {
-		subGraphs = append(subGraphs, subGraph)
+	// 按 chunkID 收集子图，避免 goroutine 完成顺序影响后续 merge 顺序。
+	subGraphs := make([]*AddressBasedConflictGraph, 0, workerNum)
+	for _, subGraph := range partials {
+		if subGraph != nil {
+			subGraphs = append(subGraphs, subGraph)
+		}
 	}
 
 	// 第二阶段：并行归并子图
