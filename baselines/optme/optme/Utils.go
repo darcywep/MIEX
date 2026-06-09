@@ -559,7 +559,7 @@ func (a *AddressBasedConflictGraph) HierarchicalSort() {
 		// 排序读单元和写单元
 		address := a.addresses[key]
 		address.sort_read_unit()
-		address.sort_read_unit()
+		address.sort_write_unit()
 	}
 }
 

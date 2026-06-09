@@ -29,18 +29,16 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	engine.close()
 
 	elapsed := time.Since(start)
-	tps := float64(janusConfig.AllBlocksTxSum) / elapsed.Seconds()
 	commitCount := stats.CommitCount.Load()
 	execCount := stats.ExecCount.Load()
+	tps := float64(commitCount) / elapsed.Seconds()
 
 	fmt.Printf("OptME Paper CommitCount= %d\n", commitCount)
 	fmt.Printf("OptME Paper ExecCount= %d\n", execCount)
-	fmt.Printf("OptME Paper first_epoch_abort= %d sequence_abort= %d future_epoch_txs= %d serial_fallback= %d\n",
-		engine.firstEpochAbortCount,
-		engine.sequenceAbortCount,
-		engine.futureEpochTxCount,
-		engine.serialFallbackCount,
-	)
+	fmt.Printf("OptME Paper first_epoch_abort= %d\n", engine.firstEpochAbortCount)
+	fmt.Printf("OptME Paper sequence_abort= %d\n", engine.sequenceAbortCount)
+	fmt.Printf("OptME Paper future_epoch_txs= %d\n", engine.futureEpochTxCount)
+	fmt.Printf("OptME Paper serial_fallback= %d\n", engine.serialFallbackCount)
 	if int(commitCount) != janusConfig.AllBlocksTxSum {
 		fmt.Printf("[OptME Paper warning] committed txs mismatch: committed=%d expected=%d\n", commitCount, janusConfig.AllBlocksTxSum)
 	}
