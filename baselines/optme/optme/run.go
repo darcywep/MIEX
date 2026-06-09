@@ -41,6 +41,15 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 
 	fmt.Printf("被执行的交易数目 %d \n", optmeInstance.Statistics.ExecCount.Load())
 	fmt.Printf("成功提交的交易数目 %d \n", optmeInstance.Statistics.CommitCount.Load())
+	fmt.Printf("OptME first_epoch_commit= %d\n", optmeInstance.firstEpochCommitCount.Load())
+	fmt.Printf("OptME future_epoch_txs= %d\n", optmeInstance.futureEpochTxCount.Load())
+	fmt.Printf("OptME future_epoch_commit= %d\n", optmeInstance.futureEpochCommitCnt.Load())
+	if int(optmeInstance.Statistics.CommitCount.Load()) != janusConfig.AllBlocksTxSum {
+		fmt.Printf("[OptME warning] committed txs mismatch: committed=%d expected=%d\n",
+			optmeInstance.Statistics.CommitCount.Load(),
+			janusConfig.AllBlocksTxSum,
+		)
+	}
 
 	tps := float64(optmeInstance.Statistics.CommitCount.Load()) / (elapsed.Seconds())
 	fmt.Printf("交易处理吞吐(TPS)= %f \n", tps)

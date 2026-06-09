@@ -54,6 +54,10 @@ type OptME struct {
 	blockIdx       uint64
 	mtx            sync.Mutex
 	cv             *sync.Cond
+
+	firstEpochCommitCount atomic.Uint64
+	futureEpochTxCount    atomic.Uint64
+	futureEpochCommitCnt  atomic.Uint64
 }
 
 // NewOptME 创建新的OptME实例
@@ -80,18 +84,17 @@ func (optme *OptME) Start() {
 	fmt.Println("OptME Ready to Start ...")
 
 	txid := 0
-	blockid := 0
 	// 将块拆分为批次
 	for blockIndex, block := range optme.blocks {
 
-		//blockid++
+		blockid := uint32(blockIndex + 1)
 		txs := block.GetTxs()
 		batch := make([]*OptmeTransaction, 0, len(txs))
 
 		for i := 0; i < len(txs); i++ {
 			txid++
 			txs[i].Txid = uint32(txid)
-			optmeTx := NewOptmeTransaction(txs[i], uint32(blockid), i, blockIndex)
+			optmeTx := NewOptmeTransaction(txs[i], blockid, i, blockIndex)
 			batch = append(batch, optmeTx) // batch[][], 里面每个元素表示一个区块中的所有交易
 		}
 
@@ -166,12 +169,8 @@ func (o *OptME) ReorderWithACG(acg *AddressBasedConflictGraph, simulationResult 
 
 	// 并发提交并统计延迟
 	for _, tx := range txList {
-		latency := time.Since(tx.StartTime).Microseconds()
-		o.Statistics.JournalCommit(uint32(latency))
-		if tools.TraceAbort {
-			tools.TraceAbortMutex.Lock()
-			ariaAbortTxs[tx.originalBlockID][tx.originalTxID] = tx
-			tools.TraceAbortMutex.Unlock()
+		if o.commitTransaction(tx) {
+			o.firstEpochCommitCount.Add(1)
 		}
 	}
 
@@ -271,6 +270,21 @@ func (optme *OptME) ReExecute(tx *OptmeTransaction, levm *lvm.LEVM) int {
 	return 1
 }
 
+func (optme *OptME) commitTransaction(tx *OptmeTransaction) bool {
+	if !tx.Committed.CompareAndSwap(false, true) {
+		return false
+	}
+	optme.Finalize(tx)
+	latency := time.Since(tx.StartTime).Microseconds()
+	optme.Statistics.JournalCommit(uint32(latency))
+	if tools.TraceAbort {
+		tools.TraceAbortMutex.Lock()
+		ariaAbortTxs[tx.originalBlockID][tx.originalTxID] = tx
+		tools.TraceAbortMutex.Unlock()
+	}
+	return true
+}
+
 // ParallelExecute 并行执行交易
 func (optme *OptME) ParallelExecute(schedules *[][]*OptmeTransaction, abortedTxs []*OptmeTransaction) {
 	// 定义局部函数模拟宏
@@ -287,6 +301,7 @@ func (optme *OptME) ParallelExecute(schedules *[][]*OptmeTransaction, abortedTxs
 
 	// 重新调度交易
 	optme.InterEpochReordering(schedules, abortedTxs)
+	optme.futureEpochTxCount.Add(uint64(len(abortedTxs)))
 
 	// 并发重新执行
 	for _, schedule := range *schedules {
@@ -307,7 +322,10 @@ func (optme *OptME) ParallelExecute(schedules *[][]*OptmeTransaction, abortedTxs
 					resultChan <- err
 					return
 				}
-				optme.Finalize(tx)
+				optme.Statistics.JournalExecute()
+				if optme.commitTransaction(tx) {
+					optme.futureEpochCommitCnt.Add(1)
+				}
 				resultChan <- 1
 			})
 
