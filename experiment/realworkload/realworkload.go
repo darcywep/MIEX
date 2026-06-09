@@ -57,7 +57,9 @@ func Run(args []string) error {
 	fs := flag.NewFlagSet("ethereum-real", flag.ExitOnError)
 	baseline := fs.String("baseline", "janus", "baseline: all, harmony(new_harmony), schain, serial, optme, optme_paper, aria, janus, Non_Maximum_Commit_Validation, newHarmony(alias)")
 	threadNumber := fs.Int("t", 8, "threads number")
-	blockCount := fs.Uint64("b", defaultRealEthereumBlockCount, "number of ethereum blocks to execute from start block")
+	blockCount := fs.Uint64("b", defaultRealEthereumBlockCount, "number of original ethereum blocks; when -bt > 0, number of regrouped experiment blocks")
+	blockTxNumber := fs.Int("bt", 0, "transactions per regrouped block; 0 keeps original ethereum block layout")
+	sourceBlockLimit := fs.Uint64("source-b", defaultRealEthereumBlockCount, "max ethereum source blocks to scan when -bt > 0")
 	latencyThresholdUS := fs.Float64("latency", 50, "long/short threshold in microseconds; tx latency < threshold is short, otherwise long")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -66,7 +68,13 @@ func Run(args []string) error {
 		return fmt.Errorf("baseline is invalid: %s", *baseline)
 	}
 	if *blockCount == 0 {
-		return fmt.Errorf("ethereum block count must be greater than 0")
+		return fmt.Errorf("block count must be greater than 0")
+	}
+	if *blockTxNumber < 0 {
+		return fmt.Errorf("transactions per regrouped block must be greater than or equal to 0")
+	}
+	if *blockTxNumber > 0 && *sourceBlockLimit == 0 {
+		return fmt.Errorf("source ethereum block count must be greater than 0 when regrouping blocks")
 	}
 
 	janusConfig.AllThreadNum = *threadNumber
@@ -81,20 +89,29 @@ func Run(args []string) error {
 	fmt.Println("========== Ethereum Real Workload ==========")
 	fmt.Printf("baseline: %s\n", *baseline)
 	fmt.Printf("threads: %d\n", janusConfig.AllThreadNum)
-	fmt.Printf("blocks: [%d, %d)\n", realEthereumStartBlockNumber, realEthereumStartBlockNumber+*blockCount)
+	if *blockTxNumber > 0 {
+		fmt.Println("layout: regrouped ethereum txs")
+		fmt.Printf("experiment blocks: %d\n", *blockCount)
+		fmt.Printf("transactions per experiment block: %d\n", *blockTxNumber)
+		fmt.Printf("source ethereum blocks scan limit: [%d, %d)\n", realEthereumStartBlockNumber, realEthereumStartBlockNumber+*sourceBlockLimit)
+	} else {
+		fmt.Println("layout: original ethereum blocks")
+		fmt.Printf("source ethereum blocks: [%d, %d)\n", realEthereumStartBlockNumber, realEthereumStartBlockNumber+*blockCount)
+	}
 	fmt.Printf("latency threshold: %.2f us\n", *latencyThresholdUS)
 	fmt.Printf("GOMAXPROCS set to: %d\n", runtime.GOMAXPROCS(0))
 
-	blockTxs, totalTxs, maxBlockTxs, err := loadEthereumRealBlockTxs(*latencyThresholdUS, *blockCount)
+	workload, err := loadEthereumRealWorkload(*latencyThresholdUS, *blockCount, *blockTxNumber, *sourceBlockLimit)
 	if err != nil {
 		return err
 	}
-	janusConfig.AllBlocksTxSum = totalTxs
-	janusConfig.BlockSize = maxBlockTxs
+	janusConfig.AllBlocksTxSum = workload.totalTxs
+	janusConfig.BlockSize = workload.maxBlockTxs
 	if janusConfig.BlockSize == 0 {
 		janusConfig.BlockSize = 1
 	}
-	fmt.Printf("loaded blocks=%d total_txs=%d max_block_txs=%d\n", len(blockTxs), totalTxs, maxBlockTxs)
+	fmt.Printf("source_blocks_read=%d source_txs_read=%d\n", workload.sourceBlocksRead, workload.sourceTxsRead)
+	fmt.Printf("loaded blocks=%d total_txs=%d max_block_txs=%d\n", len(workload.blockTxs), workload.totalTxs, workload.maxBlockTxs)
 
 	levm := lvm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
 	defer levm.AllDB().Close()
@@ -103,10 +120,7 @@ func Run(args []string) error {
 	if *baseline != "all" {
 		baselines = []string{*baseline}
 	}
-	baseFileName := "ethereum_real_start(" + strconv.FormatUint(realEthereumStartBlockNumber, 10) + ")" +
-		"_blocks(" + strconv.FormatUint(*blockCount, 10) + ")" +
-		"_t(" + strconv.Itoa(janusConfig.AllThreadNum) + ")" +
-		"_latency_us(" + fmt.Sprintf("%.2f", *latencyThresholdUS) + ").xlsx"
+	baseFileName := ethereumRealWorkloadFileName(workload, *latencyThresholdUS, janusConfig.AllThreadNum)
 
 	tpssAndLatency := make([][][]float64, 0, len(baselines))
 	for i, bl := range baselines {
@@ -115,7 +129,7 @@ func Run(args []string) error {
 		signalChan := make(chan struct{})
 		signalWg := new(sync.WaitGroup)
 		signalWg.Add(1)
-		runBaseline(bl, baseFileName, &tpssAndLatency, signalChan, signalWg, blockTxs, levm)
+		runBaseline(bl, baseFileName, &tpssAndLatency, signalChan, signalWg, workload.blockTxs, levm)
 		close(signalChan)
 		signalWg.Wait()
 		fmt.Printf("[Baseline %d/%d] done %s, duration=%v\n", i+1, len(baselines), bl, time.Since(baselineStart))
@@ -125,12 +139,45 @@ func Run(args []string) error {
 	return writeTPSResultToExcel(filepath.Join(janusConfig.MonitorBasePath, "tps"+"/"+baseFileName), baselines, tpssAndLatency)
 }
 
-// loadEthereumRealBlockTxs 按区块从 LatencyDB 读取真实交易 latency/rw，并转为模拟交易。
-// blockCount 由启动参数 -b 控制，表示从 realEthereumStartBlockNumber 开始连续执行多少个区块。
-func loadEthereumRealBlockTxs(latencyThresholdUS float64, blockCount uint64) ([]types.Transactions, int, int, error) {
+type ethereumRealWorkload struct {
+	blockTxs         []types.Transactions
+	totalTxs         int
+	maxBlockTxs      int
+	sourceBlocksRead uint64
+	sourceTxsRead    int
+	regrouped        bool
+	experimentBlocks uint64
+	blockTxNumber    int
+}
+
+func ethereumRealWorkloadFileName(workload *ethereumRealWorkload, latencyThresholdUS float64, threadNumber int) string {
+	if workload.regrouped {
+		return "ethereum_real_regroup_start(" + strconv.FormatUint(realEthereumStartBlockNumber, 10) + ")" +
+			"_source_blocks(" + strconv.FormatUint(workload.sourceBlocksRead, 10) + ")" +
+			"_b(" + strconv.FormatUint(workload.experimentBlocks, 10) + ")" +
+			"_bt(" + strconv.Itoa(workload.blockTxNumber) + ")" +
+			"_t(" + strconv.Itoa(threadNumber) + ")" +
+			"_latency_us(" + fmt.Sprintf("%.2f", latencyThresholdUS) + ").xlsx"
+	}
+	return "ethereum_real_start(" + strconv.FormatUint(realEthereumStartBlockNumber, 10) + ")" +
+		"_blocks(" + strconv.FormatUint(workload.sourceBlocksRead, 10) + ")" +
+		"_t(" + strconv.Itoa(threadNumber) + ")" +
+		"_latency_us(" + fmt.Sprintf("%.2f", latencyThresholdUS) + ").xlsx"
+}
+
+func loadEthereumRealWorkload(latencyThresholdUS float64, blockCount uint64, blockTxNumber int, sourceBlockLimit uint64) (*ethereumRealWorkload, error) {
+	if blockTxNumber > 0 {
+		return loadRegroupedEthereumRealBlockTxs(latencyThresholdUS, blockCount, blockTxNumber, sourceBlockLimit)
+	}
+	return loadOriginalEthereumRealBlockTxs(latencyThresholdUS, blockCount)
+}
+
+// loadOriginalEthereumRealBlockTxs 按原始以太坊区块从 LatencyDB 读取真实交易 latency/rw，并转为模拟交易。
+// blockCount 由启动参数 -b 控制，表示从 realEthereumStartBlockNumber 开始连续执行多少个原始以太坊区块。
+func loadOriginalEthereumRealBlockTxs(latencyThresholdUS float64, blockCount uint64) (*ethereumRealWorkload, error) {
 	reader, err := replay_gethcopy.NewReplayLatencyReader()
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, err
 	}
 	defer reader.Close()
 	fmt.Printf("LatencyDB: %s\n", reader.Path())
@@ -142,7 +189,7 @@ func loadEthereumRealBlockTxs(latencyThresholdUS float64, blockCount uint64) ([]
 		blockNumber := realEthereumStartBlockNumber + offset
 		blockValue, err := replay_gethcopy.ReadReplayBlockLatency(reader, blockNumber)
 		if err != nil {
-			return nil, 0, 0, fmt.Errorf("读取真实负载区块失败 block=%d: %w", blockNumber, err)
+			return nil, fmt.Errorf("读取真实负载区块失败 block=%d: %w", blockNumber, err)
 		}
 		ethTxs := make(types.Transactions, 0, len(blockValue.Txs))
 		for _, record := range blockValue.Txs {
@@ -157,7 +204,76 @@ func loadEthereumRealBlockTxs(latencyThresholdUS float64, blockCount uint64) ([]
 			fmt.Printf("loaded %d/%d blocks, total_txs=%d\n", offset+1, blockCount, totalTxs)
 		}
 	}
-	return blockTxs, totalTxs, maxBlockTxs, nil
+	return &ethereumRealWorkload{
+		blockTxs:         blockTxs,
+		totalTxs:         totalTxs,
+		maxBlockTxs:      maxBlockTxs,
+		sourceBlocksRead: blockCount,
+		sourceTxsRead:    totalTxs,
+		regrouped:        false,
+		experimentBlocks: blockCount,
+		blockTxNumber:    maxBlockTxs,
+	}, nil
+}
+
+// loadRegroupedEthereumRealBlockTxs 顺序读取真实以太坊交易，并按实验参数重组为固定大小区块。
+// blockCount 表示重组后的实验区块数量，blockTxNumber 表示每个实验区块交易数。
+func loadRegroupedEthereumRealBlockTxs(latencyThresholdUS float64, blockCount uint64, blockTxNumber int, sourceBlockLimit uint64) (*ethereumRealWorkload, error) {
+	maxInt := int(^uint(0) >> 1)
+	if blockCount > uint64(maxInt/blockTxNumber) {
+		return nil, fmt.Errorf("target transaction count is too large: blocks=%d block_txs=%d", blockCount, blockTxNumber)
+	}
+	targetTxs := int(blockCount) * blockTxNumber
+
+	reader, err := replay_gethcopy.NewReplayLatencyReader()
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	fmt.Printf("LatencyDB: %s\n", reader.Path())
+
+	flatTxs := make(types.Transactions, 0, targetTxs)
+	sourceTxsRead := 0
+	sourceBlocksRead := uint64(0)
+	for offset := uint64(0); offset < sourceBlockLimit && len(flatTxs) < targetTxs; offset++ {
+		blockNumber := realEthereumStartBlockNumber + offset
+		blockValue, err := replay_gethcopy.ReadReplayBlockLatency(reader, blockNumber)
+		if err != nil {
+			return nil, fmt.Errorf("读取真实负载区块失败 block=%d: %w", blockNumber, err)
+		}
+		sourceBlocksRead = offset + 1
+		sourceTxsRead += len(blockValue.Txs)
+		for _, record := range blockValue.Txs {
+			if len(flatTxs) >= targetTxs {
+				break
+			}
+			flatTxs = append(flatTxs, newEthereumSimulatedTx(blockNumber, record.TxIndex, record.LatencyNS, record.ReadAddresses, record.WriteAddresses, latencyThresholdUS))
+		}
+		if sourceBlocksRead%1000 == 0 || len(flatTxs) >= targetTxs {
+			fmt.Printf("loaded source_blocks=%d/%d, selected_txs=%d/%d, source_txs_read=%d\n",
+				sourceBlocksRead, sourceBlockLimit, len(flatTxs), targetTxs, sourceTxsRead)
+		}
+	}
+	if len(flatTxs) < targetTxs {
+		return nil, fmt.Errorf("真实以太坊负载交易数量不足: selected_txs=%d target_txs=%d source_blocks_scanned=%d", len(flatTxs), targetTxs, sourceBlocksRead)
+	}
+
+	blockTxs := make([]types.Transactions, 0, blockCount)
+	for blockID := uint64(0); blockID < blockCount; blockID++ {
+		start := int(blockID) * blockTxNumber
+		end := start + blockTxNumber
+		blockTxs = append(blockTxs, append(types.Transactions(nil), flatTxs[start:end]...))
+	}
+	return &ethereumRealWorkload{
+		blockTxs:         blockTxs,
+		totalTxs:         targetTxs,
+		maxBlockTxs:      blockTxNumber,
+		sourceBlocksRead: sourceBlocksRead,
+		sourceTxsRead:    sourceTxsRead,
+		regrouped:        true,
+		experimentBlocks: blockCount,
+		blockTxNumber:    blockTxNumber,
+	}, nil
 }
 
 // newEthereumSimulatedTx 将 LatencyDB 中的一条 tx 记录转成 baseline 可识别的模拟交易。
