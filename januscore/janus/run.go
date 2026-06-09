@@ -53,11 +53,6 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 			}
 		}
 		totalBatches += len(batches)
-
-		if enableLog {
-			fmt.Printf("Block %d: Generated %d batches (%d transactions)\n",
-				i, len(batches), len(txs))
-		}
 	}
 
 	abortTxs := make([]*janusTransaction, 0)

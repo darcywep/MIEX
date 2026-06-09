@@ -13,6 +13,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	fmt.Println("╔════════════════════════════════════════════════════╗")
 	fmt.Println("║   Janus Execution (Non_Maximum_Commit_Validation)Engine ║")
 	fmt.Println("╚════════════════════════════════════════════════════╝")
+	committedTxsNum.Store(0)
 	SetMWISSolver(SolverGreedy)
 	SetMWISBenchmark(false)
 	enableLog = false
@@ -39,11 +40,6 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 		batches, jtxs := batchGenerator.GenerateBatches(txs)
 		batchForBlock[i], jtxss[i] = batches, jtxs
 		totalBatches += len(batches)
-
-		if enableLog {
-			fmt.Printf("Block %d: Generated %d batches (%d transactions)\n",
-				i, len(batches), len(txs))
-		}
 	}
 
 	abortTxs := make([]*janusTransaction, 0)

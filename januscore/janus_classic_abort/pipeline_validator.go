@@ -1,6 +1,7 @@
 package janusClassicAbort
 
 import (
+	"Janus/tools"
 	"fmt"
 )
 
@@ -12,6 +13,9 @@ func (pe *PipelineEngine) buildStateTable(state *BatchState, workerID int) *stat
 	stateTableWriteSet := newStateTableWithWriteSet()
 
 	for _, rwset := range state.ThreadRWSets[workerID] {
+		if rwset == nil {
+			continue
+		}
 		// 处理读集
 		for addr := range rwset.ReadSet {
 			if stateTableWriteSet.stateTables[addr] == nil {
@@ -346,10 +350,14 @@ func (pe *PipelineEngine) constructDAGForAddress(state *BatchState, rwTable1, rw
 				// 如果节点尚未添加到DAG中
 				if _, exists := dag.Nodes[txOp.TxID]; !exists {
 					// 从批次状态中查找对应的交易读写集
-					rwset := pe.janusTransactions[txOp.TxID].rwSet
-					if rwset == nil {
-						panic(fmt.Errorf("dag.Nodes[%d].rwSet is nil", txOp.TxID))
+					if txOp.TxID < 0 || txOp.TxID >= len(pe.janusTransactions) {
+						continue
 					}
+					jtx := pe.janusTransactions[txOp.TxID]
+					if !ensureJanusTransactionRWSet(jtx, workerID) {
+						continue
+					}
+					rwset := jtx.rwSet
 					dag.Nodes[txOp.TxID] = rwset // 添加节点
 					dag.Edges[txOp.TxID] = make(map[int]struct{})
 					dag.Degree[txOp.TxID] = 0
@@ -459,7 +467,7 @@ func (pe *PipelineEngine) mergeTwoDags(state *BatchState, pairDag *ConflictDAG, 
 }
 
 // solveGraphFromOrderedTxs 从 allTxs 顺序处理冲突
-func solveGraphFromOrderedTxs(allTxs []*janusTransaction) ([]int, []int) {
+func solveGraphFromOrderedTxs(allTxs []*janusTransaction, workerID int) ([]int, []int) {
 	// 1. 初始化提交和丢弃集合
 	committed := make([]int, 0)
 	aborted := make([]int, 0)
@@ -468,6 +476,9 @@ func solveGraphFromOrderedTxs(allTxs []*janusTransaction) ([]int, []int) {
 	globalWriteSet := make(map[string]struct{})
 
 	for _, tx := range allTxs {
+		if !ensureJanusTransactionRWSet(tx, workerID) {
+			continue
+		}
 		hasConflict := false
 
 		// 3. 检测当前交易是否冲突
@@ -498,4 +509,38 @@ func solveGraphFromOrderedTxs(allTxs []*janusTransaction) ([]int, []int) {
 
 	// 6. 返回提交和丢弃的交易集合
 	return committed, aborted
+}
+
+func ensureJanusTransactionRWSet(jtx *janusTransaction, workerID int) bool {
+	if jtx == nil {
+		return false
+	}
+	if jtx.rwSet != nil {
+		if jtx.rwSet.ReadSet == nil {
+			jtx.rwSet.ReadSet = make(map[string]struct{})
+		}
+		if jtx.rwSet.WriteSet == nil {
+			jtx.rwSet.WriteSet = make(map[string]struct{})
+		}
+		return true
+	}
+	if jtx.Tx == nil {
+		return false
+	}
+
+	readSet, writeSet := tools.TransactionReadWriteSet(jtx.Tx)
+	if jtx.ExecutionCost == 0 {
+		jtx.ExecutionCost = tools.SimulatedTransactionCost(jtx.Tx)
+	}
+	jtx.rwSet = &ReadWriteSet{
+		TxID:       jtx.OriginalIdx,
+		Tx:         jtx,
+		ReadSet:    readSet,
+		WriteSet:   writeSet,
+		Cost:       jtx.ExecutionCost,
+		ThreadID:   workerID,
+		EarlyAbort: false,
+		Executed:   jtx.IsRuned,
+	}
+	return true
 }

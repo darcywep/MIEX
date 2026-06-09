@@ -3,7 +3,7 @@ package realworkload
 import (
 	"Janus/baselines/aria/aria"
 	newHarmony "Janus/baselines/harmony/new_harmony"
-	"Janus/baselines/optme/optme"
+	optmePaper "Janus/baselines/optme_paper/optme_paper"
 	"Janus/baselines/schain/schain"
 	"Janus/baselines/serial"
 	janusConfig "Janus/config"
@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"math/big"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -53,7 +54,7 @@ func init() {
 // Run 从 LatencyDB 构建真实以太坊负载，并复用现有 baseline 执行框架做模拟执行。
 func Run(args []string) error {
 	fs := flag.NewFlagSet("ethereum-real", flag.ExitOnError)
-	baseline := fs.String("baseline", "janus", "baseline: all, harmony(new_harmony), schain, optme, aria, janus, Non_Maximum_Commit_Validation, newHarmony(alias)")
+	baseline := fs.String("baseline", "janus", "baseline: all, harmony(new_harmony), schain, serial, optme, aria, janus, Non_Maximum_Commit_Validation, newHarmony(alias)")
 	threadNumber := fs.Int("t", 8, "threads number")
 	blockCount := fs.Uint64("b", defaultRealEthereumBlockCount, "number of ethereum blocks to execute from start block")
 	latencyThresholdUS := fs.Float64("latency", 50, "long/short threshold in microseconds; tx latency < threshold is short, otherwise long")
@@ -119,6 +120,7 @@ func Run(args []string) error {
 		fmt.Printf("[Baseline %d/%d] done %s, duration=%v\n", i+1, len(baselines), bl, time.Since(baselineStart))
 		fmt.Println()
 	}
+	printTPSSummary(baselines, tpssAndLatency)
 	return writeTPSResultToExcel(filepath.Join(janusConfig.MonitorBasePath, "tps"+"/"+baseFileName), baselines, tpssAndLatency)
 }
 
@@ -229,7 +231,7 @@ func uniqueAddressStrings(addresses []string) []string {
 
 func validBaseline(baseline string) bool {
 	switch baseline {
-	case "all", "harmony", "schain", "optme", "aria", "serial", "janus", "Non_Maximum_Commit_Validation", "newHarmony":
+	case "all", "harmony", "schain", "optme", "optme_paper", "aria", "serial", "janus", "Non_Maximum_Commit_Validation", "newHarmony":
 		return true
 	default:
 		return false
@@ -248,9 +250,9 @@ func runBaseline(baseline, baseFileName string, tpss *[][][]float64, signalChan 
 	} else if baseline == "serial" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
 		*tpss = append(*tpss, serial.Run(blockTxs, levm))
-	} else if baseline == "optme" {
+	} else if baseline == "optme" || baseline == "optme_paper" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
-		*tpss = append(*tpss, optme.Run(blockTxs, levm))
+		*tpss = append(*tpss, optmePaper.Run(blockTxs, levm))
 	} else if baseline == "aria" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
 		*tpss = append(*tpss, aria.Run(blockTxs, levm))
@@ -267,6 +269,9 @@ func runBaseline(baseline, baseFileName string, tpss *[][][]float64, signalChan 
 }
 
 func writeTPSResultToExcel(filename string, baselines []string, tpssAndLatency [][][]float64) error {
+	if err := os.MkdirAll(filepath.Dir(filename), 0755); err != nil {
+		return err
+	}
 	f := excelize.NewFile()
 	sheet := "TPS"
 	_, err := f.NewSheet(sheet)
@@ -298,4 +303,18 @@ func writeTPSResultToExcel(filename string, baselines []string, tpssAndLatency [
 		return err
 	}
 	return f.SaveAs(filename)
+}
+
+func printTPSSummary(baselines []string, tpssAndLatency [][][]float64) {
+	fmt.Println("========== Baseline TPS Summary ==========")
+	fmt.Printf("%-34s %16s %16s\n", "Baseline", "TPS", "Latency(s)")
+	for i, baseline := range baselines {
+		if i >= len(tpssAndLatency) || len(tpssAndLatency[i]) < 2 ||
+			len(tpssAndLatency[i][0]) == 0 || len(tpssAndLatency[i][1]) == 0 {
+			fmt.Printf("%-34s %16s %16s\n", baseline, "N/A", "N/A")
+			continue
+		}
+		fmt.Printf("%-34s %16.2f %16.6f\n", baseline, tpssAndLatency[i][0][0], tpssAndLatency[i][1][0])
+	}
+	fmt.Println("==========================================")
 }

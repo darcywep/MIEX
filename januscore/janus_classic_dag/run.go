@@ -39,11 +39,6 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 		batches, jtxs := batchGenerator.GenerateBatches(txs)
 		batchForBlock[i], jtxss[i] = batches, jtxs
 		totalBatches += len(batches)
-
-		if enableLog {
-			fmt.Printf("Block %d: Generated %d batches (%d transactions)\n",
-				i, len(batches), len(txs))
-		}
 	}
 
 	start := time.Now()
