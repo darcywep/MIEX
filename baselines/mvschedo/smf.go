@@ -27,13 +27,12 @@ func NewSMFScheduler(sampleSize int, seed int64) *SMFScheduler {
 	}
 }
 
-func (s *SMFScheduler) Schedule(txs []*MVSchedOTransaction) []*MVSchedOTransaction {
+func (s *SMFScheduler) Schedule(txs []*MVSchedOTransaction, hotKeys map[string]struct{}) []*MVSchedOTransaction {
 	if len(txs) <= 1 {
-		scheduled := append([]*MVSchedOTransaction(nil), txs...)
-		for idx, tx := range scheduled {
-			tx.Timestamp = uint64(idx + 1)
-		}
-		return scheduled
+		return assignTimestamps(txs)
+	}
+	if len(hotKeys) == 0 {
+		return assignTimestamps(txs)
 	}
 
 	unscheduled := append([]*MVSchedOTransaction(nil), txs...)
@@ -44,7 +43,7 @@ func (s *SMFScheduler) Schedule(txs []*MVSchedOTransaction) []*MVSchedOTransacti
 	firstIndex := s.rng.Intn(len(unscheduled))
 	first := unscheduled[firstIndex]
 	unscheduled = removeAt(unscheduled, firstIndex)
-	states, makespan = simulateAppend(first, states, makespan)
+	states, makespan = simulateAppend(first, states, makespan, hotKeys)
 	scheduled = append(scheduled, first)
 
 	for len(unscheduled) > 0 {
@@ -56,7 +55,7 @@ func (s *SMFScheduler) Schedule(txs []*MVSchedOTransaction) []*MVSchedOTransacti
 
 		for _, idx := range sampleIndexes {
 			candidate := unscheduled[idx]
-			candidateStates, candidateMakespan := simulateAppend(candidate, states, makespan)
+			candidateStates, candidateMakespan := simulateAppend(candidate, states, makespan, hotKeys)
 			delta := candidateMakespan - makespan
 			if bestSamplePos < 0 ||
 				delta < bestDelta ||
@@ -75,10 +74,7 @@ func (s *SMFScheduler) Schedule(txs []*MVSchedOTransaction) []*MVSchedOTransacti
 		scheduled = append(scheduled, chosen)
 	}
 
-	for idx, tx := range scheduled {
-		tx.Timestamp = uint64(idx + 1)
-	}
-	return scheduled
+	return assignTimestamps(scheduled)
 }
 
 func (s *SMFScheduler) sampleIndexes(n int) []int {
@@ -103,12 +99,15 @@ func (s *SMFScheduler) sampleIndexes(n int) []int {
 	return indexes
 }
 
-func simulateAppend(tx *MVSchedOTransaction, states map[string]keyMakespanState, currentMakespan int) (map[string]keyMakespanState, int) {
+func simulateAppend(tx *MVSchedOTransaction, states map[string]keyMakespanState, currentMakespan int, hotKeys map[string]struct{}) (map[string]keyMakespanState, int) {
 	nextStates := cloneMakespanStates(states)
 	txTime := 0
 	makespan := currentMakespan
 
 	for _, op := range tx.Ops {
+		if !isHotKey(op.Key, hotKeys) {
+			continue
+		}
 		state := nextStates[op.Key]
 		var start int
 		if op.Type == ReadOperation {
@@ -130,6 +129,19 @@ func simulateAppend(tx *MVSchedOTransaction, states map[string]keyMakespanState,
 	}
 
 	return nextStates, makespan
+}
+
+func isHotKey(key string, hotKeys map[string]struct{}) bool {
+	_, ok := hotKeys[key]
+	return ok
+}
+
+func assignTimestamps(txs []*MVSchedOTransaction) []*MVSchedOTransaction {
+	scheduled := append([]*MVSchedOTransaction(nil), txs...)
+	for idx, tx := range scheduled {
+		tx.Timestamp = uint64(idx + 1)
+	}
+	return scheduled
 }
 
 func cloneMakespanStates(states map[string]keyMakespanState) map[string]keyMakespanState {

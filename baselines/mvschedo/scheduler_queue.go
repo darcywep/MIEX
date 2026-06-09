@@ -18,13 +18,16 @@ type ScheduleQueues struct {
 	queues map[string]*keyScheduleQueue
 }
 
-func NewScheduleQueues(txs []*MVSchedOTransaction) *ScheduleQueues {
+func NewScheduleQueues(txs []*MVSchedOTransaction, hotKeys map[string]struct{}) *ScheduleQueues {
 	queues := &ScheduleQueues{
 		queues: make(map[string]*keyScheduleQueue),
 	}
 
 	for _, tx := range txs {
 		for _, op := range tx.Ops {
+			if !isHotKey(op.Key, hotKeys) {
+				continue
+			}
 			queue := queues.queueForKey(op.Key)
 			queue.items = append(queue.items, queuedOperation{tx: tx, op: op})
 		}
