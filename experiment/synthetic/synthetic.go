@@ -4,6 +4,7 @@ import (
 	"Janus/baselines/aria/aria"
 	"Janus/baselines/harmony/harmony"
 	newHarmony "Janus/baselines/harmony/new_harmony"
+	"Janus/baselines/optme/optme"
 	optmePaper "Janus/baselines/optme_paper/optme_paper"
 	"Janus/baselines/schain/schain"
 	"Janus/baselines/serial"
@@ -221,7 +222,10 @@ func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan str
 	} else if baseline == "serial" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, serial.Run(blockTxs, levm))
-	} else if baseline == "optme" || baseline == "optme_paper" {
+	} else if baseline == "optme" {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, optme.Run(blockTxs, levm))
+	} else if baseline == "optme_paper" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, optmePaper.Run(blockTxs, levm))
 	} else if baseline == "aria" {
@@ -246,7 +250,8 @@ func Run(args []string) error {
 		"baseline:\n"+
 			"\tall      run all baseline\n"+
 			"\tschian   run schain\n"+
-			"\toptme    run paper-style optme\n"+
+			"\toptme    run original optme\n"+
+			"\toptme_paper run paper-style optme\n"+
 			"\taria     run aria\n"+
 			"\tharmony  run harmony\n"+
 			"\tserial   run serial\n"+
@@ -381,8 +386,8 @@ func Run(args []string) error {
 			"_fln(" + strconv.Itoa(input.FibonacciLoopNum) + ")" +
 			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
 		tpssAndLatency [][][]float64 = make([][][]float64, 0)
-		//baselines                    = []string{"janus", "harmony", "optme", "Non_Maximum_Commit_Validation"}
-		baselines = []string{"harmony", "schain", "serial", "optme", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony"}
+		//baselines                    = []string{"janus", "harmony", "optme", "optme_paper", "Non_Maximum_Commit_Validation"}
+		baselines = []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony"}
 		//baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX"}
 		//baselines = []string{"Non_Maximum_Commit_Validation"}
 	)
