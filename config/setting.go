@@ -88,6 +88,7 @@ const (
 var (
 	InstructionTimingFilePath string
 	SmallbankDatabasePath     string
+	ReplayLatencyDBPathName   string
 )
 
 func init() {
@@ -96,6 +97,7 @@ func init() {
 	ProjectRoot := filepath.Dir(filepath.Dir(filename))
 	InstructionTimingFilePath = filepath.Join(ProjectRoot, "config", "instruction_timings.json")
 	SmallbankDatabasePath = filepath.Join(ProjectRoot, "data", "smallbank_database")
+	ReplayLatencyDBPathName = filepath.Join(ProjectRoot, "data", "LatencyDB")
 	homeDir, err := os.UserHomeDir()
 	if err != nil || homeDir == "" {
 		homeDir = ProjectRoot

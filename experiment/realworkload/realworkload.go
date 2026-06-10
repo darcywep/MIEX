@@ -6,6 +6,7 @@ import (
 	"Janus/baselines/mvschedo"
 	"Janus/baselines/optme/optme"
 	optmePaper "Janus/baselines/optme_paper/optme_paper"
+	"Janus/baselines/quecc/quecc"
 	"Janus/baselines/schain/schain"
 	"Janus/baselines/serial"
 	janusConfig "Janus/config"
@@ -40,6 +41,7 @@ const (
 	// defaultRealEthereumBlockCount 是真实以太坊负载默认连续读取的区块数量。
 	defaultRealEthereumBlockCount uint64 = 10000
 	baselineMVSchedO                     = "mvschedo"
+	baselineQueCC                        = "quecc"
 )
 
 var stateConfig *database.StateDBConfig
@@ -57,7 +59,7 @@ func init() {
 // Run 从 LatencyDB 构建真实以太坊负载，并复用现有 baseline 执行框架做模拟执行。
 func Run(args []string) error {
 	fs := flag.NewFlagSet("ethereum-real", flag.ExitOnError)
-	baseline := fs.String("baseline", "janus", "baseline: all, harmony(new_harmony), schain, serial, optme, optme_paper, aria, janus, Non_Maximum_Commit_Validation, newHarmony(alias), mvschedo")
+	baseline := fs.String("baseline", "janus", "baseline: all, harmony(new_harmony), schain, serial, optme, optme_paper, aria, janus, Non_Maximum_Commit_Validation, newHarmony(alias), mvschedo, quecc")
 	threadNumber := fs.Int("t", 8, "threads number")
 	blockCount := fs.Uint64("b", defaultRealEthereumBlockCount, "number of original ethereum blocks; when -bt > 0, number of regrouped experiment blocks")
 	blockTxNumber := fs.Int("bt", 0, "transactions per regrouped block; 0 keeps original ethereum block layout")
@@ -118,7 +120,7 @@ func Run(args []string) error {
 	levm := lvm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
 	defer levm.AllDB().Close()
 
-	baselines := []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", baselineMVSchedO}
+	baselines := []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", baselineMVSchedO, baselineQueCC}
 	if *baseline != "all" {
 		baselines = []string{*baseline}
 	}
@@ -350,7 +352,7 @@ func uniqueAddressStrings(addresses []string) []string {
 
 func validBaseline(baseline string) bool {
 	switch baseline {
-	case "all", "harmony", "schain", "optme", "optme_paper", "aria", "serial", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO:
+	case "all", "harmony", "schain", "optme", "optme_paper", "aria", "serial", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC:
 		return true
 	default:
 		return false
@@ -390,6 +392,9 @@ func runBaseline(baseline, baseFileName string, tpss *[][][]float64, signalChan 
 	} else if baseline == baselineMVSchedO {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
 		*tpss = append(*tpss, mvschedo.Run(blockTxs, levm))
+	} else if baseline == baselineQueCC {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
+		*tpss = append(*tpss, quecc.Run(blockTxs, levm))
 	}
 }
 

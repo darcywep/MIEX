@@ -1,6 +1,7 @@
 package replay_gethcopy
 
 import (
+	janusConfig "Janus/config"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -47,7 +48,7 @@ const (
 var (
 	// replayLatencyDBPathName 配置 replay latency Pebble 的固定落盘路径。
 	// 当前服务器运行环境要求写入 /home/bcds/LatencyDB。
-	replayLatencyDBPathName = "/home/bcds/LatencyDB"
+	replayLatencyDBPathName = janusConfig.ReplayLatencyDBPathName
 )
 
 // txLatencyRecord 是 replay 内部使用的单笔交易 latency 摘要。
