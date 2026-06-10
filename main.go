@@ -56,6 +56,8 @@ type InputData struct {
 	Txs [][][]int
 }
 
+const baselineMVSchedO = "mvschedo"
+
 func init() {
 	stateConfig = &database.StateDBConfig{
 		Path:    janusConfig.SmallbankDatabasePath,
@@ -128,7 +130,7 @@ func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan str
 	} else if baseline == "MIEX" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, optme.Run(blockTxs, levm))
-	} else if baseline == "mvschedo" {
+	} else if baseline == baselineMVSchedO {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, mvschedo.Run(blockTxs, levm))
 	}
@@ -172,7 +174,7 @@ func main() {
 	fmt.Println("Janus running, baseline is", input.Baseline)
 
 	if input.Baseline != "all" && input.Baseline != "harmony" && input.Baseline != "schain" && input.Baseline != "optme" &&
-		input.Baseline != "aria" && input.Baseline != "mvschedo" && input.Baseline != "serial" && input.Baseline != "janus" &&
+		input.Baseline != "aria" && input.Baseline != baselineMVSchedO && input.Baseline != "serial" && input.Baseline != "janus" &&
 		input.Baseline != "Non_Prioritied" && input.Baseline != "Non_Concurrent_Graph_Construct" &&
 		input.Baseline != "Non_Maximum_Commit_Validation" && input.Baseline != "MIEX" {
 		fmt.Println("baseline is invalid")
@@ -226,7 +228,7 @@ func main() {
 		//baselines                    = []string{"serial", "harmony", "schain", "optme", "aria", "occ", "janus", "serial_construct_graph"}
 		//baselines = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
 		//baselines = []string{"janus", "serial_construct_graph"}
-		baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX", "mvschedo"}
+		baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX", baselineMVSchedO}
 		//baselines = []string{"Non_Maximum_Commit_Validation"}
 	)
 

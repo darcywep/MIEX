@@ -41,6 +41,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 
 	stats := common.NewStatistics()
 	mvschedo := NewMVSchedO(blocks, stats, janusConfig.AllThreadNum, 4, defaultSMFSampleSize)
+	fmt.Printf("MVSchedO worker threads: %d \n", mvschedo.numThreads)
 	mvschedo.Start(levm)
 
 	elapsed := time.Since(start)
@@ -59,11 +60,20 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 }
 
 func (m *MVSchedO) Start(levm *lvm.LEVM) {
+	txsByBlock := make([][]*MVSchedOTransaction, len(m.blocks))
+	allTxs := make([]*MVSchedOTransaction, 0)
 	for blockID, block := range m.blocks {
 		txs := m.preExecuteBlock(block, levm)
+		txsByBlock[blockID] = txs
+		allTxs = append(allTxs, txs...)
+	}
+
+	hotKeys := identifyHotKeys(allTxs)
+	fmt.Printf("MVSchedO global hot keys: %d \n", len(hotKeys))
+	for blockID, txs := range txsByBlock {
 		scheduler := NewSMFScheduler(m.sampleSize, smfSeedBase+int64(blockID))
-		scheduled := scheduler.Schedule(txs)
-		m.executeScheduledBlock(scheduled, levm)
+		scheduled := scheduler.Schedule(txs, hotKeys)
+		m.executeScheduledBlock(scheduled, hotKeys, levm)
 		m.Statistics.JournalBlock()
 	}
 }
@@ -100,9 +110,9 @@ func (m *MVSchedO) preExecuteBlock(block *common.Block, levm *lvm.LEVM) []*MVSch
 	return txs
 }
 
-func (m *MVSchedO) executeScheduledBlock(txs []*MVSchedOTransaction, levm *lvm.LEVM) {
+func (m *MVSchedO) executeScheduledBlock(txs []*MVSchedOTransaction, hotKeys map[string]struct{}, levm *lvm.LEVM) {
 	table := NewMVCCTable()
-	queues := NewScheduleQueues(txs)
+	queues := NewScheduleQueues(txs, hotKeys)
 	workerBatches := make([][]*MVSchedOTransaction, m.numThreads)
 
 	for idx, tx := range txs {
@@ -202,4 +212,60 @@ func normalizedWorkerCount(numThreads int) int {
 		return 1
 	}
 	return numThreads
+}
+
+type hotKeyAccess struct {
+	readers map[*MVSchedOTransaction]struct{}
+	writers map[*MVSchedOTransaction]struct{}
+}
+
+// identifyHotKeys should be called with the whole workload, not a single block.
+func identifyHotKeys(txs []*MVSchedOTransaction) map[string]struct{} {
+	accesses := make(map[string]*hotKeyAccess)
+	for _, tx := range txs {
+		for key := range tx.LocalGet {
+			access := hotKeyAccessFor(accesses, key)
+			access.readers[tx] = struct{}{}
+		}
+		for key := range tx.LocalPut {
+			access := hotKeyAccessFor(accesses, key)
+			access.writers[tx] = struct{}{}
+		}
+	}
+
+	hotKeys := make(map[string]struct{})
+	for key, access := range accesses {
+		if len(access.writers) == 0 {
+			continue
+		}
+		if hotKeyTransactionCount(access) <= 1 {
+			continue
+		}
+		hotKeys[key] = struct{}{}
+	}
+	return hotKeys
+}
+
+func hotKeyAccessFor(accesses map[string]*hotKeyAccess, key string) *hotKeyAccess {
+	access := accesses[key]
+	if access != nil {
+		return access
+	}
+	access = &hotKeyAccess{
+		readers: make(map[*MVSchedOTransaction]struct{}),
+		writers: make(map[*MVSchedOTransaction]struct{}),
+	}
+	accesses[key] = access
+	return access
+}
+
+func hotKeyTransactionCount(access *hotKeyAccess) int {
+	txs := make(map[*MVSchedOTransaction]struct{}, len(access.readers)+len(access.writers))
+	for tx := range access.readers {
+		txs[tx] = struct{}{}
+	}
+	for tx := range access.writers {
+		txs[tx] = struct{}{}
+	}
+	return len(txs)
 }

@@ -4,6 +4,7 @@ import (
 	"Janus/baselines/aria/aria"
 	"Janus/baselines/harmony/harmony"
 	newHarmony "Janus/baselines/harmony/new_harmony"
+	"Janus/baselines/mvschedo"
 	"Janus/baselines/optme/optme"
 	optmePaper "Janus/baselines/optme_paper/optme_paper"
 	"Janus/baselines/schain/schain"
@@ -40,6 +41,8 @@ import (
 
 var stateConfig *database.StateDBConfig
 var chainConfig *params.ChainConfig
+
+const baselineMVSchedO = "mvschedo"
 
 var (
 	threadNumber  = 8
@@ -240,6 +243,9 @@ func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan str
 	} else if baseline == "newHarmony" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, newHarmony.Run(blockTxs, levm))
+	} else if baseline == baselineMVSchedO {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, mvschedo.Run(blockTxs, levm))
 	}
 }
 
@@ -257,6 +263,7 @@ func Run(args []string) error {
 			"\tserial   run serial\n"+
 			"\tNon_Maximum_Commit_Validation run Janus without maximum commit validation\n"+
 			"\tnewHarmony run newHarmony\n"+
+			"\tmvschedo run MVSchedO\n"+
 			"\tjanus    run janus")
 
 	fmt.Println(baseline)
@@ -314,7 +321,7 @@ func Run(args []string) error {
 
 	if *baseline != "all" && *baseline != "harmony" && *baseline != "schain" && *baseline != "serial" &&
 		*baseline != "optme" && *baseline != "optme_paper" && *baseline != "aria" && *baseline != "janus" &&
-		*baseline != "Non_Maximum_Commit_Validation" && *baseline != "newHarmony" {
+		*baseline != "Non_Maximum_Commit_Validation" && *baseline != "newHarmony" && *baseline != baselineMVSchedO {
 		fmt.Println("baseline is invalid")
 		return nil
 	}
@@ -387,7 +394,7 @@ func Run(args []string) error {
 			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
 		tpssAndLatency [][][]float64 = make([][][]float64, 0)
 		//baselines                    = []string{"janus", "harmony", "optme", "optme_paper", "Non_Maximum_Commit_Validation"}
-		baselines = []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony"}
+		baselines = []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO}
 		//baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX"}
 		//baselines = []string{"Non_Maximum_Commit_Validation"}
 	)
