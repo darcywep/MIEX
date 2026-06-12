@@ -3,6 +3,7 @@ package main
 import (
 	"Janus/baselines/mvschedo"
 	"Janus/baselines/optme/optme"
+	"Janus/baselines/pilotfish/pilotfish"
 	"Janus/baselines/quecc/quecc"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
@@ -59,6 +60,7 @@ type InputData struct {
 
 const baselineMVSchedO = "mvschedo"
 const baselineQueCC = "quecc"
+const baselinePilotfish = "pilotfish"
 
 func init() {
 	stateConfig = &database.StateDBConfig{
@@ -138,6 +140,9 @@ func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan str
 	} else if baseline == baselineQueCC {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, quecc.Run(blockTxs, levm))
+	} else if baseline == baselinePilotfish {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, pilotfish.Run(blockTxs, levm))
 	}
 
 	//if baseline == "harmony" {
@@ -181,7 +186,8 @@ func main() {
 	if input.Baseline != "all" && input.Baseline != "harmony" && input.Baseline != "schain" && input.Baseline != "optme" &&
 		input.Baseline != "aria" && input.Baseline != baselineMVSchedO && input.Baseline != "serial" && input.Baseline != "janus" &&
 		input.Baseline != "Non_Prioritied" && input.Baseline != "Non_Concurrent_Graph_Construct" &&
-		input.Baseline != "Non_Maximum_Commit_Validation" && input.Baseline != "MIEX" && input.Baseline != baselineQueCC {
+		input.Baseline != "Non_Maximum_Commit_Validation" && input.Baseline != "MIEX" && input.Baseline != baselineQueCC &&
+		input.Baseline != baselinePilotfish {
 		fmt.Println("baseline is invalid")
 		return
 	}
@@ -233,7 +239,7 @@ func main() {
 		//baselines                    = []string{"serial", "harmony", "schain", "optme", "aria", "occ", "janus", "serial_construct_graph"}
 		//baselines = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
 		//baselines = []string{"janus", "serial_construct_graph"}
-		baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX", baselineMVSchedO, baselineQueCC}
+		baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX", baselineMVSchedO, baselineQueCC, baselinePilotfish}
 		//baselines = []string{"Non_Maximum_Commit_Validation"}
 	)
 

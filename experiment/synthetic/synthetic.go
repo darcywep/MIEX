@@ -7,6 +7,7 @@ import (
 	"Janus/baselines/mvschedo"
 	"Janus/baselines/optme/optme"
 	optmePaper "Janus/baselines/optme_paper/optme_paper"
+	"Janus/baselines/pilotfish/pilotfish"
 	"Janus/baselines/quecc/quecc"
 	"Janus/baselines/schain/schain"
 	"Janus/baselines/serial"
@@ -45,6 +46,7 @@ var chainConfig *params.ChainConfig
 
 const baselineMVSchedO = "mvschedo"
 const baselineQueCC = "quecc"
+const baselinePilotfish = "pilotfish"
 
 var (
 	threadNumber  = 8
@@ -251,6 +253,9 @@ func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan str
 	} else if baseline == baselineQueCC {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, quecc.Run(blockTxs, levm))
+	} else if baseline == baselinePilotfish {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, pilotfish.Run(blockTxs, levm))
 	}
 }
 
@@ -270,6 +275,7 @@ func Run(args []string) error {
 			"\tnewHarmony run newHarmony\n"+
 			"\tmvschedo run MVSchedO\n"+
 			"\tquecc   run QueCC\n"+
+			"\tpilotfish run Pilotfish\n"+
 			"\tjanus    run janus")
 
 	fmt.Println(baseline)
@@ -328,7 +334,7 @@ func Run(args []string) error {
 	if *baseline != "all" && *baseline != "harmony" && *baseline != "schain" && *baseline != "serial" &&
 		*baseline != "optme" && *baseline != "optme_paper" && *baseline != "aria" && *baseline != "janus" &&
 		*baseline != "Non_Maximum_Commit_Validation" && *baseline != "newHarmony" && *baseline != baselineMVSchedO &&
-		*baseline != baselineQueCC {
+		*baseline != baselineQueCC && *baseline != baselinePilotfish {
 		fmt.Println("baseline is invalid")
 		return nil
 	}
@@ -401,7 +407,7 @@ func Run(args []string) error {
 			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
 		tpssAndLatency [][][]float64 = make([][][]float64, 0)
 		//baselines                    = []string{"janus", "harmony", "optme", "optme_paper", "Non_Maximum_Commit_Validation"}
-		baselines = []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC}
+		baselines = []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC, baselinePilotfish}
 		//baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX"}
 		//baselines = []string{"Non_Maximum_Commit_Validation"}
 	)

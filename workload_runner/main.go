@@ -7,6 +7,7 @@ import (
 	"Janus/baselines/mvschedo"
 	"Janus/baselines/optme/optme"
 	optmePaper "Janus/baselines/optme_paper/optme_paper"
+	"Janus/baselines/pilotfish/pilotfish"
 	"Janus/baselines/quecc/quecc"
 	"Janus/baselines/schain/schain"
 	"Janus/baselines/serial"
@@ -36,8 +37,9 @@ import (
 )
 
 const (
-	baselineMVSchedO = "mvschedo"
-	baselineQueCC    = "quecc"
+	baselineMVSchedO  = "mvschedo"
+	baselineQueCC     = "quecc"
+	baselinePilotfish = "pilotfish"
 )
 
 var stateConfig *database.StateDBConfig
@@ -214,7 +216,7 @@ func runSyntheticFromStdin() error {
 
 func validSyntheticBaseline(baseline string) bool {
 	switch baseline {
-	case "all", "harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC:
+	case "all", "harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC, baselinePilotfish:
 		return true
 	default:
 		return false
@@ -225,7 +227,7 @@ func syntheticBaselines(baseline string) []string {
 	if baseline != "all" {
 		return []string{baseline}
 	}
-	return []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC}
+	return []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC, baselinePilotfish}
 }
 
 func syntheticWorkloadFileName(input InputData) string {
@@ -279,6 +281,9 @@ func runBaseline(baseline, baseFileName string, tpss *[][][]float64, signalChan 
 	} else if baseline == baselineQueCC {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
 		*tpss = append(*tpss, quecc.Run(blockTxs, levm))
+	} else if baseline == baselinePilotfish {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
+		*tpss = append(*tpss, pilotfish.Run(blockTxs, levm))
 	}
 }
 
