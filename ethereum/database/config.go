@@ -40,6 +40,7 @@ var DefaultStateDBConfig *StateDBConfig
 var SmallBankStateDBConfig *StateDBConfig
 
 func init() {
+	projectRoot := defaultProjectRoot()
 	if runtime.GOOS == "darwin" {
 		path = "/Volumes/ETH_DATA/ethereum/geth/chaindata"
 	} else {
@@ -67,11 +68,16 @@ func init() {
 		Handles: 32768,
 	}
 	SmallBankStateDBConfig = &StateDBConfig{
-		Path:    "/root/alldb/smallbank_database",
+		Path:    filepath.Join(projectRoot, "data", "smallbank_database"),
 		Cache:   0,
 		Handles: 0,
 	}
 
+}
+
+func defaultProjectRoot() string {
+	_, filename, _, _ := runtime.Caller(0)
+	return filepath.Dir(filepath.Dir(filepath.Dir(filename)))
 }
 
 func trieDBConfig(blockChainConfig *core.BlockChainConfig, isVerkle bool) *triedb.Config {

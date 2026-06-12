@@ -43,7 +43,7 @@ const (
 
 var (
 	// MonitorBasePath 是实验监控和 TPS 汇总文件的根目录。
-	// 启动时自动识别当前用户目录，并在该目录下使用 cpu_disk_monitor，避免不同机器硬编码 /home/bcds 或 /root。
+	// 启动时按项目源码位置定位到项目上一层，避免硬编码 /home/bcds 或 /root。
 	MonitorBasePath string
 )
 
@@ -55,16 +55,19 @@ const (
 )
 
 const (
-	LongTx                 TransactionType = 1
-	ShortTx                TransactionType = 2
-	TotalKeys                              = 25 * 10000 * 10000 // LevelDB 总数据量
-	JanusDBPath                            = "/root/alldb/JanusDB"
-	Key2addrDBPath                         = "/root/alldb/key2addrDB"
-	MonitorFilenameSep                     = "./cpu_disk_monitor/cpu_disk_Sep"
-	MonitorFilenameHybrid                  = "./cpu_disk_monitor/cpu_disk_Hybrid"
-	MonitorFilenameCompute                 = "./cpu_disk_monitor/cpu_disk_Compute"
-	MonitorFilenameIO                      = "./cpu_disk_monitor/cpu_disk_IO"
-	MonitorFilenamePeep                    = "./cpu_disk_monitor/cpu_disk_Peep"
+	LongTx    TransactionType = 1
+	ShortTx   TransactionType = 2
+	TotalKeys                 = 25 * 10000 * 10000 // LevelDB 总数据量
+)
+
+var (
+	JanusDBPath            string
+	Key2addrDBPath         string
+	MonitorFilenameSep     string
+	MonitorFilenameHybrid  string
+	MonitorFilenameCompute string
+	MonitorFilenameIO      string
+	MonitorFilenamePeep    string
 )
 
 const (
@@ -95,13 +98,18 @@ func init() {
 	// 在 init 中计算项目根目录
 	_, filename, _, _ := runtime.Caller(0)
 	ProjectRoot := filepath.Dir(filepath.Dir(filename))
+	workspaceRoot := filepath.Dir(ProjectRoot)
+	dataRoot := filepath.Join(ProjectRoot, "data")
 	InstructionTimingFilePath = filepath.Join(ProjectRoot, "config", "instruction_timings.json")
-	SmallbankDatabasePath = filepath.Join(ProjectRoot, "data", "smallbank_database")
-	ReplayLatencyDBPathName = filepath.Join(ProjectRoot, "data", "LatencyDB")
-	homeDir, err := os.UserHomeDir()
-	if err != nil || homeDir == "" {
-		homeDir = ProjectRoot
-	}
-	MonitorBasePath = filepath.Join(homeDir, "cpu_disk_monitor")
+	SmallbankDatabasePath = filepath.Join(dataRoot, "smallbank_database")
+	ReplayLatencyDBPathName = filepath.Join(dataRoot, "LatencyDB")
+	JanusDBPath = filepath.Join(dataRoot, "JanusDB")
+	Key2addrDBPath = filepath.Join(dataRoot, "key2addrDB")
+	MonitorBasePath = filepath.Join(workspaceRoot, "cpu_disk_monitor")
+	MonitorFilenameSep = filepath.Join(MonitorBasePath, "cpu_disk_Sep")
+	MonitorFilenameHybrid = filepath.Join(MonitorBasePath, "cpu_disk_Hybrid")
+	MonitorFilenameCompute = filepath.Join(MonitorBasePath, "cpu_disk_Compute")
+	MonitorFilenameIO = filepath.Join(MonitorBasePath, "cpu_disk_IO")
+	MonitorFilenamePeep = filepath.Join(MonitorBasePath, "cpu_disk_Peep")
 	_ = os.MkdirAll(MonitorBasePath, 0755)
 }

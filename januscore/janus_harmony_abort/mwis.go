@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"time"
 )
@@ -285,9 +286,13 @@ func callPythonSolver(input MWISInput) (*MWISOutput, error) {
 
 // getScriptDir 获取脚本所在目录
 func getScriptDir() string {
-	// 返回 mwis_solver.py 所在的目录
-	// 你可能需要根据实际部署情况调整这个路径
-	return "/root/Janus/januscore/janus"
+	if _, filename, _, ok := runtime.Caller(0); ok {
+		return filepath.Dir(filename)
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		return cwd
+	}
+	return "."
 }
 
 // SetMWISSolver 设置求解器类型

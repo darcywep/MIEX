@@ -1,14 +1,15 @@
 package init_smallbank_contract
 
 import (
-	"fmt"
 	levm "Janus/core/evm"
 	"Janus/ethereum/core/tracing"
 	"Janus/ethereum/database"
 	"Janus/tools"
+	"fmt"
 	"math/big"
 	"os"
-	"path"
+	"path/filepath"
+	"runtime"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -18,17 +19,34 @@ import (
 const totalAccounts = 10_000_000 // 2000W
 
 var (
-	basePath = "/root/Janus/contract_example/"
-	abiFile  = path.Join(basePath, "smallbank_m_fibonacci.abi")
-	binFile  = path.Join(basePath, "smallbank_m_fibonacci.bin")
+	projectRoot = defaultProjectRoot()
+	basePath    = filepath.Join(projectRoot, "contract_example")
+	abiFile     = filepath.Join(basePath, "smallbank_m_fibonacci.abi")
+	binFile     = filepath.Join(basePath, "smallbank_m_fibonacci.bin")
+	resultFile  = filepath.Join(projectRoot, "data", "smallbank_result.txt")
 
 	// ========= 初始化状态数据库 =========
 	stateConfig = &database.StateDBConfig{
-		Path:    "/root/alldb/smallbank_database",
+		Path:    filepath.Join(projectRoot, "data", "smallbank_database"),
 		Cache:   65536, // 64GB
 		Handles: 32786,
 	}
 )
+
+func defaultProjectRoot() string {
+	_, filename, _, _ := runtime.Caller(0)
+	dir := filepath.Dir(filename)
+	for {
+		if info, err := os.Stat(filepath.Join(dir, "contract_example")); err == nil && info.IsDir() {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return filepath.Dir(filename)
+		}
+		dir = parent
+	}
+}
 
 func loadContractInfo() (abi.ABI, []byte) {
 	abiObject, binData, err := tools.LoadContract(abiFile, binFile)
@@ -112,7 +130,7 @@ func TestSmallBank() {
 	fmt.Println("🌳 Final state root:", stateRoot.Hex())
 
 	// ========= 输出到txt =========
-	resultFile := path.Join("/root/alldb/", "smallbank_result.txt")
+	_ = os.MkdirAll(filepath.Dir(resultFile), 0755)
 	content := fmt.Sprintf("Contract Address: %s\nFinal State Root: %s\n", cAddress.Hex(), stateRoot.Hex())
 	err = os.WriteFile(resultFile, []byte(content), 0644)
 	tools.PanicError("TestSmallBank Finish all, os.WriteFile", err)
