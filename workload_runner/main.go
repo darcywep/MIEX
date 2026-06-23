@@ -11,6 +11,7 @@ import (
 	"Janus/baselines/quecc/quecc"
 	"Janus/baselines/schain/schain"
 	"Janus/baselines/serial"
+	"Janus/baselines/thunderbolt/thunderbolt"
 	janusConfig "Janus/config"
 	lvm "Janus/core/evm"
 	"Janus/ethereum/core/types"
@@ -37,9 +38,10 @@ import (
 )
 
 const (
-	baselineMVSchedO  = "mvschedo"
-	baselineQueCC     = "quecc"
-	baselinePilotfish = "pilotfish"
+	baselineMVSchedO    = "mvschedo"
+	baselineQueCC       = "quecc"
+	baselinePilotfish   = "pilotfish"
+	baselineThunderbolt = "thunderbolt"
 )
 
 var stateConfig *database.StateDBConfig
@@ -216,7 +218,7 @@ func runSyntheticFromStdin() error {
 
 func validSyntheticBaseline(baseline string) bool {
 	switch baseline {
-	case "all", "harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC, baselinePilotfish:
+	case "all", "harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC, baselinePilotfish, baselineThunderbolt:
 		return true
 	default:
 		return false
@@ -227,7 +229,7 @@ func syntheticBaselines(baseline string) []string {
 	if baseline != "all" {
 		return []string{baseline}
 	}
-	return []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC, baselinePilotfish}
+	return []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC, baselinePilotfish, baselineThunderbolt}
 }
 
 func syntheticWorkloadFileName(input InputData) string {
@@ -284,6 +286,9 @@ func runBaseline(baseline, baseFileName string, tpss *[][][]float64, signalChan 
 	} else if baseline == baselinePilotfish {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
 		*tpss = append(*tpss, pilotfish.Run(blockTxs, levm))
+	} else if baseline == baselineThunderbolt {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
+		*tpss = append(*tpss, thunderbolt.Run(blockTxs, levm))
 	}
 }
 
