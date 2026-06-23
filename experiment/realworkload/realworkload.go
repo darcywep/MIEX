@@ -41,11 +41,12 @@ const (
 	// realEthereumStartBlockNumber 是本次真实以太坊负载实验的起始区块。
 	realEthereumStartBlockNumber uint64 = 21000001
 	// defaultRealEthereumBlockCount 是真实以太坊负载默认连续读取的区块数量。
-	defaultRealEthereumBlockCount uint64 = 10000
-	baselineMVSchedO                     = "mvschedo"
-	baselineQueCC                        = "quecc"
-	baselinePilotfish                    = "pilotfish"
-	baselineThunderbolt                  = "thunderbolt"
+	defaultRealEthereumBlockCount      uint64 = 10000
+	baselineMVSchedO                          = "mvschedo"
+	baselineQueCC                             = "quecc"
+	baselinePilotfish                         = "pilotfish"
+	baselineThunderbolt                       = "thunderbolt"
+	defaultTxTypeMisclassificationSeed int64  = 1
 )
 
 var stateConfig *database.StateDBConfig
@@ -69,9 +70,12 @@ func Run(args []string) error {
 	blockTxNumber := fs.Int("bt", 0, "transactions per regrouped block; 0 keeps original ethereum block layout")
 	sourceBlockLimit := fs.Uint64("source-b", defaultRealEthereumBlockCount, "max ethereum source blocks to scan when -bt > 0")
 	latencyThresholdUS := fs.Float64("latency", 50, "long/short threshold in microseconds; tx latency < threshold is short, otherwise long")
+	txTypeMisclassificationRate := fs.Float64("tmr", 0, "tx type misclassification rate in [0,1]; only affects Janus long/short scheduling")
+	txTypeMisclassificationSeed := fs.Int64("tms", defaultTxTypeMisclassificationSeed, "tx type misclassification random seed")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	misclassificationSeed := normalizeTxTypeMisclassificationSeed(*txTypeMisclassificationSeed)
 	if !validBaseline(*baseline) {
 		return fmt.Errorf("baseline is invalid: %s", *baseline)
 	}
@@ -107,12 +111,19 @@ func Run(args []string) error {
 		fmt.Printf("source ethereum blocks: [%d, %d)\n", realEthereumStartBlockNumber, realEthereumStartBlockNumber+*blockCount)
 	}
 	fmt.Printf("latency threshold: %.2f us\n", *latencyThresholdUS)
+	fmt.Printf("tx type misclassification rate: %.4f\n", *txTypeMisclassificationRate)
+	fmt.Printf("tx type misclassification seed: %d\n", misclassificationSeed)
 	fmt.Printf("GOMAXPROCS set to: %d\n", runtime.GOMAXPROCS(0))
 
 	workload, err := loadEthereumRealWorkload(*latencyThresholdUS, *blockCount, *blockTxNumber, *sourceBlockLimit)
 	if err != nil {
 		return err
 	}
+	misclassificationStats, err := tools.ApplyTxTypeMisclassification(workload.blockTxs, *txTypeMisclassificationRate, misclassificationSeed)
+	if err != nil {
+		return err
+	}
+	printTxTypeMisclassificationStats(misclassificationStats)
 	janusConfig.AllBlocksTxSum = workload.totalTxs
 	janusConfig.BlockSize = workload.maxBlockTxs
 	if janusConfig.BlockSize == 0 {
@@ -128,7 +139,7 @@ func Run(args []string) error {
 	if *baseline != "all" {
 		baselines = []string{*baseline}
 	}
-	baseFileName := ethereumRealWorkloadFileName(workload, *latencyThresholdUS, janusConfig.AllThreadNum)
+	baseFileName := ethereumRealWorkloadFileName(workload, *latencyThresholdUS, janusConfig.AllThreadNum, *txTypeMisclassificationRate, misclassificationSeed)
 
 	tpssAndLatency := make([][][]float64, 0, len(baselines))
 	for i, bl := range baselines {
@@ -158,19 +169,39 @@ type ethereumRealWorkload struct {
 	blockTxNumber    int
 }
 
-func ethereumRealWorkloadFileName(workload *ethereumRealWorkload, latencyThresholdUS float64, threadNumber int) string {
+func ethereumRealWorkloadFileName(workload *ethereumRealWorkload, latencyThresholdUS float64, threadNumber int, txTypeMisclassificationRate float64, txTypeMisclassificationSeed int64) string {
+	var name string
 	if workload.regrouped {
-		return "ethereum_real_regroup_start(" + strconv.FormatUint(realEthereumStartBlockNumber, 10) + ")" +
+		name = "ethereum_real_regroup_start(" + strconv.FormatUint(realEthereumStartBlockNumber, 10) + ")" +
 			"_source_blocks(" + strconv.FormatUint(workload.sourceBlocksRead, 10) + ")" +
 			"_b(" + strconv.FormatUint(workload.experimentBlocks, 10) + ")" +
 			"_bt(" + strconv.Itoa(workload.blockTxNumber) + ")" +
 			"_t(" + strconv.Itoa(threadNumber) + ")" +
-			"_latency_us(" + fmt.Sprintf("%.2f", latencyThresholdUS) + ").xlsx"
+			"_latency_us(" + fmt.Sprintf("%.2f", latencyThresholdUS) + ")"
+	} else {
+		name = "ethereum_real_start(" + strconv.FormatUint(realEthereumStartBlockNumber, 10) + ")" +
+			"_blocks(" + strconv.FormatUint(workload.sourceBlocksRead, 10) + ")" +
+			"_t(" + strconv.Itoa(threadNumber) + ")" +
+			"_latency_us(" + fmt.Sprintf("%.2f", latencyThresholdUS) + ")"
 	}
-	return "ethereum_real_start(" + strconv.FormatUint(realEthereumStartBlockNumber, 10) + ")" +
-		"_blocks(" + strconv.FormatUint(workload.sourceBlocksRead, 10) + ")" +
-		"_t(" + strconv.Itoa(threadNumber) + ")" +
-		"_latency_us(" + fmt.Sprintf("%.2f", latencyThresholdUS) + ").xlsx"
+	if txTypeMisclassificationRate > 0 {
+		name += "_tmr(" + fmt.Sprintf("%.4f", txTypeMisclassificationRate) + ")" +
+			"_tms(" + strconv.FormatInt(normalizeTxTypeMisclassificationSeed(txTypeMisclassificationSeed), 10) + ")"
+	}
+	return name + ".xlsx"
+}
+
+func normalizeTxTypeMisclassificationSeed(seed int64) int64 {
+	if seed == 0 {
+		return defaultTxTypeMisclassificationSeed
+	}
+	return seed
+}
+
+func printTxTypeMisclassificationStats(stats tools.TxTypeMisclassificationStats) {
+	fmt.Printf("tx type misclassification candidates: %d\n", stats.CandidateTxs)
+	fmt.Printf("tx type misclassified: %d (long->short=%d, short->long=%d)\n",
+		stats.MisclassifiedTxs, stats.LongToShort, stats.ShortToLong)
 }
 
 func loadEthereumRealWorkload(latencyThresholdUS float64, blockCount uint64, blockTxNumber int, sourceBlockLimit uint64) (*ethereumRealWorkload, error) {

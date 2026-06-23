@@ -38,10 +38,11 @@ import (
 )
 
 const (
-	baselineMVSchedO    = "mvschedo"
-	baselineQueCC       = "quecc"
-	baselinePilotfish   = "pilotfish"
-	baselineThunderbolt = "thunderbolt"
+	baselineMVSchedO                         = "mvschedo"
+	baselineQueCC                            = "quecc"
+	baselinePilotfish                        = "pilotfish"
+	baselineThunderbolt                      = "thunderbolt"
+	defaultTxTypeMisclassificationSeed int64 = 1
 )
 
 var stateConfig *database.StateDBConfig
@@ -66,6 +67,8 @@ type InputData struct {
 	ShortTxFibonacciLoopNumber  int
 	RecursiveCalculateFibonacci bool
 	TraceAbort                  bool
+	TxTypeMisclassificationRate float64
+	TxTypeMisclassificationSeed int64
 
 	Txs [][][]int
 }
@@ -115,6 +118,10 @@ func printUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  go run . synthetic < workload.json")
 	fmt.Println("  go run . ethereum [ethereum real workload flags]")
+	fmt.Println()
+	fmt.Println("Synthetic JSON optional fields:")
+	fmt.Println("  TxTypeMisclassificationRate  tx type misclassification rate in [0,1], default 0")
+	fmt.Println("  TxTypeMisclassificationSeed  tx type misclassification random seed, default 1")
 }
 
 func runExistingExperimentEthereum(args []string) error {
@@ -166,6 +173,9 @@ func runSyntheticFromStdin() error {
 	fmt.Printf("threads: %d\n", input.ThreadNumber)
 	fmt.Printf("blocks: %d\n", input.BlockNumber)
 	fmt.Printf("transactions per block: %d\n", input.BlockTxNum)
+	misclassificationSeed := normalizeTxTypeMisclassificationSeed(input.TxTypeMisclassificationSeed)
+	fmt.Printf("tx type misclassification rate: %.4f\n", input.TxTypeMisclassificationRate)
+	fmt.Printf("tx type misclassification seed: %d\n", misclassificationSeed)
 
 	janusConfig.AllThreadNum = input.ThreadNumber
 	janusConfig.Skew = input.Skew
@@ -188,6 +198,11 @@ func runSyntheticFromStdin() error {
 	for i := 0; i < blockNum; i++ {
 		blockTxs = append(blockTxs, tools.GenerateTxsFormBriefTx(input.Txs[i], input.RecursiveCalculateFibonacci))
 	}
+	misclassificationStats, err := tools.ApplyTxTypeMisclassification(blockTxs, input.TxTypeMisclassificationRate, misclassificationSeed)
+	if err != nil {
+		return err
+	}
+	printTxTypeMisclassificationStats(misclassificationStats)
 
 	fmt.Println("正在预读取状态...")
 	levm := lvm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
@@ -233,7 +248,7 @@ func syntheticBaselines(baseline string) []string {
 }
 
 func syntheticWorkloadFileName(input InputData) string {
-	return "synthetic_t(" + strconv.Itoa(input.ThreadNumber) + ")" +
+	name := "synthetic_t(" + strconv.Itoa(input.ThreadNumber) + ")" +
 		"_b(" + strconv.Itoa(len(input.Txs)) + ")" +
 		"_bt(" + strconv.Itoa(input.BlockTxNum) + ")" +
 		"_sk(" + fmt.Sprintf("%.2f", input.Skew) + ")" +
@@ -245,7 +260,12 @@ func syntheticWorkloadFileName(input InputData) string {
 		"_f(" + strconv.Itoa(input.FibonacciN) + ")" +
 		"_lfln(" + strconv.Itoa(input.LongTxFibonacciLoopNumber) + ")" +
 		"_sfln(" + strconv.Itoa(input.ShortTxFibonacciLoopNumber) + ")" +
-		"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
+		"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ")"
+	if input.TxTypeMisclassificationRate > 0 {
+		name += "_tmr(" + fmt.Sprintf("%.4f", input.TxTypeMisclassificationRate) + ")" +
+			"_tms(" + strconv.FormatInt(normalizeTxTypeMisclassificationSeed(input.TxTypeMisclassificationSeed), 10) + ")"
+	}
+	return name + ".xlsx"
 }
 
 func runBaseline(baseline, baseFileName string, tpss *[][][]float64, signalChan chan struct{}, signalWg *sync.WaitGroup, blockTxs []types.Transactions, levm *lvm.LEVM) {
@@ -344,4 +364,17 @@ func printTPSSummary(baselines []string, tpssAndLatency [][][]float64) {
 		fmt.Printf("%-34s %16.2f %16.6f\n", baseline, tpssAndLatency[i][0][0], tpssAndLatency[i][1][0])
 	}
 	fmt.Println("==========================================")
+}
+
+func normalizeTxTypeMisclassificationSeed(seed int64) int64 {
+	if seed == 0 {
+		return defaultTxTypeMisclassificationSeed
+	}
+	return seed
+}
+
+func printTxTypeMisclassificationStats(stats tools.TxTypeMisclassificationStats) {
+	fmt.Printf("tx type misclassification candidates: %d\n", stats.CandidateTxs)
+	fmt.Printf("tx type misclassified: %d (long->short=%d, short->long=%d)\n",
+		stats.MisclassifiedTxs, stats.LongToShort, stats.ShortToLong)
 }

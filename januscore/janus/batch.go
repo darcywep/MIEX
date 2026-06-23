@@ -60,8 +60,8 @@ func (bg *BatchGenerator) GenerateBatches(txs []*types.Transaction) ([]*Batch, [
 	// 遍历所有交易
 	for txIdx, tx := range txs {
 
-		// 判断交易类型
-		isLongTx := tx.TxType == janusConfig.LongTx
+		// 判断调度器识别到的交易类型，误判实验只影响这里的长短队列。
+		isLongTx := tx.ScheduleTransactionType() == janusConfig.LongTx
 		jtx := &janusTransaction{
 			Tx:          tx,
 			IsLongTx:    isLongTx,

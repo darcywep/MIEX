@@ -61,10 +61,12 @@ type Transaction struct {
 
 	fromAddress *common.Address
 
-	TxType      config.TransactionType
-	WriteKeys   []string
-	ReadKeys    []string
-	SmallBankTo common.Address
+	TxType config.TransactionType
+	// ScheduleTxType 是执行引擎看到的长/短交易类型。0 表示沿用 TxType。
+	ScheduleTxType config.TransactionType
+	WriteKeys      []string
+	ReadKeys       []string
+	SmallBankTo    common.Address
 
 	// SimulationEnabled 标记这笔交易是否来自 LatencyDB 的真实负载模拟。
 	// 开启后执行层不再进入真实 EVM，而是按 SimulationLatencyNS 忙等并使用预置读写集。
@@ -340,6 +342,35 @@ func (tx *Transaction) SetFrom(addr common.Address) {
 
 func (tx *Transaction) From() *common.Address {
 	return tx.fromAddress
+}
+
+// SetScheduleTxType 设置调度器识别到的交易类型，不改变交易的真实 TxType。
+func (tx *Transaction) SetScheduleTxType(txType config.TransactionType) {
+	tx.ScheduleTxType = txType
+}
+
+// ClearScheduleTxType 清除调度类型覆盖，让调度器重新使用真实 TxType。
+func (tx *Transaction) ClearScheduleTxType() {
+	tx.ScheduleTxType = 0
+}
+
+// ScheduleTransactionType 返回调度器应该使用的长/短交易类型。
+func (tx *Transaction) ScheduleTransactionType() config.TransactionType {
+	if tx == nil {
+		return 0
+	}
+	if tx.ScheduleTxType != 0 {
+		return tx.ScheduleTxType
+	}
+	return tx.TxType
+}
+
+// HasScheduleTxTypeOverride 表示调度类型是否被设置为不同于真实类型。
+func (tx *Transaction) HasScheduleTxTypeOverride() bool {
+	if tx == nil || tx.ScheduleTxType == 0 {
+		return false
+	}
+	return tx.ScheduleTxType != tx.TxType
 }
 
 // SetSimulation 写入真实以太坊负载模拟所需的 latency 和读写集。

@@ -49,6 +49,7 @@ const baselineMVSchedO = "mvschedo"
 const baselineQueCC = "quecc"
 const baselinePilotfish = "pilotfish"
 const baselineThunderbolt = "thunderbolt"
+const defaultTxTypeMisclassificationSeed int64 = 1
 
 var (
 	threadNumber  = 8
@@ -65,11 +66,13 @@ var (
 	waterMarkAlpha = 1.5 // 水位线参数 α
 	waterMarkBeta  = 3.5 // 水位线参数 β
 
-	fibonacciN                  = 10    // -1: 代表随机生成
-	shortTxFibonacciLoopNumber  = 20    // 循环执行 fibonacciLoopNumber 次斐波那契计算
-	longTxFibonacciLoopNumber   = 40    // 循环执行 fibonacciLoopNumber 次斐波那契计算
-	recursiveCalculateFibonacci = false // 是否使用递归计算斐波那契
-	traceAbort                  = false // 是否追踪丢弃
+	fibonacciN                        = 10    // -1: 代表随机生成
+	shortTxFibonacciLoopNumber        = 20    // 循环执行 fibonacciLoopNumber 次斐波那契计算
+	longTxFibonacciLoopNumber         = 40    // 循环执行 fibonacciLoopNumber 次斐波那契计算
+	recursiveCalculateFibonacci       = false // 是否使用递归计算斐波那契
+	traceAbort                        = false // 是否追踪丢弃
+	txTypeMisclassificationRate       = 0.0   // 长/短交易类型误判比例
+	txTypeMisclassificationSeed int64 = defaultTxTypeMisclassificationSeed
 )
 
 type InputData struct {
@@ -90,6 +93,8 @@ type InputData struct {
 	FibonacciLoopNum            int
 	RecursiveCalculateFibonacci bool
 	TraceAbort                  bool
+	TxTypeMisclassificationRate float64
+	TxTypeMisclassificationSeed int64
 
 	Txs [][][]int
 }
@@ -207,6 +212,37 @@ func printTPSSummary(baselines []string, tpssAndLatency [][][]float64) {
 	fmt.Println("==========================================")
 }
 
+func syntheticResultFileName(input InputData) string {
+	name := "t(" + strconv.Itoa(input.ThreadNumber) + ")" +
+		"_bt(" + strconv.Itoa(input.BlockNumber) + ")" +
+		"_sk(" + fmt.Sprintf("%f", input.Skew) + ")" +
+		"_lr(" + fmt.Sprintf("%f", input.LongTxCountRate) + ")" +
+		"_sr(" + fmt.Sprintf("%f", input.ShortTxCountRate) + ")" +
+		"_wa(" + fmt.Sprintf("%f", input.WaterMarkAlpha) + ")" +
+		"_wb(" + fmt.Sprintf("%f", input.WaterMarkBeta) + ")" +
+		"_f(" + strconv.Itoa(input.FibonacciN) + ")" +
+		"_fln(" + strconv.Itoa(input.FibonacciLoopNum) + ")" +
+		"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ")"
+	if input.TxTypeMisclassificationRate > 0 {
+		name += "_tmr(" + fmt.Sprintf("%.4f", input.TxTypeMisclassificationRate) + ")" +
+			"_tms(" + strconv.FormatInt(normalizeTxTypeMisclassificationSeed(input.TxTypeMisclassificationSeed), 10) + ")"
+	}
+	return name + ".xlsx"
+}
+
+func normalizeTxTypeMisclassificationSeed(seed int64) int64 {
+	if seed == 0 {
+		return defaultTxTypeMisclassificationSeed
+	}
+	return seed
+}
+
+func printTxTypeMisclassificationStats(stats tools.TxTypeMisclassificationStats) {
+	fmt.Printf("tx type misclassification candidates: %d\n", stats.CandidateTxs)
+	fmt.Printf("tx type misclassified: %d (long->short=%d, short->long=%d)\n",
+		stats.MisclassifiedTxs, stats.LongToShort, stats.ShortToLong)
+}
+
 func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan struct{}, signalWg *sync.WaitGroup, blockTxs []types.Transactions, levm *lvm.LEVM) {
 	monitorFilePath := filepath.Join(janusConfig.MonitorBasePath, baseline+"/"+baseFileName)
 	//if baseline == "Non_Prioritied" {
@@ -316,9 +352,14 @@ func Run(args []string) error {
 		"recursive calculate fibonacci (default false)")
 	fs.BoolVar(&traceAbort, "ta", false,
 		"trace transaction abort (must run janus first when it is \"true\", must be \"false\" when test performance)")
+	fs.Float64Var(&txTypeMisclassificationRate, "tmr", 0,
+		"tx type misclassification rate in [0,1]; only affects Janus long/short scheduling")
+	fs.Int64Var(&txTypeMisclassificationSeed, "tms", defaultTxTypeMisclassificationSeed,
+		"tx type misclassification random seed")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	misclassificationSeed := normalizeTxTypeMisclassificationSeed(txTypeMisclassificationSeed)
 	fmt.Println(
 		"baseline:", *baseline,
 		"\nthreadNumber:", threadNumber,
@@ -335,6 +376,8 @@ func Run(args []string) error {
 		"\nlongTxFibonacciLoopNumber:", longTxFibonacciLoopNumber,
 		"\nrecursiveCalculateFibonacci:", recursiveCalculateFibonacci,
 		"\ntraceAbort:", traceAbort,
+		"\ntxTypeMisclassificationRate:", txTypeMisclassificationRate,
+		"\ntxTypeMisclassificationSeed:", misclassificationSeed,
 	)
 
 	if *baseline != "all" && *baseline != "harmony" && *baseline != "schain" && *baseline != "serial" &&
@@ -373,6 +416,8 @@ func Run(args []string) error {
 		FibonacciLoopNum:            longTxFibonacciLoopNumber,
 		RecursiveCalculateFibonacci: recursiveCalculateFibonacci,
 		TraceAbort:                  traceAbort,
+		TxTypeMisclassificationRate: txTypeMisclassificationRate,
+		TxTypeMisclassificationSeed: misclassificationSeed,
 
 		Txs: blocksInfo,
 	}
@@ -391,6 +436,7 @@ func Run(args []string) error {
 	janusConfig.WaterMarkAlpha = input.WaterMarkAlpha
 	janusConfig.WaterMarkBeta = input.WaterMarkBeta
 	tools.TraceAbort = input.TraceAbort
+	misclassificationSeed = normalizeTxTypeMisclassificationSeed(input.TxTypeMisclassificationSeed)
 
 	if janusConfig.AllThreadNum == 0 {
 		vm.InitTxCost(1)
@@ -401,16 +447,7 @@ func Run(args []string) error {
 	runtime.GOMAXPROCS(janusConfig.AllThreadNum + 2)
 	fmt.Printf("GOMAXPROCS set to: %d\n", runtime.GOMAXPROCS(0))
 	var (
-		baseFileName = "t(" + strconv.Itoa(input.ThreadNumber) + ")" +
-			"_bt(" + strconv.Itoa(input.BlockNumber) + ")" +
-			"_sk(" + fmt.Sprintf("%f", input.Skew) + ")" +
-			"_lr(" + fmt.Sprintf("%f", input.LongTxCountRate) + ")" +
-			"_sr(" + fmt.Sprintf("%f", input.ShortTxCountRate) + ")" +
-			"_wa(" + fmt.Sprintf("%f", input.WaterMarkAlpha) + ")" +
-			"_wb(" + fmt.Sprintf("%f", input.WaterMarkBeta) + ")" +
-			"_f(" + strconv.Itoa(input.FibonacciN) + ")" +
-			"_fln(" + strconv.Itoa(input.FibonacciLoopNum) + ")" +
-			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
+		baseFileName                 = syntheticResultFileName(input)
 		tpssAndLatency [][][]float64 = make([][][]float64, 0)
 		//baselines                    = []string{"janus", "harmony", "optme", "optme_paper", "Non_Maximum_Commit_Validation"}
 		baselines = []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC, baselinePilotfish, baselineThunderbolt}
@@ -424,6 +461,11 @@ func Run(args []string) error {
 		ethTxs := tools.GenerateTxsFormBriefTx(input.Txs[i], input.RecursiveCalculateFibonacci)
 		blockTxs = append(blockTxs, ethTxs)
 	}
+	misclassificationStats, err := tools.ApplyTxTypeMisclassification(blockTxs, input.TxTypeMisclassificationRate, misclassificationSeed)
+	if err != nil {
+		return err
+	}
+	printTxTypeMisclassificationStats(misclassificationStats)
 
 	fmt.Println("正在预读取状态...")
 	levm := lvm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
@@ -446,7 +488,7 @@ func Run(args []string) error {
 		fmt.Println()
 	}
 	printTPSSummary(baselines, tpssAndLatency)
-	err := writeTPSResultToExcel(filepath.Join(janusConfig.MonitorBasePath, "tps"+"/"+baseFileName), baselines, tpssAndLatency)
+	err = writeTPSResultToExcel(filepath.Join(janusConfig.MonitorBasePath, "tps"+"/"+baseFileName), baselines, tpssAndLatency)
 	if err != nil {
 		return err
 	}

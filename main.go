@@ -55,6 +55,8 @@ type InputData struct {
 	LongTxFibonacciLoopNumber   int
 	ShortTxFibonacciLoopNumber  int
 	RecursiveCalculateFibonacci bool
+	TxTypeMisclassificationRate float64
+	TxTypeMisclassificationSeed int64
 
 	Txs [][][]int
 }
@@ -63,6 +65,7 @@ const baselineMVSchedO = "mvschedo"
 const baselineQueCC = "quecc"
 const baselinePilotfish = "pilotfish"
 const baselineThunderbolt = "thunderbolt"
+const defaultTxTypeMisclassificationSeed int64 = 1
 
 func init() {
 	stateConfig = &database.StateDBConfig{
@@ -217,6 +220,9 @@ func main() {
 	janusConfig.BlockSize = input.BlockTxNum
 	janusConfig.WaterMarkAlpha = input.WaterMarkAlpha
 	janusConfig.WaterMarkBeta = input.WaterMarkBeta
+	misclassificationSeed := normalizeTxTypeMisclassificationSeed(input.TxTypeMisclassificationSeed)
+	fmt.Printf("tx type misclassification rate: %.4f\n", input.TxTypeMisclassificationRate)
+	fmt.Printf("tx type misclassification seed: %d\n", misclassificationSeed)
 
 	if janusConfig.AllThreadNum == 0 {
 		vm.InitTxCost(1)
@@ -227,19 +233,7 @@ func main() {
 	runtime.GOMAXPROCS(janusConfig.AllThreadNum + 2)
 	fmt.Printf("GOMAXPROCS set to: %d\n", runtime.GOMAXPROCS(0))
 	var (
-		baseFileName = "t(" + strconv.Itoa(input.ThreadNumber) + ")" +
-			"_b(" + strconv.Itoa(input.BlockNumber) + ")" +
-			"_bt(" + strconv.Itoa(input.BlockTxNum) + ")" +
-			"_sk(" + fmt.Sprintf("%.2f", input.Skew) + ")" +
-			"_ar(" + strconv.Itoa(input.AddressNumberRate) + ")" +
-			"_lr(" + fmt.Sprintf("%.2f", input.LongTxCountRate) + ")" +
-			"_sr(" + fmt.Sprintf("%.2f", input.ShortTxCountRate) + ")" +
-			"_wa(" + fmt.Sprintf("%.2f", input.WaterMarkAlpha) + ")" +
-			"_wb(" + fmt.Sprintf("%.2f", input.WaterMarkBeta) + ")" +
-			"_f(" + strconv.Itoa(input.FibonacciN) + ")" +
-			"_lfln(" + strconv.Itoa(input.LongTxFibonacciLoopNumber) + ")" +
-			"_sfln(" + strconv.Itoa(input.ShortTxFibonacciLoopNumber) + ")" +
-			"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ").xlsx"
+		baseFileName                 = workloadFileName(input)
 		tpssAndLatency [][][]float64 = make([][][]float64, 0) // baseline -> [tps], [latency], [other(if have)]
 		//baselines                    = []string{"serial", "harmony", "schain", "optme", "aria", "occ", "janus", "serial_construct_graph"}
 		//baselines = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
@@ -254,6 +248,12 @@ func main() {
 		ethTxs := tools.GenerateTxsFormBriefTx(input.Txs[i], input.RecursiveCalculateFibonacci)
 		blockTxs = append(blockTxs, ethTxs)
 	}
+	misclassificationStats, err := tools.ApplyTxTypeMisclassification(blockTxs, input.TxTypeMisclassificationRate, misclassificationSeed)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	printTxTypeMisclassificationStats(misclassificationStats)
 
 	fmt.Println("正在预读取状态...")
 	levm := lvm.New(stateConfig, big.NewInt(0), tools.StateRoot, tools.GenerateAddress())
@@ -281,4 +281,38 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 	}
+}
+
+func workloadFileName(input InputData) string {
+	name := "t(" + strconv.Itoa(input.ThreadNumber) + ")" +
+		"_b(" + strconv.Itoa(input.BlockNumber) + ")" +
+		"_bt(" + strconv.Itoa(input.BlockTxNum) + ")" +
+		"_sk(" + fmt.Sprintf("%.2f", input.Skew) + ")" +
+		"_ar(" + strconv.Itoa(input.AddressNumberRate) + ")" +
+		"_lr(" + fmt.Sprintf("%.2f", input.LongTxCountRate) + ")" +
+		"_sr(" + fmt.Sprintf("%.2f", input.ShortTxCountRate) + ")" +
+		"_wa(" + fmt.Sprintf("%.2f", input.WaterMarkAlpha) + ")" +
+		"_wb(" + fmt.Sprintf("%.2f", input.WaterMarkBeta) + ")" +
+		"_f(" + strconv.Itoa(input.FibonacciN) + ")" +
+		"_lfln(" + strconv.Itoa(input.LongTxFibonacciLoopNumber) + ")" +
+		"_sfln(" + strconv.Itoa(input.ShortTxFibonacciLoopNumber) + ")" +
+		"_r(" + strconv.FormatBool(input.RecursiveCalculateFibonacci) + ")"
+	if input.TxTypeMisclassificationRate > 0 {
+		name += "_tmr(" + fmt.Sprintf("%.4f", input.TxTypeMisclassificationRate) + ")" +
+			"_tms(" + strconv.FormatInt(normalizeTxTypeMisclassificationSeed(input.TxTypeMisclassificationSeed), 10) + ")"
+	}
+	return name + ".xlsx"
+}
+
+func normalizeTxTypeMisclassificationSeed(seed int64) int64 {
+	if seed == 0 {
+		return defaultTxTypeMisclassificationSeed
+	}
+	return seed
+}
+
+func printTxTypeMisclassificationStats(stats tools.TxTypeMisclassificationStats) {
+	fmt.Printf("tx type misclassification candidates: %d\n", stats.CandidateTxs)
+	fmt.Printf("tx type misclassified: %d (long->short=%d, short->long=%d)\n",
+		stats.MisclassifiedTxs, stats.LongToShort, stats.ShortToLong)
 }

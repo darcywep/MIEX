@@ -75,6 +75,8 @@ func printUsage() {
 	fmt.Println("  -lfln      long transaction fibonacci loop number；默认 40。")
 	fmt.Println("  -r         recursive calculate fibonacci；是否递归计算斐波那契，默认 false。")
 	fmt.Println("  -ta        trace transaction abort；是否追踪丢弃交易，默认 false。")
+	fmt.Println("  -tmr       tx type misclassification rate；长/短交易类型误判比例，默认 0。")
+	fmt.Println("  -tms       tx type misclassification seed；误判抽样随机种子，默认 1。")
 	fmt.Println()
 	fmt.Println("Ethereum real workload examples:")
 	fmt.Println("  go run ./experiment ethereum -baseline janus -t 8 -b 10000 -latency 50")
@@ -89,4 +91,6 @@ func printUsage() {
 	fmt.Println("  -bt        transactions per regrouped block；默认 0，表示保留原始以太坊区块布局。")
 	fmt.Println("  -source-b  source ethereum block scan limit；传 -bt 时最多扫描的原始以太坊区块数量，默认 10000。")
 	fmt.Println("  -latency   long/short threshold in microseconds；tx latency < threshold 为短交易，否则为长交易，默认 50。")
+	fmt.Println("  -tmr       tx type misclassification rate；长/短交易类型误判比例，默认 0。")
+	fmt.Println("  -tms       tx type misclassification seed；误判抽样随机种子，默认 1。")
 }
