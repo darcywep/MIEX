@@ -11,6 +11,10 @@ import (
 
 // NewPipelineEngine 创建流水线引擎
 func NewPipelineEngine(levm *lvm.LEVM, numThreads int) *PipelineEngine {
+	return newPipelineEngine(levm, numThreads, true)
+}
+
+func newPipelineEngine(levm *lvm.LEVM, numThreads int, allowEarlyNextBatchExecution bool) *PipelineEngine {
 	levms := make([]*lvm.LEVM, numThreads)
 	for i := 0; i < numThreads; i++ {
 		levms[i] = levm.Copy()
@@ -22,6 +26,8 @@ func NewPipelineEngine(levm *lvm.LEVM, numThreads int) *PipelineEngine {
 		workerStaties: make([]*WorkerStats, numThreads),
 		stopChan:      make(chan struct{}),
 		completeChan:  make(chan int, 100),
+
+		allowEarlyNextBatchExecution: allowEarlyNextBatchExecution,
 	}
 	pl.currentBatchID.Store(-1)
 	return pl
@@ -521,6 +527,10 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 	// 说明：这里设计成部分线程进入下一批执行，是为了避免所有线程都进入下一批，导致当前批次无法完成，从而阻塞流水线
 	state.CompletionMu.Lock()
 	state.finishedTreadNum++
+	allWorkersFinishedExecution := state.finishedTreadNum == pe.numThreads
+	if allWorkersFinishedExecution {
+		state.executionDone.Store(true)
+	}
 	threadNextNumber := len(state.CompletionOrder) // 有多少线程已经完成当前批次并并已经进入下一批
 	if threadNextNumber >= (pe.numThreads+1)/2 {   // 已经有超过一半的线程去执行下一批, 剩下的进行合并state table
 		pairIndex := state.pairIndex // 取一个配对的 threadStateTable
@@ -530,7 +540,7 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 			state.startTimeOfMergeStateTablePhase = now // 开始进行合并计时
 			state.startTimeOfExecuteCurrentBatchTail = now
 		}
-		needRecordExecuteTime := state.finishedTreadNum == pe.numThreads
+		needRecordExecuteTime := allWorkersFinishedExecution
 		tailStart := state.startTimeOfExecuteCurrentBatchTail
 		state.CompletionMu.Unlock()
 		//fmt.Printf("test [Worker %d] [batch %d] len(state.CompletionOrder)=%d, pairIndex=%d\n", workerID, state.BatchID, len(state.CompletionOrder), pairIndex)
@@ -574,6 +584,15 @@ func (pe *PipelineEngine) executeCurrentBatch(state *BatchState, workerID int) (
 // 优先级：长交易 > 短交易
 // pairWorkerID 返回配对的工作线程ID，用于构建DAG
 func (pe *PipelineEngine) executeNextBatch(state *BatchState, workerID int) {
+	if !pe.allowEarlyNextBatchExecution {
+		for !state.executionDone.Load() {
+			if state.finished.Load() {
+				pe.workerStaties[workerID].Phase = WaitingPhase
+				return
+			}
+		}
+	}
+
 	executeNextBatchTransaction := func(atomicIdx *atomic.Int32, txs *[]*janusTransaction) (isNewBatch bool) {
 		// 循环尝试从队列中抢任务
 		for {

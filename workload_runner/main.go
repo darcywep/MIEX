@@ -42,6 +42,7 @@ const (
 	baselineQueCC                            = "quecc"
 	baselinePilotfish                        = "pilotfish"
 	baselineThunderbolt                      = "thunderbolt"
+	baselineNonEarlyNextBatchJanus           = "Non_Early_Next_Batch_janus"
 	defaultTxTypeMisclassificationSeed int64 = 1
 )
 
@@ -233,7 +234,7 @@ func runSyntheticFromStdin() error {
 
 func validSyntheticBaseline(baseline string) bool {
 	switch baseline {
-	case "all", "harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC, baselinePilotfish, baselineThunderbolt:
+	case "all", "harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", baselineNonEarlyNextBatchJanus, "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC, baselinePilotfish, baselineThunderbolt:
 		return true
 	default:
 		return false
@@ -244,7 +245,7 @@ func syntheticBaselines(baseline string) []string {
 	if baseline != "all" {
 		return []string{baseline}
 	}
-	return []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC, baselinePilotfish, baselineThunderbolt}
+	return []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", baselineNonEarlyNextBatchJanus, "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC, baselinePilotfish, baselineThunderbolt}
 }
 
 func syntheticWorkloadFileName(input InputData) string {
@@ -291,6 +292,9 @@ func runBaseline(baseline, baseFileName string, tpss *[][][]float64, signalChan 
 	} else if baseline == "janus" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
 		*tpss = append(*tpss, janus.Run(blockTxs, levm))
+	} else if baseline == baselineNonEarlyNextBatchJanus {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
+		*tpss = append(*tpss, janus.Non_Early_Next_Batch_janus(blockTxs, levm))
 	} else if baseline == "Non_Maximum_Commit_Validation" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg)
 		*tpss = append(*tpss, janusClassicAbort.Run(blockTxs, levm))

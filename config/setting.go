@@ -105,7 +105,10 @@ func init() {
 	ReplayLatencyDBPathName = filepath.Join(dataRoot, "LatencyDB")
 	JanusDBPath = filepath.Join(dataRoot, "JanusDB")
 	Key2addrDBPath = filepath.Join(dataRoot, "key2addrDB")
-	MonitorBasePath = filepath.Join(workspaceRoot, "cpu_disk_monitor")
+	MonitorBasePath = os.Getenv("JANUS_MONITOR_BASE_PATH")
+	if MonitorBasePath == "" {
+		MonitorBasePath = filepath.Join(workspaceRoot, "cpu_disk_monitor")
+	}
 	MonitorFilenameSep = filepath.Join(MonitorBasePath, "cpu_disk_Sep")
 	MonitorFilenameHybrid = filepath.Join(MonitorBasePath, "cpu_disk_Hybrid")
 	MonitorFilenameCompute = filepath.Join(MonitorBasePath, "cpu_disk_Compute")

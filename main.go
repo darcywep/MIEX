@@ -12,6 +12,7 @@ import (
 	"Janus/ethereum/core/types"
 	"Janus/ethereum/core/vm"
 	"Janus/ethereum/database"
+	"Janus/januscore/janus"
 	janusClassicAbort "Janus/januscore/janus_classic_abort"
 	janusClassicDAG "Janus/januscore/janus_classic_dag"
 	janus_calssic_occ "Janus/januscore/janus_classic_occ"
@@ -65,6 +66,7 @@ const baselineMVSchedO = "mvschedo"
 const baselineQueCC = "quecc"
 const baselinePilotfish = "pilotfish"
 const baselineThunderbolt = "thunderbolt"
+const baselineNonEarlyNextBatchJanus = "Non_Early_Next_Batch_janus"
 const defaultTxTypeMisclassificationSeed int64 = 1
 
 func init() {
@@ -139,6 +141,9 @@ func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan str
 	} else if baseline == "MIEX" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, optme.Run(blockTxs, levm))
+	} else if baseline == baselineNonEarlyNextBatchJanus {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, janus.Non_Early_Next_Batch_janus(blockTxs, levm))
 	} else if baseline == baselineMVSchedO {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, mvschedo.Run(blockTxs, levm))
@@ -194,7 +199,8 @@ func main() {
 	if input.Baseline != "all" && input.Baseline != "harmony" && input.Baseline != "schain" && input.Baseline != "optme" &&
 		input.Baseline != "aria" && input.Baseline != baselineMVSchedO && input.Baseline != "serial" && input.Baseline != "janus" &&
 		input.Baseline != "Non_Prioritied" && input.Baseline != "Non_Concurrent_Graph_Construct" &&
-		input.Baseline != "Non_Maximum_Commit_Validation" && input.Baseline != "MIEX" && input.Baseline != baselineQueCC &&
+		input.Baseline != "Non_Maximum_Commit_Validation" && input.Baseline != "MIEX" &&
+		input.Baseline != baselineNonEarlyNextBatchJanus && input.Baseline != baselineQueCC &&
 		input.Baseline != baselinePilotfish && input.Baseline != baselineThunderbolt {
 		fmt.Println("baseline is invalid")
 		return
@@ -238,7 +244,7 @@ func main() {
 		//baselines                    = []string{"serial", "harmony", "schain", "optme", "aria", "occ", "janus", "serial_construct_graph"}
 		//baselines = []string{"serial", "harmony", "schain", "optme", "aria", "janus"}
 		//baselines = []string{"janus", "serial_construct_graph"}
-		baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX", baselineMVSchedO, baselineQueCC, baselinePilotfish, baselineThunderbolt}
+		baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX", baselineNonEarlyNextBatchJanus, baselineMVSchedO, baselineQueCC, baselinePilotfish, baselineThunderbolt}
 		//baselines = []string{"Non_Maximum_Commit_Validation"}
 	)
 

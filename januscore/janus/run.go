@@ -19,8 +19,16 @@ func init() {
 
 // Run 运行 Janus 混合负载并发执行引擎
 func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
+	return run(blockTxs, levm, true, "Janus Hybrid Transaction Execution Engine")
+}
+
+func Non_Early_Next_Batch_janus(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
+	return run(blockTxs, levm, false, "Non_Early_Next_Batch_janus")
+}
+
+func run(blockTxs []types.Transactions, levm *lvm.LEVM, allowEarlyNextBatchExecution bool, engineName string) [][]float64 {
 	fmt.Println("╔════════════════════════════════════════════════════╗")
-	fmt.Println("║   Janus Hybrid Transaction Execution Engine        ║")
+	fmt.Printf("║   %-47s║\n", engineName)
 	fmt.Println("╚════════════════════════════════════════════════════╝")
 	SetMWISSolver(SolverGreedy)
 	SetMWISBenchmark(false)
@@ -28,6 +36,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	enableReExecutePhase1 = true
 	enableReExecutePhase2 = true
 	fmt.Printf("Thread Pool Size: %d\n", janusConfig.AllThreadNum)
+	fmt.Printf("Early Next Batch Execution: %t\n", allowEarlyNextBatchExecution)
 	fmt.Printf("Water Mark Alpha: %.1f\n", janusConfig.WaterMarkAlpha)
 	fmt.Printf("Water Mark Beta: %.1f\n\n", janusConfig.WaterMarkBeta)
 
@@ -60,7 +69,7 @@ func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 	start := time.Now()
 
 	// 创建流水线引擎
-	pipeline := NewPipelineEngine(levm, numThreads)
+	pipeline := newPipelineEngine(levm, numThreads, allowEarlyNextBatchExecution)
 
 	//tools.CatStorageState = true
 	// 启动流水线（8个工作线程）

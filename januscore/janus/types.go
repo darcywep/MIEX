@@ -212,7 +212,8 @@ type BatchState struct {
 	startTimeOfReExecutePhase               time.Time
 
 	// 切换到下一批
-	finished atomic.Bool // 本批次是否完成
+	executionDone atomic.Bool // 本批次交易执行是否完成
+	finished      atomic.Bool // 本批次是否完成
 }
 
 // ReadWriteSet 交易的读写集
@@ -510,6 +511,8 @@ type PipelineEngine struct {
 	timeOfReExecutePhase               time.Duration
 
 	abortTxs []*janusTransaction
+
+	allowEarlyNextBatchExecution bool
 
 	// 完成通知
 	completeChan chan int

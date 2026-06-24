@@ -49,6 +49,7 @@ const baselineMVSchedO = "mvschedo"
 const baselineQueCC = "quecc"
 const baselinePilotfish = "pilotfish"
 const baselineThunderbolt = "thunderbolt"
+const baselineNonEarlyNextBatchJanus = "Non_Early_Next_Batch_janus"
 const defaultTxTypeMisclassificationSeed int64 = 1
 
 var (
@@ -279,6 +280,9 @@ func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan str
 	} else if baseline == "janus" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, janus.Run(blockTxs, levm))
+	} else if baseline == baselineNonEarlyNextBatchJanus {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, janus.Non_Early_Next_Batch_janus(blockTxs, levm))
 	} else if baseline == "Non_Maximum_Commit_Validation" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, janusClassicAbort.Run(blockTxs, levm))
@@ -312,6 +316,7 @@ func Run(args []string) error {
 			"\taria     run aria\n"+
 			"\tharmony  run harmony\n"+
 			"\tserial   run serial\n"+
+			"\tNon_Early_Next_Batch_janus run Janus without executing the next batch before current-batch execution completes\n"+
 			"\tNon_Maximum_Commit_Validation run Janus without maximum commit validation\n"+
 			"\tnewHarmony run newHarmony\n"+
 			"\tmvschedo run MVSchedO\n"+
@@ -382,6 +387,7 @@ func Run(args []string) error {
 
 	if *baseline != "all" && *baseline != "harmony" && *baseline != "schain" && *baseline != "serial" &&
 		*baseline != "optme" && *baseline != "optme_paper" && *baseline != "aria" && *baseline != "janus" &&
+		*baseline != baselineNonEarlyNextBatchJanus &&
 		*baseline != "Non_Maximum_Commit_Validation" && *baseline != "newHarmony" && *baseline != baselineMVSchedO &&
 		*baseline != baselineQueCC && *baseline != baselinePilotfish && *baseline != baselineThunderbolt {
 		fmt.Println("baseline is invalid")
@@ -450,7 +456,7 @@ func Run(args []string) error {
 		baseFileName                 = syntheticResultFileName(input)
 		tpssAndLatency [][][]float64 = make([][][]float64, 0)
 		//baselines                    = []string{"janus", "harmony", "optme", "optme_paper", "Non_Maximum_Commit_Validation"}
-		baselines = []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC, baselinePilotfish, baselineThunderbolt}
+		baselines = []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", baselineNonEarlyNextBatchJanus, "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC, baselinePilotfish, baselineThunderbolt}
 		//baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX"}
 		//baselines = []string{"Non_Maximum_Commit_Validation"}
 	)
