@@ -19,18 +19,35 @@ func init() {
 
 // Run 运行 Janus 混合负载并发执行引擎
 func Run(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
-	return run(blockTxs, levm, true, "Janus Hybrid Transaction Execution Engine")
+	return runWithSolver(blockTxs, levm, true, "Janus Hybrid Transaction Execution Engine", SolverGreedy)
 }
 
 func Non_Early_Next_Batch_janus(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
-	return run(blockTxs, levm, false, "Non_Early_Next_Batch_janus")
+	return runWithSolver(blockTxs, levm, false, "Non_Early_Next_Batch_janus", SolverGreedy)
 }
 
-func run(blockTxs []types.Transactions, levm *lvm.LEVM, allowEarlyNextBatchExecution bool, engineName string) [][]float64 {
+func RunCostOnly(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
+	return runWithSolver(blockTxs, levm, true, "Janus Cost-Only MWIS Heuristic", SolverCostOnly)
+}
+
+func RunLPRelaxation(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
+	return runWithSolver(blockTxs, levm, true, "Janus LP-Relaxation MWIS Heuristic", SolverLPRelaxation)
+}
+
+func resetRunState(blockNum int) {
+	committedTxsNum.Store(0)
+	AllJanusTransactions = make([][]*janusTransaction, 0, blockNum)
+	if tools.TraceAbort {
+		JanusTxsForOneBatchAsOneBlock = make([][]*janusTransaction, 0)
+	}
+}
+
+func runWithSolver(blockTxs []types.Transactions, levm *lvm.LEVM, allowEarlyNextBatchExecution bool, engineName string, solver MWISSolver) [][]float64 {
+	resetRunState(len(blockTxs))
 	fmt.Println("╔════════════════════════════════════════════════════╗")
 	fmt.Printf("║   %-47s║\n", engineName)
 	fmt.Println("╚════════════════════════════════════════════════════╝")
-	SetMWISSolver(SolverGreedy)
+	SetMWISSolver(solver)
 	SetMWISBenchmark(false)
 	enableLog = false
 	enableReExecutePhase1 = true

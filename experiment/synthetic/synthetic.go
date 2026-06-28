@@ -36,6 +36,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/params"
@@ -50,6 +51,8 @@ const baselineQueCC = "quecc"
 const baselinePilotfish = "pilotfish"
 const baselineThunderbolt = "thunderbolt"
 const baselineNonEarlyNextBatchJanus = "Non_Early_Next_Batch_janus"
+const baselineJanusCostOnly = "janus_cost_only"
+const baselineJanusLPRelaxation = "janus_lp_relaxation"
 const defaultTxTypeMisclassificationSeed int64 = 1
 
 var (
@@ -244,6 +247,47 @@ func printTxTypeMisclassificationStats(stats tools.TxTypeMisclassificationStats)
 		stats.MisclassifiedTxs, stats.LongToShort, stats.ShortToLong)
 }
 
+func defaultSyntheticBaselines() []string {
+	return []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus",
+		baselineNonEarlyNextBatchJanus, "Non_Maximum_Commit_Validation", "newHarmony",
+		baselineMVSchedO, baselineQueCC, baselinePilotfish, baselineThunderbolt}
+}
+
+func isValidSyntheticBaseline(baseline string) bool {
+	switch baseline {
+	case "harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus",
+		baselineNonEarlyNextBatchJanus, "Non_Maximum_Commit_Validation", "newHarmony",
+		baselineMVSchedO, baselineQueCC, baselinePilotfish, baselineThunderbolt,
+		baselineJanusCostOnly, baselineJanusLPRelaxation:
+		return true
+	default:
+		return false
+	}
+}
+
+func parseSyntheticBaselines(value string) ([]string, error) {
+	if strings.TrimSpace(value) == "all" {
+		return defaultSyntheticBaselines(), nil
+	}
+
+	parts := strings.Split(value, ",")
+	baselines := make([]string, 0, len(parts))
+	for _, part := range parts {
+		baseline := strings.TrimSpace(part)
+		if baseline == "" {
+			continue
+		}
+		if !isValidSyntheticBaseline(baseline) {
+			return nil, fmt.Errorf("baseline is invalid: %s", baseline)
+		}
+		baselines = append(baselines, baseline)
+	}
+	if len(baselines) == 0 {
+		return nil, fmt.Errorf("baseline is empty")
+	}
+	return baselines, nil
+}
+
 func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan struct{}, signalWg *sync.WaitGroup, blockTxs []types.Transactions, levm *lvm.LEVM) {
 	monitorFilePath := filepath.Join(janusConfig.MonitorBasePath, baseline+"/"+baseFileName)
 	//if baseline == "Non_Prioritied" {
@@ -280,6 +324,12 @@ func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan str
 	} else if baseline == "janus" {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, janus.Run(blockTxs, levm))
+	} else if baseline == baselineJanusCostOnly {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, janus.RunCostOnly(blockTxs, levm))
+	} else if baseline == baselineJanusLPRelaxation {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, janus.RunLPRelaxation(blockTxs, levm))
 	} else if baseline == baselineNonEarlyNextBatchJanus {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, janus.Non_Early_Next_Batch_janus(blockTxs, levm))
@@ -309,7 +359,7 @@ func Run(args []string) error {
 	fs := flag.NewFlagSet("synthetic", flag.ExitOnError)
 	baseline := fs.String("baseline", "all",
 		"baseline:\n"+
-			"\tall      run all baseline\n"+
+			"\tall      run all baseline; comma-separated lists are also supported\n"+
 			"\tschian   run schain\n"+
 			"\toptme    run original optme\n"+
 			"\toptme_paper run paper-style optme\n"+
@@ -323,6 +373,8 @@ func Run(args []string) error {
 			"\tquecc   run QueCC\n"+
 			"\tpilotfish run Pilotfish\n"+
 			"\tthunderbolt run Thunderbolt single-shard CE\n"+
+			"\tjanus_cost_only run Janus with cost-only MWIS greedy selection\n"+
+			"\tjanus_lp_relaxation run Janus with LP-relaxation-based MWIS selection\n"+
 			"\tjanus    run janus")
 
 	fmt.Println(baseline)
@@ -385,12 +437,9 @@ func Run(args []string) error {
 		"\ntxTypeMisclassificationSeed:", misclassificationSeed,
 	)
 
-	if *baseline != "all" && *baseline != "harmony" && *baseline != "schain" && *baseline != "serial" &&
-		*baseline != "optme" && *baseline != "optme_paper" && *baseline != "aria" && *baseline != "janus" &&
-		*baseline != baselineNonEarlyNextBatchJanus &&
-		*baseline != "Non_Maximum_Commit_Validation" && *baseline != "newHarmony" && *baseline != baselineMVSchedO &&
-		*baseline != baselineQueCC && *baseline != baselinePilotfish && *baseline != baselineThunderbolt {
-		fmt.Println("baseline is invalid")
+	requestedBaselines, err := parseSyntheticBaselines(*baseline)
+	if err != nil {
+		fmt.Println(err)
 		return nil
 	}
 
@@ -455,10 +504,7 @@ func Run(args []string) error {
 	var (
 		baseFileName                 = syntheticResultFileName(input)
 		tpssAndLatency [][][]float64 = make([][][]float64, 0)
-		//baselines                    = []string{"janus", "harmony", "optme", "optme_paper", "Non_Maximum_Commit_Validation"}
-		baselines = []string{"harmony", "schain", "serial", "optme", "optme_paper", "aria", "janus", baselineNonEarlyNextBatchJanus, "Non_Maximum_Commit_Validation", "newHarmony", baselineMVSchedO, baselineQueCC, baselinePilotfish, baselineThunderbolt}
-		//baselines = []string{"Non_Prioritied", "Non_Concurrent_Graph_Construct", "Non_Maximum_Commit_Validation", "MIEX"}
-		//baselines = []string{"Non_Maximum_Commit_Validation"}
+		baselines                    = requestedBaselines
 	)
 
 	blockNum := janusConfig.AllBlocksTxSum / janusConfig.BlockSize
@@ -480,11 +526,8 @@ func Run(args []string) error {
 	}
 	defer levm.AllDB().Close()
 
-	if input.Baseline != "all" {
-		baselines = []string{input.Baseline}
-	}
-
 	for _, bl := range baselines {
+		fmt.Println("Baseline is...", bl)
 		signalChan := make(chan struct{})
 		signalWg := new(sync.WaitGroup)
 		signalWg.Add(1)

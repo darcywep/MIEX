@@ -67,6 +67,8 @@ const baselineQueCC = "quecc"
 const baselinePilotfish = "pilotfish"
 const baselineThunderbolt = "thunderbolt"
 const baselineNonEarlyNextBatchJanus = "Non_Early_Next_Batch_janus"
+const baselineJanusCostOnly = "janus_cost_only"
+const baselineJanusLPRelaxation = "janus_lp_relaxation"
 const defaultTxTypeMisclassificationSeed int64 = 1
 
 func init() {
@@ -144,6 +146,12 @@ func run(baseline, baseFileName string, tpss *[][][]float64, signalChan chan str
 	} else if baseline == baselineNonEarlyNextBatchJanus {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, janus.Non_Early_Next_Batch_janus(blockTxs, levm))
+	} else if baseline == baselineJanusCostOnly {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, janus.RunCostOnly(blockTxs, levm))
+	} else if baseline == baselineJanusLPRelaxation {
+		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
+		*tpss = append(*tpss, janus.RunLPRelaxation(blockTxs, levm))
 	} else if baseline == baselineMVSchedO {
 		go monitor.MonitorMetrics(1*time.Second, monitorFilePath, signalChan, signalWg) // 监控 CPU 和磁盘利用率，每秒更新一次
 		*tpss = append(*tpss, mvschedo.Run(blockTxs, levm))
@@ -200,7 +208,8 @@ func main() {
 		input.Baseline != "aria" && input.Baseline != baselineMVSchedO && input.Baseline != "serial" && input.Baseline != "janus" &&
 		input.Baseline != "Non_Prioritied" && input.Baseline != "Non_Concurrent_Graph_Construct" &&
 		input.Baseline != "Non_Maximum_Commit_Validation" && input.Baseline != "MIEX" &&
-		input.Baseline != baselineNonEarlyNextBatchJanus && input.Baseline != baselineQueCC &&
+		input.Baseline != baselineNonEarlyNextBatchJanus && input.Baseline != baselineJanusCostOnly &&
+		input.Baseline != baselineJanusLPRelaxation && input.Baseline != baselineQueCC &&
 		input.Baseline != baselinePilotfish && input.Baseline != baselineThunderbolt {
 		fmt.Println("baseline is invalid")
 		return

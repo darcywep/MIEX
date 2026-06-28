@@ -59,7 +59,7 @@ func printUsage() {
 	fmt.Println("  go run ./experiment synthetic -baseline all -t 8 -b 10 -bt 2000 -sk 0.5 -lr 0.5 -sr 0.5")
 	fmt.Println()
 	fmt.Println("Synthetic flags:")
-	fmt.Println("  -baseline  all | harmony | schain | serial | optme | optme_paper | aria | janus | Non_Maximum_Commit_Validation | newHarmony | mvschedo | quecc | pilotfish | thunderbolt")
+	fmt.Println("  -baseline  all | comma-separated list from: harmony | schain | serial | optme | optme_paper | aria | janus | janus_cost_only | janus_lp_relaxation | Non_Maximum_Commit_Validation | newHarmony | mvschedo | quecc | pilotfish | thunderbolt")
 	fmt.Println("             选择要运行的 baseline；默认 all。")
 	fmt.Println("  -t         worker thread number；默认 8。")
 	fmt.Println("  -b         blocks number；合成负载生成的区块数量，默认 10。")

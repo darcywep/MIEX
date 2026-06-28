@@ -15,8 +15,10 @@ import (
 type MWISSolver int
 
 const (
-	SolverILP    MWISSolver = iota // 使用 ILP (OR-Tools) 求解
-	SolverGreedy                   // 使用贪心算法求解
+	SolverILP          MWISSolver = iota // 使用 ILP (OR-Tools) 求解
+	SolverGreedy                         // 使用贪心算法求解
+	SolverCostOnly                       // 只按执行开销贪心求解
+	SolverLPRelaxation                   // 使用 LP relaxation 后 rounding 求解
 )
 
 // 默认求解器
@@ -67,6 +69,10 @@ func SolveMWIS(dag *ConflictDAG, nodes []int) ([]int, error) {
 		return solveByILP(dag, nodes, subgraph)
 	case SolverGreedy:
 		return solveByGreedy(dag, nodes, subgraph)
+	case SolverCostOnly:
+		return solveByCostOnly(dag, nodes, subgraph)
+	case SolverLPRelaxation:
+		return solveByLPRelaxation(dag, nodes, subgraph)
 	default:
 		return solveByGreedy(dag, nodes, subgraph)
 	}
@@ -202,6 +208,122 @@ func solveByGreedy(dag *ConflictDAG, nodes []int, info *subgraphInfo) ([]int, er
 	return result, nil
 }
 
+// solveByCostOnly 使用只考虑执行开销的贪心算法求解最大权重独立集。
+// 策略：按交易执行开销从大到小选择节点，不使用冲突度数作为排序因子。
+func solveByCostOnly(dag *ConflictDAG, nodes []int, info *subgraphInfo) ([]int, error) {
+	nodeList := make([]*nodeWithWeight, 0, len(nodes))
+	for _, nodeID := range nodes {
+		weight := info.weights[nodeID]
+		nodeList = append(nodeList, &nodeWithWeight{
+			nodeID: nodeID,
+			weight: weight,
+			degree: len(info.adjList[nodeID]),
+			score:  weight,
+		})
+	}
+
+	sort.Slice(nodeList, func(i, j int) bool {
+		if nodeList[i].weight != nodeList[j].weight {
+			return nodeList[i].weight > nodeList[j].weight
+		}
+		return nodeList[i].nodeID < nodeList[j].nodeID
+	})
+
+	result := selectIndependentSet(nodeList, info)
+	totalWeight := totalIndependentSetWeight(result, info)
+	if enableLog {
+		fmt.Printf("[CostOnly] 节点数=%d, 边数=%d, 独立集大小=%d, 总权重=%.2f\n",
+			len(nodes), len(info.edges), len(result), totalWeight)
+	}
+
+	return result, nil
+}
+
+func selectIndependentSet(nodeList []*nodeWithWeight, info *subgraphInfo) []int {
+	excluded := make(map[int]bool)
+	result := make([]int, 0)
+
+	for _, node := range nodeList {
+		nodeID := node.nodeID
+		if excluded[nodeID] {
+			continue
+		}
+
+		result = append(result, nodeID)
+		for neighbor := range info.adjList[nodeID] {
+			excluded[neighbor] = true
+		}
+	}
+
+	return result
+}
+
+func totalIndependentSetWeight(independentSet []int, info *subgraphInfo) float64 {
+	totalWeight := 0.0
+	for _, nodeID := range independentSet {
+		totalWeight += info.weights[nodeID]
+	}
+	return totalWeight
+}
+
+func isIndependentSet(independentSet []int, info *subgraphInfo) bool {
+	selected := make(map[int]struct{}, len(independentSet))
+	for _, nodeID := range independentSet {
+		if !info.nodeSet[nodeID] {
+			return false
+		}
+		if _, exists := selected[nodeID]; exists {
+			return false
+		}
+		for neighbor := range info.adjList[nodeID] {
+			if _, exists := selected[neighbor]; exists {
+				return false
+			}
+		}
+		selected[nodeID] = struct{}{}
+	}
+	return true
+}
+
+func repairIndependentSetByOrder(order []int, nodes []int, info *subgraphInfo) []int {
+	nodeList := make([]*nodeWithWeight, 0, len(nodes))
+	seen := make(map[int]bool, len(nodes))
+	for _, nodeID := range order {
+		if !info.nodeSet[nodeID] || seen[nodeID] {
+			continue
+		}
+		seen[nodeID] = true
+		nodeList = append(nodeList, &nodeWithWeight{
+			nodeID: nodeID,
+			weight: info.weights[nodeID],
+			degree: len(info.adjList[nodeID]),
+			score:  info.weights[nodeID],
+		})
+	}
+
+	missing := make([]*nodeWithWeight, 0)
+	for _, nodeID := range nodes {
+		if seen[nodeID] {
+			continue
+		}
+		missing = append(missing, &nodeWithWeight{
+			nodeID: nodeID,
+			weight: info.weights[nodeID],
+			degree: len(info.adjList[nodeID]),
+			score:  info.weights[nodeID],
+		})
+	}
+	sort.Slice(missing, func(i, j int) bool {
+		if missing[i].weight != missing[j].weight {
+			return missing[i].weight > missing[j].weight
+		}
+		return missing[i].nodeID < missing[j].nodeID
+	})
+	nodeList = append(nodeList, missing...)
+
+	return selectIndependentSet(nodeList, info)
+}
+
 // ===================== ILP 求解器 =====================
 
 // solveByILP 使用 ILP (OR-Tools) 求解最大权重独立集
@@ -219,7 +341,7 @@ func solveByILP(dag *ConflictDAG, nodes []int, info *subgraphInfo) ([]int, error
 	}
 
 	// 2. 调用 Python 求解器
-	result, err := callPythonSolver(input)
+	result, err := callPythonSolver(input, "ilp")
 	if err != nil {
 		return nil, err
 	}
@@ -237,8 +359,41 @@ func solveByILP(dag *ConflictDAG, nodes []int, info *subgraphInfo) ([]int, error
 	return result.IndependentSet, nil
 }
 
-// callPythonSolver 调用 Python 脚本求解 ILP
-func callPythonSolver(input MWISInput) (*MWISOutput, error) {
+// solveByLPRelaxation 使用 LP relaxation 解和确定性 rounding 近似求解最大权重独立集。
+func solveByLPRelaxation(dag *ConflictDAG, nodes []int, info *subgraphInfo) ([]int, error) {
+	input := MWISInput{
+		Nodes:   nodes,
+		Edges:   info.edges,
+		Weights: make(map[string]float64),
+	}
+
+	for nodeID, weight := range info.weights {
+		input.Weights[fmt.Sprintf("%d", nodeID)] = weight
+	}
+
+	result, err := callPythonSolver(input, "lp_relaxation")
+	if err != nil {
+		return nil, err
+	}
+
+	if result.Status != "optimal" {
+		return nil, fmt.Errorf("LP relaxation 求解失败: %s", result.Status)
+	}
+	independentSet := result.IndependentSet
+	if !isIndependentSet(independentSet, info) {
+		independentSet = repairIndependentSetByOrder(result.IndependentSet, nodes, info)
+	}
+
+	if enableLog {
+		fmt.Printf("[LPRelaxation] 节点数=%d, 边数=%d, 独立集大小=%d, 总权重=%.2f\n",
+			len(nodes), len(info.edges), len(independentSet), totalIndependentSetWeight(independentSet, info))
+	}
+
+	return independentSet, nil
+}
+
+// callPythonSolver 调用 Python 脚本求解 ILP 或 LP relaxation。
+func callPythonSolver(input MWISInput, mode string) (*MWISOutput, error) {
 	// 创建临时文件
 	inputFile, err := os.CreateTemp("", "mwis_input_*.json")
 	if err != nil {
@@ -264,7 +419,11 @@ func callPythonSolver(input MWISInput) (*MWISOutput, error) {
 	scriptPath := filepath.Join(getScriptDir(), "mwis_solver.py")
 
 	// 调用 Python 脚本
-	cmd := exec.Command("python3", scriptPath, inputFile.Name(), outputFile.Name())
+	pythonBin := os.Getenv("JANUS_PYTHON")
+	if pythonBin == "" {
+		pythonBin = "python3"
+	}
+	cmd := exec.Command(pythonBin, scriptPath, inputFile.Name(), outputFile.Name(), mode)
 	cmdOutput, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("调用 Python 脚本失败: %v, 输出: %s", err, string(cmdOutput))
@@ -303,6 +462,10 @@ func SetMWISSolver(solver MWISSolver) {
 		fmt.Println("[MWIS] 使用 ILP (OR-Tools) 求解器")
 	case SolverGreedy:
 		fmt.Println("[MWIS] 使用贪心算法求解器")
+	case SolverCostOnly:
+		fmt.Println("[MWIS] 使用只考虑执行开销的贪心求解器")
+	case SolverLPRelaxation:
+		fmt.Println("[MWIS] 使用 LP relaxation 求解器")
 	}
 }
 
@@ -313,6 +476,10 @@ func GetMWISSolverName() string {
 		return "ILP"
 	case SolverGreedy:
 		return "Greedy"
+	case SolverCostOnly:
+		return "CostOnly"
+	case SolverLPRelaxation:
+		return "LPRelaxation"
 	default:
 		return "Unknown"
 	}
