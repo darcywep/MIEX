@@ -7,7 +7,7 @@ import (
 	"Janus/baselines/mvschedo"
 	"Janus/baselines/optme/optme"
 	optmePaper "Janus/baselines/optme_paper/optme_paper"
-	"Janus/baselines/pilotfish/pilotfish"
+	"Janus/baselines/pilotfish"
 	"Janus/baselines/quecc/quecc"
 	"Janus/baselines/schain/schain"
 	"Janus/baselines/serial"

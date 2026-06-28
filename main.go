@@ -3,7 +3,7 @@ package main
 import (
 	"Janus/baselines/mvschedo"
 	"Janus/baselines/optme/optme"
-	"Janus/baselines/pilotfish/pilotfish"
+	"Janus/baselines/pilotfish"
 	"Janus/baselines/quecc/quecc"
 	"Janus/baselines/thunderbolt/thunderbolt"
 	janusConfig "Janus/config"
