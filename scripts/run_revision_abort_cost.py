@@ -24,6 +24,10 @@ DEFAULT_METHODS = (
 )
 DEFAULT_SKEWS = "0.4,0.6,0.8,1.0,1.2"
 DEFAULT_LONG_LOOPS = "20,30,40,50,60"
+DEFAULT_SKEW_SWEEP_SHORT_LOOP = 10
+DEFAULT_SKEW_SWEEP_LONG_LOOP = 20
+DEFAULT_LOOP_SWEEP_SKEW = "1.0"
+DEFAULT_LONG_RATE = 0.2
 
 NUMBER_RE = r"([0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)"
 SUMMARY_ROW_RE = re.compile(
@@ -61,7 +65,7 @@ class ExperimentCase:
     experiment: str
     case_id: str
     skew: str
-    fibonacci_n: int
+    fibonacci_n: int | None
     short_fibonacci_loop: int | None
     long_fibonacci_loop: int | None
 
@@ -126,20 +130,28 @@ def build_cases(args: argparse.Namespace) -> list[ExperimentCase]:
         cases.append(
             ExperimentCase(
                 experiment="skew_sweep",
-                case_id=f"skew_{sanitize_filename(skew.replace('.', 'p'))}",
+                case_id=(
+                    f"skew_{sanitize_filename(skew.replace('.', 'p'))}"
+                    f"_sfln_{args.skew_sweep_short_fibonacci_loop}"
+                    f"_lfln_{args.skew_sweep_long_fibonacci_loop}"
+                ),
                 skew=skew,
                 fibonacci_n=-1,
-                short_fibonacci_loop=None,
-                long_fibonacci_loop=None,
+                short_fibonacci_loop=args.skew_sweep_short_fibonacci_loop,
+                long_fibonacci_loop=args.skew_sweep_long_fibonacci_loop,
             )
         )
     for long_loop in args.long_fibonacci_loops:
         cases.append(
             ExperimentCase(
                 experiment="long_fibonacci_loop_sweep",
-                case_id=f"skew_0p8_sfln_{args.loop_sweep_short_fibonacci_loop}_lfln_{long_loop}",
-                skew="0.8",
-                fibonacci_n=-1,
+                case_id=(
+                    f"skew_{sanitize_filename(args.loop_sweep_skew.replace('.', 'p'))}"
+                    f"_sfln_{args.loop_sweep_short_fibonacci_loop}"
+                    f"_lfln_{long_loop}"
+                ),
+                skew=args.loop_sweep_skew,
+                fibonacci_n=None,
                 short_fibonacci_loop=args.loop_sweep_short_fibonacci_loop,
                 long_fibonacci_loop=long_loop,
             )
@@ -188,10 +200,10 @@ def build_command(args: argparse.Namespace, case: ExperimentCase) -> list[str]:
         format_float(args.watermark_alpha),
         "-wb",
         format_float(args.watermark_beta),
-        "-f",
-        str(case.fibonacci_n),
         "-ta",
     ]
+    if case.fibonacci_n is not None:
+        command.extend(["-f", str(case.fibonacci_n)])
     if case.short_fibonacci_loop is not None:
         command.extend(["-sfln", str(case.short_fibonacci_loop)])
     if case.long_fibonacci_loop is not None:
@@ -277,7 +289,7 @@ def base_row(
         "long_rate": format_float(args.long_rate),
         "short_rate": format_float(short_rate),
         "skew": case.skew,
-        "fibonacci_n": case.fibonacci_n,
+        "fibonacci_n": "" if case.fibonacci_n is None else case.fibonacci_n,
         "short_fibonacci_loop": "" if case.short_fibonacci_loop is None else case.short_fibonacci_loop,
         "long_fibonacci_loop": "" if case.long_fibonacci_loop is None else case.long_fibonacci_loop,
         "abort_count": "",
@@ -388,9 +400,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--address-rate", type=int, default=4)
     parser.add_argument("--watermark-alpha", type=float, default=1.5)
     parser.add_argument("--watermark-beta", type=float, default=3.5)
-    parser.add_argument("--long-rate", type=parse_rate, default=parse_rate("20%"))
+    parser.add_argument("--long-rate", type=parse_rate, default=DEFAULT_LONG_RATE)
     parser.add_argument("--skews", type=parse_skew_list, default=parse_skew_list(DEFAULT_SKEWS))
+    parser.add_argument("--skew-sweep-short-fibonacci-loop", type=int, default=DEFAULT_SKEW_SWEEP_SHORT_LOOP)
+    parser.add_argument("--skew-sweep-long-fibonacci-loop", type=int, default=DEFAULT_SKEW_SWEEP_LONG_LOOP)
     parser.add_argument("--long-fibonacci-loops", type=parse_int_list, default=parse_int_list(DEFAULT_LONG_LOOPS))
+    parser.add_argument("--loop-sweep-skew", default=DEFAULT_LOOP_SWEEP_SKEW)
     parser.add_argument("--loop-sweep-short-fibonacci-loop", type=int, default=10)
     parser.add_argument("--trials", type=int, default=1)
     parser.add_argument("--timeout", type=float, default=0, help="Per-case timeout in seconds; 0 disables timeout.")
@@ -415,6 +430,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         raise SystemExit("--trials must be greater than 0")
     if args.loop_sweep_short_fibonacci_loop <= 0:
         raise SystemExit("--loop-sweep-short-fibonacci-loop must be greater than 0")
+    if args.skew_sweep_short_fibonacci_loop <= 0 or args.skew_sweep_long_fibonacci_loop <= 0:
+        raise SystemExit("skew sweep fibonacci loop values must be greater than 0")
+    float(args.loop_sweep_skew)
 
     args.output_dir = str(resolve_path(args.output_dir))
     if not args.log_dir:

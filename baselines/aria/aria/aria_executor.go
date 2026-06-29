@@ -85,9 +85,7 @@ func (e *AriaExecutor) ProcessOneTx(tx *AriaTransaction) {
 			// 通过 channel 返回 abort 给 controller
 			e.aria.resultChans[workerID] <- tx
 			if tools.TraceAbort {
-				tools.TraceAbortMutex.Lock()
-				ariaAbortTxs[tx.OriginalBlockID][tx.OriginalTxID] = tx
-				tools.TraceAbortMutex.Unlock()
+				recordAriaAbort(tx)
 			}
 			e.statistics.AddRollbackCount()
 			return
@@ -110,11 +108,14 @@ func (e *AriaExecutor) Execute(tx *AriaTransaction) {
 	// 读写集由 LatencyDB 模拟信息或原 SmallBank 规则统一填充，避免真实负载再依赖 TxType 推导地址。
 	tools.FillStringReadWriteSet(tx.Inner.EthTx, tx.Inner.Vertex.ReadKeys, tx.Inner.Vertex.WriteKeys)
 	tools.FillStringReadWriteSet(tx.Inner.EthTx, tx.LocalGet, tx.LocalPut)
-	tx.Execute(e.levm)
+	tx.Execute(e.levm, e.workerID)
 }
 
-// Reserve: 对写集合做预约（ReservePut）
+// Reserve: 对读写集合做预约，用于后续 RAW/WAW/WAR 检测。
 func (e *AriaExecutor) Reserve(tx *AriaTransaction) {
+	for key := range tx.LocalGet {
+		e.table.ReserveGet(tx, key)
+	}
 	for key := range tx.LocalPut {
 		e.table.ReservePut(tx, key)
 	}

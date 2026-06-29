@@ -31,7 +31,9 @@ func RunCostOnly(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
 }
 
 func RunLPRelaxation(blockTxs []types.Transactions, levm *lvm.LEVM) [][]float64 {
-	return runWithSolver(blockTxs, levm, true, "Janus LP-Relaxation MWIS Heuristic", SolverLPRelaxation)
+	// Keep the historical experiment flag name, but this baseline is the
+	// minimum-abort-cost oracle and must use exact MWIS instead of LP rounding.
+	return runWithSolver(blockTxs, levm, true, "Janus Optimal MWIS (ILP)", SolverILP)
 }
 
 func resetRunState(blockNum int) {

@@ -64,8 +64,8 @@ var (
 	addressNumberRate = 4 // 总共生成多少个地址 = blockTxSum * addressNumberRate
 
 	// longTxCountRate + shortTxCountRate = 1
-	longTxCountRate  = 0.5 // 长交易的比例
-	shortTxCountRate = 0.5 // 短交易的比例
+	longTxCountRate  = 0.2 // 长交易的比例，默认长:短 = 1:4
+	shortTxCountRate = 0.8 // 短交易的比例，默认长:短 = 1:4
 
 	waterMarkAlpha = 1.5 // 水位线参数 α
 	waterMarkBeta  = 3.5 // 水位线参数 β
@@ -374,7 +374,7 @@ func Run(args []string) error {
 			"\tpilotfish run Pilotfish\n"+
 			"\tthunderbolt run Thunderbolt single-shard CE\n"+
 			"\tjanus_cost_only run Janus with cost-only MWIS greedy selection\n"+
-			"\tjanus_lp_relaxation run Janus with LP-relaxation-based MWIS selection\n"+
+			"\tjanus_lp_relaxation run Janus with exact ILP MWIS selection (legacy name)\n"+
 			"\tjanus    run janus")
 
 	fmt.Println(baseline)
@@ -388,9 +388,9 @@ func Run(args []string) error {
 	fs.IntVar(&addressNumberRate, "ar", 4,
 		"address number rate = blockTxSum * addressNumberRate")
 
-	fs.Float64Var(&longTxCountRate, "lr", 0.5,
+	fs.Float64Var(&longTxCountRate, "lr", 0.2,
 		"long transaction rate (long + short = 1)")
-	fs.Float64Var(&shortTxCountRate, "sr", 0.5,
+	fs.Float64Var(&shortTxCountRate, "sr", 0.8,
 		"short transaction rate (long + short = 1)")
 
 	fs.Float64Var(&waterMarkAlpha, "wa", 1.5, "water mark alpha")

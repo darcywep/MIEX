@@ -1,7 +1,6 @@
 package tools
 
 import (
-	janusConfig "Janus/config"
 	"Janus/ethereum/core/types"
 	"math"
 	"sort"
@@ -60,14 +59,9 @@ func TransactionReadWriteSet(tx *types.Transaction) (map[string]struct{}, map[st
 		return readSet, writeSet
 	}
 
-	if tx.TxType == janusConfig.ShortTx {
-		if from := tx.From(); from != nil {
-			addRWKey(readSet, from.String())
-			addRWKey(writeSet, from.String())
-		}
-		addRWKey(readSet, tx.SmallBankTo.String())
-		addRWKey(writeSet, tx.SmallBankTo.String())
-		return readSet, writeSet
+	if from := tx.From(); from != nil {
+		addRWKey(readSet, from.String())
+		addRWKey(writeSet, from.String())
 	}
 	addRWKey(readSet, tx.SmallBankTo.String())
 	addRWKey(writeSet, tx.SmallBankTo.String())

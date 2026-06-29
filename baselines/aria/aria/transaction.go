@@ -3,6 +3,7 @@ package aria
 import (
 	janusCommon "Janus/baselines/common"
 	lvm "Janus/core/evm"
+	"Janus/ethereum/core/vm"
 	"Janus/tools"
 	"sync/atomic"
 	"time"
@@ -18,6 +19,7 @@ type AriaTransaction struct {
 	BatchID         uint64
 	LocalGet        map[string]string
 	LocalPut        map[string]string
+	ExecutionCost   float64
 	StartTime       time.Time
 	flagConflict    atomic.Bool
 	committed       atomic.Uint32
@@ -35,12 +37,15 @@ func NewAriaTransaction(inner janusCommon.BasicTransaction, id, batch uint64, Or
 	}
 }
 
-func (tx *AriaTransaction) Execute(levm *lvm.LEVM) {
+func (tx *AriaTransaction) Execute(levm *lvm.LEVM, workerID int) {
 	if tools.ExecuteSimulatedTransaction(tx.Inner.EthTx) {
+		tx.ExecutionCost = tools.SimulatedTransactionCost(tx.Inner.EthTx)
 		return
 	}
+	vm.OpenTxCost(workerID)
 	_, err := levm.CallContract(*tx.Inner.EthTx.From(), *tx.Inner.EthTx.To(), tx.Inner.EthTx.Data(), new(uint256.Int).SetUint64(0))
 	tools.PanicError("AriaTransaction Execute", err)
+	tx.ExecutionCost = vm.CloseTxCost(workerID)
 }
 
 func (tx *AriaTransaction) SetConflict(v bool) {

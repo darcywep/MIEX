@@ -1,7 +1,6 @@
 package aria
 
 import (
-	"Janus/tools"
 	"fmt"
 	"log"
 	"sync"
@@ -106,10 +105,12 @@ func (a *Aria) processBlock(perThreadBatch [][]*AriaTransaction, blockID int) {
 	// ---- 准备 channels 与 worker levm ----
 	a.jobChans = make([]chan *AriaTransaction, a.numThreads)
 	a.resultChans = make([]chan *AriaTransaction, a.numThreads)
+	a.levms = make([]*lvm.LEVM, a.numThreads)
 	for i := 0; i < a.numThreads; i++ {
 		a.jobChans[i] = make(chan *AriaTransaction)
 		a.resultChans[i] = make(chan *AriaTransaction)
-		a.levms = append(a.levms, a.levm.Copy())
+		a.levms[i] = a.levm.Copy()
+		a.levms[i].SetEVMWorkerID(i)
 	}
 
 	// ---- 启动 worker goroutines ----
@@ -160,11 +161,6 @@ func (a *Aria) processBlock(perThreadBatch [][]*AriaTransaction, blockID int) {
 
 			// aborted tx：插回下一列的开头，等待重试
 			perThreadBatch[t] = append([]*AriaTransaction{res}, perThreadBatch[t]...)
-			if tools.TraceAbort {
-				tools.TraceAbortMutex.Lock()
-				ariaAbortTxs[res.OriginalBlockID][res.OriginalTxID] = res
-				tools.TraceAbortMutex.Unlock()
-			}
 		}
 		if nilNumber == a.numThreads {
 			break

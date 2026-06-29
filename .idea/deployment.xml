@@ -18,7 +18,6 @@
         <serverdata>
           <mappings>
             <mapping deploy="/Janus" local="$PROJECT_DIR$" web="/" />
-            <mapping local="" />
           </mappings>
           <excludedPaths>
             <excludedPath local="true" path="$PROJECT_DIR$/data" />

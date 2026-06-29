@@ -269,7 +269,7 @@ func (pe *PipelineEngine) solveComponentMWIS(state *BatchState, workerID int) {
 		var independentSet, abortSet []int
 		var err error
 
-		// 单节点情况已经处理过了，直接调用 ILP 求解多节点的情况
+		// 单节点情况已经处理过了，直接调用当前 MWIS 求解器处理多节点情况
 		//if enableLog {
 		//	fmt.Printf("[Worker %d] [batch %d] [MWIS] connected component index=%d, nodes=%v，solving MWIS.\n",
 		//		workerID, state.BatchID, idx, nodes)
@@ -280,35 +280,34 @@ func (pe *PipelineEngine) solveComponentMWIS(state *BatchState, workerID int) {
 			fmt.Printf("[Error] [Worker %d] [batch %d] [MWIS] connected component index=%d err: %v\n",
 				workerID, state.BatchID, idx, err)
 			independentSet = []int{} // 求解失败，保守策略：不提交任何交易
-		} else {
-			independentMap := make(map[int]struct{})
-			for _, nodeID := range independentSet {
-				independentMap[nodeID] = struct{}{}
-			}
-			for _, node := range nodes {
-				if _, exist := independentMap[node]; !exist { // 不在独立集中，那么则丢弃
-					abortSet = append(abortSet, node)
-				}
-			}
-			//if enableLog {
-			//	// 计算总权重
-			//	totalWeight := 0.0
-			//	for _, nodeID := range independentSet {
-			//		if rwset, exists := finalDag.Nodes[nodeID]; exists && rwset != nil {
-			//			totalWeight += rwset.Cost
-			//		}
-			//	}
-			//	abortWeight := 0.0
-			//	for _, nodeID := range abortSet {
-			//		if rwset, exists := finalDag.Nodes[nodeID]; exists && rwset != nil {
-			//			abortWeight += rwset.Cost
-			//		}
-			//	}
-			//
-			//	fmt.Printf("[Worker %d] [batch %d] [MWIS] connected component index=%d, nodes=%v, independent set=%v with weight=%.2f, abort set=%v with weight=%.2f\n",
-			//		workerID, state.BatchID, idx, nodes, independentSet, totalWeight, abortSet, abortWeight)
-			//}
 		}
+		independentMap := make(map[int]struct{})
+		for _, nodeID := range independentSet {
+			independentMap[nodeID] = struct{}{}
+		}
+		for _, node := range nodes {
+			if _, exist := independentMap[node]; !exist { // 不在独立集中，那么则丢弃
+				abortSet = append(abortSet, node)
+			}
+		}
+		//if enableLog {
+		//	// 计算总权重
+		//	totalWeight := 0.0
+		//	for _, nodeID := range independentSet {
+		//		if rwset, exists := finalDag.Nodes[nodeID]; exists && rwset != nil {
+		//			totalWeight += rwset.Cost
+		//		}
+		//	}
+		//	abortWeight := 0.0
+		//	for _, nodeID := range abortSet {
+		//		if rwset, exists := finalDag.Nodes[nodeID]; exists && rwset != nil {
+		//			abortWeight += rwset.Cost
+		//		}
+		//	}
+		//
+		//	fmt.Printf("[Worker %d] [batch %d] [MWIS] connected component index=%d, nodes=%v, independent set=%v with weight=%.2f, abort set=%v with weight=%.2f\n",
+		//		workerID, state.BatchID, idx, nodes, independentSet, totalWeight, abortSet, abortWeight)
+		//}
 
 		// 将结果加入提交集合
 		if cdr.threadCommittedTxs[workerID] == nil {

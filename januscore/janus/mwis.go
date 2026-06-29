@@ -3,6 +3,8 @@ package janus
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +17,7 @@ import (
 type MWISSolver int
 
 const (
-	SolverILP          MWISSolver = iota // 使用 ILP (OR-Tools) 求解
+	SolverILP          MWISSolver = iota // 使用内置精确 MWIS 求解
 	SolverGreedy                         // 使用贪心算法求解
 	SolverCostOnly                       // 只按执行开销贪心求解
 	SolverLPRelaxation                   // 使用 LP relaxation 后 rounding 求解
@@ -33,14 +35,14 @@ func SetMWISBenchmark(enable bool) {
 	}
 }
 
-// MWISInput ILP 求解器的输入格式
+// MWISInput Python 求解器的输入格式
 type MWISInput struct {
 	Nodes   []int              `json:"nodes"`
 	Edges   [][2]int           `json:"edges"`
 	Weights map[string]float64 `json:"weights"`
 }
 
-// MWISOutput ILP 求解器的输出格式
+// MWISOutput Python 求解器的输出格式
 type MWISOutput struct {
 	Status         string  `json:"status"`
 	IndependentSet []int   `json:"independent_set"`
@@ -230,6 +232,9 @@ func solveByCostOnly(dag *ConflictDAG, nodes []int, info *subgraphInfo) ([]int, 
 	})
 
 	result := selectIndependentSet(nodeList, info)
+	if !isIndependentSet(result, info) {
+		result = repairIndependentSetByOrder(result, nodes, info)
+	}
 	totalWeight := totalIndependentSetWeight(result, info)
 	if enableLog {
 		fmt.Printf("[CostOnly] 节点数=%d, 边数=%d, 独立集大小=%d, 总权重=%.2f\n",
@@ -324,39 +329,181 @@ func repairIndependentSetByOrder(order []int, nodes []int, info *subgraphInfo) [
 	return selectIndependentSet(nodeList, info)
 }
 
-// ===================== ILP 求解器 =====================
+// ===================== 精确 MWIS 求解器 =====================
 
-// solveByILP 使用 ILP (OR-Tools) 求解最大权重独立集
+type exactMWISResult struct {
+	weight float64
+	mask   *big.Int
+}
+
+// solveByILP 保留历史命名，实际使用 Go 内置分支限界精确求解最大权重独立集。
+// 这样 oracle baseline 不依赖 Python/OR-Tools；外部求解器失败时不会把整块冲突分量都 abort。
 func solveByILP(dag *ConflictDAG, nodes []int, info *subgraphInfo) ([]int, error) {
-	// 1. 准备输入数据
-	input := MWISInput{
-		Nodes:   nodes,
-		Edges:   info.edges,
-		Weights: make(map[string]float64),
-	}
-
-	// 转换权重格式（key 需要是字符串）
-	for nodeID, weight := range info.weights {
-		input.Weights[fmt.Sprintf("%d", nodeID)] = weight
-	}
-
-	// 2. 调用 Python 求解器
-	result, err := callPythonSolver(input, "ilp")
-	if err != nil {
-		return nil, err
-	}
-
-	// 3. 返回结果
-	if result.Status != "optimal" {
-		return nil, fmt.Errorf("ILP 求解失败: %s", result.Status)
+	independentSet, totalWeight := solveExactMWISNative(nodes, info)
+	if !isIndependentSet(independentSet, info) {
+		return nil, fmt.Errorf("exact MWIS returned conflicting set: %v", independentSet)
 	}
 
 	if enableLog {
-		fmt.Printf("[ILP] 节点数=%d, 边数=%d, 独立集大小=%d, 总权重=%.2f\n",
-			len(nodes), len(info.edges), len(result.IndependentSet), result.TotalWeight)
+		fmt.Printf("[ExactMWIS] 节点数=%d, 边数=%d, 独立集大小=%d, 总权重=%.2f\n",
+			len(nodes), len(info.edges), len(independentSet), totalWeight)
 	}
 
-	return result.IndependentSet, nil
+	return independentSet, nil
+}
+
+func solveExactMWISNative(nodes []int, info *subgraphInfo) ([]int, float64) {
+	orderedNodes := append([]int(nil), nodes...)
+	sort.Slice(orderedNodes, func(i, j int) bool {
+		iNode, jNode := orderedNodes[i], orderedNodes[j]
+		iDegree, jDegree := len(info.adjList[iNode]), len(info.adjList[jNode])
+		if iDegree != jDegree {
+			return iDegree > jDegree
+		}
+		if info.weights[iNode] != info.weights[jNode] {
+			return info.weights[iNode] > info.weights[jNode]
+		}
+		return iNode < jNode
+	})
+
+	indexByNode := make(map[int]int, len(orderedNodes))
+	for idx, nodeID := range orderedNodes {
+		indexByNode[nodeID] = idx
+	}
+
+	weights := make([]float64, len(orderedNodes))
+	adjacency := make([]*big.Int, len(orderedNodes))
+	for idx, nodeID := range orderedNodes {
+		weights[idx] = info.weights[nodeID]
+		adjacency[idx] = new(big.Int)
+		for neighbor := range info.adjList[nodeID] {
+			if neighborIdx, ok := indexByNode[neighbor]; ok {
+				adjacency[idx].SetBit(adjacency[idx], neighborIdx, 1)
+			}
+		}
+	}
+
+	allCandidates := new(big.Int)
+	for idx := range orderedNodes {
+		allCandidates.SetBit(allCandidates, idx, 1)
+	}
+
+	memo := make(map[string]exactMWISResult)
+	result := solveExactMWISRecursive(allCandidates, adjacency, weights, orderedNodes, memo)
+
+	independentSet := make([]int, 0, result.mask.BitLen())
+	for idx := range orderedNodes {
+		if result.mask.Bit(idx) != 0 {
+			independentSet = append(independentSet, orderedNodes[idx])
+		}
+	}
+	sort.Ints(independentSet)
+
+	return independentSet, result.weight
+}
+
+func solveExactMWISRecursive(candidates *big.Int, adjacency []*big.Int, weights []float64, orderedNodes []int, memo map[string]exactMWISResult) exactMWISResult {
+	if candidates.Sign() == 0 {
+		return exactMWISResult{mask: new(big.Int)}
+	}
+
+	key := candidates.Text(16)
+	if cached, ok := memo[key]; ok {
+		return cloneExactMWISResult(cached)
+	}
+
+	branchVertex, maxDegree := chooseExactMWISBranchVertex(candidates, adjacency, weights, orderedNodes)
+	if maxDegree == 0 {
+		result := exactMWISResult{
+			weight: candidateWeight(candidates, weights),
+			mask:   new(big.Int).Set(candidates),
+		}
+		memo[key] = cloneExactMWISResult(result)
+		return result
+	}
+
+	withoutBranchVertex := new(big.Int).Set(candidates)
+	withoutBranchVertex.SetBit(withoutBranchVertex, branchVertex, 0)
+
+	includeCandidates := new(big.Int).AndNot(withoutBranchVertex, adjacency[branchVertex])
+	includeResult := solveExactMWISRecursive(includeCandidates, adjacency, weights, orderedNodes, memo)
+	includeResult.weight += weights[branchVertex]
+	includeResult.mask.SetBit(includeResult.mask, branchVertex, 1)
+
+	excludeResult := solveExactMWISRecursive(withoutBranchVertex, adjacency, weights, orderedNodes, memo)
+
+	result := excludeResult
+	if includeResult.weight > excludeResult.weight+1e-9 ||
+		(math.Abs(includeResult.weight-excludeResult.weight) <= 1e-9 && compareExactMWISMasks(includeResult.mask, excludeResult.mask, orderedNodes) < 0) {
+		result = includeResult
+	}
+
+	memo[key] = cloneExactMWISResult(result)
+	return result
+}
+
+func chooseExactMWISBranchVertex(candidates *big.Int, adjacency []*big.Int, weights []float64, orderedNodes []int) (int, int) {
+	bestIdx := -1
+	bestDegree := -1
+	neighbors := new(big.Int)
+	for idx := range orderedNodes {
+		if candidates.Bit(idx) == 0 {
+			continue
+		}
+
+		neighbors.And(adjacency[idx], candidates)
+		degree := countSetBits(neighbors, len(orderedNodes))
+		if degree > bestDegree ||
+			(degree == bestDegree && weights[idx] > weights[bestIdx]) ||
+			(degree == bestDegree && weights[idx] == weights[bestIdx] && orderedNodes[idx] < orderedNodes[bestIdx]) {
+			bestIdx = idx
+			bestDegree = degree
+		}
+	}
+
+	return bestIdx, bestDegree
+}
+
+func candidateWeight(candidates *big.Int, weights []float64) float64 {
+	total := 0.0
+	for idx := range weights {
+		if candidates.Bit(idx) != 0 {
+			total += weights[idx]
+		}
+	}
+	return total
+}
+
+func countSetBits(mask *big.Int, limit int) int {
+	count := 0
+	for idx := 0; idx < limit; idx++ {
+		if mask.Bit(idx) != 0 {
+			count++
+		}
+	}
+	return count
+}
+
+func cloneExactMWISResult(result exactMWISResult) exactMWISResult {
+	return exactMWISResult{
+		weight: result.weight,
+		mask:   new(big.Int).Set(result.mask),
+	}
+}
+
+func compareExactMWISMasks(left, right *big.Int, orderedNodes []int) int {
+	for idx := range orderedNodes {
+		leftHas := left.Bit(idx) != 0
+		rightHas := right.Bit(idx) != 0
+		if leftHas == rightHas {
+			continue
+		}
+		if leftHas {
+			return -1
+		}
+		return 1
+	}
+	return 0
 }
 
 // solveByLPRelaxation 使用 LP relaxation 解和确定性 rounding 近似求解最大权重独立集。
@@ -392,7 +539,7 @@ func solveByLPRelaxation(dag *ConflictDAG, nodes []int, info *subgraphInfo) ([]i
 	return independentSet, nil
 }
 
-// callPythonSolver 调用 Python 脚本求解 ILP 或 LP relaxation。
+// callPythonSolver 调用 Python 脚本求解 LP relaxation；精确 MWIS 已改为 Go 内置实现。
 func callPythonSolver(input MWISInput, mode string) (*MWISOutput, error) {
 	// 创建临时文件
 	inputFile, err := os.CreateTemp("", "mwis_input_*.json")
@@ -459,7 +606,7 @@ func SetMWISSolver(solver MWISSolver) {
 	DefaultMWISSolver = solver
 	switch solver {
 	case SolverILP:
-		fmt.Println("[MWIS] 使用 ILP (OR-Tools) 求解器")
+		fmt.Println("[MWIS] 使用内置精确 MWIS 求解器")
 	case SolverGreedy:
 		fmt.Println("[MWIS] 使用贪心算法求解器")
 	case SolverCostOnly:
@@ -473,7 +620,7 @@ func SetMWISSolver(solver MWISSolver) {
 func GetMWISSolverName() string {
 	switch DefaultMWISSolver {
 	case SolverILP:
-		return "ILP"
+		return "ExactMWIS"
 	case SolverGreedy:
 		return "Greedy"
 	case SolverCostOnly:
