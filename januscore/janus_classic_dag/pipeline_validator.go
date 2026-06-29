@@ -111,15 +111,11 @@ func (pe *PipelineEngine) buildConflictDAGClassicSerial(state *BatchState) *Conf
 		allRWSets = append(allRWSets, rwset)
 	}
 
-	// 步骤2：按交易顺序两两比较，检测 WR 冲突
-	// 规则：tx_i (i < j) 有写，tx_j 有读，且写集与读集有交集，则添加边
+	// 步骤2：按交易顺序两两比较，检测同 key 上至少一方写的冲突
 	n := len(allRWSets)
 	for i := 0; i < n; i++ {
-		if len(allRWSets[i].WriteSet) == 0 {
-			continue // tx_i 没有写操作，不会产生冲突
-		}
 		for j := i + 1; j < n; j++ {
-			if hasWRConflict(allRWSets[i].WriteSet, allRWSets[j].ReadSet) {
+			if hasReadWriteConflict(allRWSets[i], allRWSets[j]) {
 				if !pe.hasEdge(dag, allRWSets[i].TxID, allRWSets[j].TxID) {
 					pe.addEdge(dag, allRWSets[i].TxID, allRWSets[j].TxID)
 				}
@@ -130,10 +126,21 @@ func (pe *PipelineEngine) buildConflictDAGClassicSerial(state *BatchState) *Conf
 	return dag
 }
 
-// hasWRConflict 检查前序交易的写集与后序交易的读集是否有交集
-func hasWRConflict(writeSet, readSet map[string]struct{}) bool {
-	for addr := range writeSet {
-		if _, exists := readSet[addr]; exists {
+// hasReadWriteConflict 检查两笔交易是否在同一 key 上至少一方写。
+func hasReadWriteConflict(left, right *ReadWriteSet) bool {
+	for addr := range left.WriteSet {
+		if _, exists := right.ReadSet[addr]; exists {
+			return true
+		}
+		if _, exists := right.WriteSet[addr]; exists {
+			return true
+		}
+	}
+	for addr := range right.WriteSet {
+		if _, exists := left.ReadSet[addr]; exists {
+			return true
+		}
+		if _, exists := left.WriteSet[addr]; exists {
 			return true
 		}
 	}
@@ -409,24 +416,19 @@ func (pe *PipelineEngine) groupOperationsByTx(ops []*Operation) []*TxOperation {
 // buildConflictEdges 构建冲突边
 // 规则：
 // 1. 同一交易的读写操作视为一个整体，只产生一条边
-// 2. 传递性冲突：如果 tx_i 有写，tx_j 有读，则 tx_i → tx_j
-// 3. 边的类型始终为 WR（简化处理，用于最大提交验证）
+// 2. 同一 key 上任意一方有写，则两个交易冲突
+// 3. 边作为无向冲突边处理，用于最大提交验证
 func (pe *PipelineEngine) buildConflictEdges(txOps []*TxOperation, addr string, dag *ConflictDAG) {
 	n := len(txOps)
 	if n <= 1 {
 		return
 	}
 
-	// 对于每对交易 (i, j)，如果 i < j 且 tx_i 有写，tx_j 有读，则添加边
+	// 对于每对交易 (i, j)，同一 key 上只要任意一方有写，就添加冲突边。
 	for i := 0; i < n; i++ {
-		if !txOps[i].HasWrite {
-			continue // tx_i 没有写操作，不会产生冲突边
-		}
-
 		for j := i + 1; j < n; j++ {
-			// tx_i 有写，tx_j 有读，产生冲突
-			if txOps[j].HasRead {
-				// 所有边类型都标记为 WR（用于最大提交验证）
+			if txOps[i].HasWrite || txOps[j].HasWrite {
+				// 所有边类型都作为无向冲突边处理（用于最大提交验证）
 				fromTxID := txOps[i].TxID
 				toTxID := txOps[j].TxID
 

@@ -245,9 +245,9 @@ func GenerateTxsFormBriefTx(btxs [][]int, recursive bool) []*types.Transaction {
 		// 注意交易的调用地址要用之前的合约地址
 		tx.SmallBankTo = to
 		tx.SetFrom(from)
-		rwKeys := briefTxReadWriteKeys(btx)
-		tx.ReadKeys = append([]string(nil), rwKeys...)
-		tx.WriteKeys = append([]string(nil), rwKeys...)
+		readKeys, writeKeys := briefTxReadWriteKeySets(btx)
+		tx.ReadKeys = append([]string(nil), readKeys...)
+		tx.WriteKeys = append([]string(nil), writeKeys...)
 		txs = append(txs, tx)
 	}
 
@@ -260,9 +260,9 @@ func GenerateBaseTransaction(addressLen int, longTxCount, shortTxCount, fibonacc
 		shortTxFibonacciLoopNumber, longTxFibonacciLoopNumber, defaultSyntheticReadWriteKeyCount, skew)
 }
 
-// GenerateBaseTransactionWithRWKeyCount 基于Zipf分布生成交易，并控制每笔交易的读/写 key 数量。
+// GenerateBaseTransactionWithRWKeyCount 基于Zipf分布生成交易，并控制每笔交易访问的 key 总数。
 // brief transaction 的前 5 个字段保持兼容: [from, to, txType, fibonacciN, loopNumber]。
-// 第 6 个字段开始是额外参与读写集的地址 key；转换为真实交易时 read/write set 都使用这些 key。
+// 第 6 个字段开始是额外参与读写集的地址 key；转换为真实交易时会拆成不重叠的 read/write set。
 func GenerateBaseTransactionWithRWKeyCount(addressLen int, longTxCount, shortTxCount, fibonacciN, shortTxFibonacciLoopNumber, longTxFibonacciLoopNumber, readWriteKeyCount int, skew float64) [][]int {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	z := zipf.NewZipf(r, skew, uint64(addressLen+1))
@@ -377,7 +377,7 @@ func appendExtraSyntheticReadWriteKeys(tx []int, addressLen, readWriteKeyCount i
 	return tx
 }
 
-func briefTxReadWriteKeys(btx []int) []string {
+func briefTxReadWriteKeySets(btx []int) ([]string, []string) {
 	seen := make(map[string]struct{}, len(btx))
 	keys := make([]string, 0, len(btx)-briefTxFixedFieldCount+defaultSyntheticReadWriteKeyCount)
 	for _, rawKey := range append([]int{btx[0], btx[1]}, btx[briefTxFixedFieldCount:]...) {
@@ -388,5 +388,19 @@ func briefTxReadWriteKeys(btx []int) []string {
 		seen[key] = struct{}{}
 		keys = append(keys, key)
 	}
-	return keys
+	if len(keys) < 2 {
+		panic(fmt.Sprintf("brief transaction has %d distinct rw keys, want at least 2: %v", len(keys), btx))
+	}
+
+	readCount := len(keys) / 2
+	if readCount < 1 {
+		readCount = 1
+	}
+	if readCount >= len(keys) {
+		readCount = len(keys) - 1
+	}
+
+	readKeys := append([]string(nil), keys[:readCount]...)
+	writeKeys := append([]string(nil), keys[readCount:]...)
+	return readKeys, writeKeys
 }

@@ -68,7 +68,7 @@ func printUsage() {
 	fmt.Println("  -ar        address number rate；地址数量 = blockTxNumber * ar，默认 4。")
 	fmt.Println("  -lr        long transaction rate；长交易比例，默认 0.2。")
 	fmt.Println("  -sr        short transaction rate；短交易比例，默认 0.8。")
-	fmt.Println("  -rwk       read/write key count per synthetic transaction；每笔合成交易读/写 key 数量，默认 2，可设 2/4/6/8。")
+	fmt.Println("  -rwk       total accessed key count per synthetic transaction；每笔合成交易访问 key 总数，长短交易同时生效，默认 2，可设 2/4/6/8。")
 	fmt.Println("  -wa        water mark alpha；Janus 水位线 alpha，默认 1.5。")
 	fmt.Println("  -wb        water mark beta；Janus 水位线 beta，默认 3.5。")
 	fmt.Println("  -f         fibonacci number；-1 表示随机生成，默认 10。")

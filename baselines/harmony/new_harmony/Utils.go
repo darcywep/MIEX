@@ -114,8 +114,21 @@ func (ht *HarmonyTable) OnSeeingRWDependency(Ti *HarmonyTransaction, Tj *Harmony
 		Ti.InBatchID = Tj.BatchID
 	}
 
+	// 当前实验的 abort cost 口径按直接冲突统计。读写集拆开后，
+	// 单条 RW/WAR 依赖不一定形成 dangerous structure，但仍然是冲突交易。
+	if Ti.ID < Tj.ID {
+		Tj.FlagConflict = true
+	} else if Tj.ID < Ti.ID {
+		Ti.FlagConflict = true
+	}
+
 	second.mu.Unlock()
 	first.mu.Unlock()
+}
+
+func (ht *HarmonyTable) OnSeeingWWDependency(previousWriter *HarmonyTransaction, currentWriter *HarmonyTransaction) {
+	ht.OnSeeingRWDependency(previousWriter, currentWriter)
+	ht.OnSeeingRWDependency(currentWriter, previousWriter)
 }
 
 // ========== 修改点 7: 新增 ApplyWriteSets ==========

@@ -840,6 +840,12 @@ func (he *HarmonyExecutor) ExecutorSetStorage(tx *HarmonyTransaction, writeSet m
 				}
 				he.table.OnSeeingRWDependency(tx, _tx)
 			}
+			for _, _tx := range (*entry).ReservedPutTxs {
+				if _tx == tx {
+					continue
+				}
+				he.table.OnSeeingWWDependency(_tx, tx)
+			}
 			(*entry).ReservedPutTxs = append((*entry).ReservedPutTxs, tx)
 
 			// ========== 修改点 14: 注册 UpdateCommand ==========

@@ -154,46 +154,41 @@ type nodeWithWeight struct {
 // solveByGreedy 使用贪心算法求解最大权重独立集
 // 策略：按 "权重/度数" 的性价比从高到低选择节点
 func solveByGreedy(dag *ConflictDAG, nodes []int, info *subgraphInfo) ([]int, error) {
-	// 1. 计算每个节点的度数和性价比
-	nodeList := make([]*nodeWithWeight, 0, len(nodes))
+	remaining := make(map[int]bool, len(nodes))
 	for _, nodeID := range nodes {
-		degree := len(info.adjList[nodeID])
-		weight := info.weights[nodeID]
-		score := weight / float64(degree+1) // +1 避免除以0
-
-		nodeList = append(nodeList, &nodeWithWeight{
-			nodeID: nodeID,
-			weight: weight,
-			degree: degree,
-			score:  score,
-		})
+		remaining[nodeID] = true
 	}
 
-	// 2. 按性价比降序排列
-	sort.Slice(nodeList, func(i, j int) bool {
-		return nodeList[i].score > nodeList[j].score
-	})
-
-	// 3. 贪心选择
-	selected := make(map[int]bool) // 已选中的节点
-	excluded := make(map[int]bool) // 被排除的节点（与已选节点相邻）
 	result := make([]int, 0)
-
-	for _, node := range nodeList {
-		nodeID := node.nodeID
-
-		// 如果该节点已被排除，跳过
-		if excluded[nodeID] {
-			continue
+	for len(remaining) > 0 {
+		nodeList := make([]*nodeWithWeight, 0, len(remaining))
+		for nodeID := range remaining {
+			degree := remainingDegree(nodeID, remaining, info)
+			weight := info.weights[nodeID]
+			nodeList = append(nodeList, &nodeWithWeight{
+				nodeID: nodeID,
+				weight: weight,
+				degree: degree,
+				score:  weight / float64(degree+1),
+			})
 		}
 
-		// 选中该节点
-		selected[nodeID] = true
+		sort.Slice(nodeList, func(i, j int) bool {
+			if nodeList[i].score != nodeList[j].score {
+				return nodeList[i].score > nodeList[j].score
+			}
+			if nodeList[i].weight != nodeList[j].weight {
+				return nodeList[i].weight > nodeList[j].weight
+			}
+			return nodeList[i].nodeID < nodeList[j].nodeID
+		})
+
+		nodeID := nodeList[0].nodeID
 		result = append(result, nodeID)
 
-		// 排除所有邻居节点
+		delete(remaining, nodeID)
 		for neighbor := range info.adjList[nodeID] {
-			excluded[neighbor] = true
+			delete(remaining, neighbor)
 		}
 	}
 
@@ -213,25 +208,30 @@ func solveByGreedy(dag *ConflictDAG, nodes []int, info *subgraphInfo) ([]int, er
 // solveByCostOnly 使用只考虑执行开销的贪心算法求解最大权重独立集。
 // 策略：按交易执行开销从大到小选择节点，不使用冲突度数作为排序因子。
 func solveByCostOnly(dag *ConflictDAG, nodes []int, info *subgraphInfo) ([]int, error) {
-	nodeList := make([]*nodeWithWeight, 0, len(nodes))
+	remaining := make(map[int]bool, len(nodes))
 	for _, nodeID := range nodes {
-		weight := info.weights[nodeID]
-		nodeList = append(nodeList, &nodeWithWeight{
-			nodeID: nodeID,
-			weight: weight,
-			degree: len(info.adjList[nodeID]),
-			score:  weight,
-		})
+		remaining[nodeID] = true
 	}
 
-	sort.Slice(nodeList, func(i, j int) bool {
-		if nodeList[i].weight != nodeList[j].weight {
-			return nodeList[i].weight > nodeList[j].weight
+	result := make([]int, 0)
+	for len(remaining) > 0 {
+		selectedNodeID := -1
+		selectedWeight := math.Inf(-1)
+		for nodeID := range remaining {
+			weight := info.weights[nodeID]
+			if weight > selectedWeight || (weight == selectedWeight && (selectedNodeID == -1 || nodeID < selectedNodeID)) {
+				selectedNodeID = nodeID
+				selectedWeight = weight
+			}
 		}
-		return nodeList[i].nodeID < nodeList[j].nodeID
-	})
 
-	result := selectIndependentSet(nodeList, info)
+		result = append(result, selectedNodeID)
+		delete(remaining, selectedNodeID)
+		for neighbor := range info.adjList[selectedNodeID] {
+			delete(remaining, neighbor)
+		}
+	}
+
 	if !isIndependentSet(result, info) {
 		result = repairIndependentSetByOrder(result, nodes, info)
 	}
@@ -242,6 +242,16 @@ func solveByCostOnly(dag *ConflictDAG, nodes []int, info *subgraphInfo) ([]int, 
 	}
 
 	return result, nil
+}
+
+func remainingDegree(nodeID int, remaining map[int]bool, info *subgraphInfo) int {
+	degree := 0
+	for neighbor := range info.adjList[nodeID] {
+		if remaining[neighbor] {
+			degree++
+		}
+	}
+	return degree
 }
 
 func selectIndependentSet(nodeList []*nodeWithWeight, info *subgraphInfo) []int {

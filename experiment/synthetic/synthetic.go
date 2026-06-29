@@ -66,7 +66,7 @@ var (
 	// longTxCountRate + shortTxCountRate = 1
 	longTxCountRate   = 0.2 // 长交易的比例，默认长:短 = 1:4
 	shortTxCountRate  = 0.8 // 短交易的比例，默认长:短 = 1:4
-	readWriteKeyCount = 2   // 每笔合成交易读/写 key 数量
+	readWriteKeyCount = 2   // 每笔合成交易访问 key 总数，长短交易同时生效
 
 	waterMarkAlpha = 1.5 // 水位线参数 α
 	waterMarkBeta  = 3.5 // 水位线参数 β
@@ -396,7 +396,7 @@ func Run(args []string) error {
 	fs.Float64Var(&shortTxCountRate, "sr", 0.8,
 		"short transaction rate (long + short = 1)")
 	fs.IntVar(&readWriteKeyCount, "rwk", 2,
-		"read/write key count per synthetic transaction (try 2, 4, 6, 8)")
+		"total accessed key count per synthetic transaction (try 2, 4, 6, 8)")
 
 	fs.Float64Var(&waterMarkAlpha, "wa", 1.5, "water mark alpha")
 	fs.Float64Var(&waterMarkBeta, "wb", 3.5, "water mark beta")
@@ -422,7 +422,7 @@ func Run(args []string) error {
 		return err
 	}
 	if readWriteKeyCount < 2 {
-		return fmt.Errorf("read/write key count must be at least 2: %d", readWriteKeyCount)
+		return fmt.Errorf("total accessed key count must be at least 2: %d", readWriteKeyCount)
 	}
 	misclassificationSeed := normalizeTxTypeMisclassificationSeed(txTypeMisclassificationSeed)
 	fmt.Println(

@@ -42,7 +42,7 @@ func SimulatedTransactionCost(tx *types.Transaction) float64 {
 }
 
 // TransactionReadWriteSet 返回交易执行后的读写集。
-// 真实负载模拟交易优先使用 LatencyDB 的 Address 级读写集；普通合成交易保持原 SmallBank 规则。
+// 真实负载模拟交易优先使用 LatencyDB 的 Address 级读写集；普通合成交易保持读/写 key 不重叠。
 func TransactionReadWriteSet(tx *types.Transaction) (map[string]struct{}, map[string]struct{}) {
 	readSet := make(map[string]struct{})
 	writeSet := make(map[string]struct{})
@@ -71,9 +71,7 @@ func TransactionReadWriteSet(tx *types.Transaction) (map[string]struct{}, map[st
 
 	if from := tx.From(); from != nil {
 		addRWKey(readSet, from.String())
-		addRWKey(writeSet, from.String())
 	}
-	addRWKey(readSet, tx.SmallBankTo.String())
 	addRWKey(writeSet, tx.SmallBankTo.String())
 	return readSet, writeSet
 }
