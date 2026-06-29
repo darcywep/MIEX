@@ -18,6 +18,12 @@ import (
 
 var ContractBasePath string
 
+const (
+	briefTxFixedFieldCount              = 5
+	defaultSyntheticReadWriteKeyCount   = 2
+	syntheticReadWriteKeyCandidateSlack = 2
+)
+
 func init() {
 	// 在 init 中计算项目根目录
 	_, filename, _, _ := runtime.Caller(0)
@@ -219,6 +225,9 @@ func GenerateTxsFormBriefTx(btxs [][]int, recursive bool) []*types.Transaction {
 	PanicError("GenerateSmallBankTxs LoadContract ", err)
 	gasPrice := big.NewInt(10)
 	for _, btx := range btxs {
+		if len(btx) < briefTxFixedFieldCount {
+			panic(fmt.Sprintf("brief transaction has %d fields, want at least %d", len(btx), briefTxFixedFieldCount))
+		}
 		//fmt.Println(btx[0], btx[1], btx[2], btx[3], btx[4])
 		//btx[3] = 0
 		from, to := common.BigToAddress(big.NewInt(int64(btx[0]))), common.BigToAddress(big.NewInt(int64(btx[1])))
@@ -236,6 +245,9 @@ func GenerateTxsFormBriefTx(btxs [][]int, recursive bool) []*types.Transaction {
 		// 注意交易的调用地址要用之前的合约地址
 		tx.SmallBankTo = to
 		tx.SetFrom(from)
+		rwKeys := briefTxReadWriteKeys(btx)
+		tx.ReadKeys = append([]string(nil), rwKeys...)
+		tx.WriteKeys = append([]string(nil), rwKeys...)
 		txs = append(txs, tx)
 	}
 
@@ -244,8 +256,17 @@ func GenerateTxsFormBriefTx(btxs [][]int, recursive bool) []*types.Transaction {
 
 // GenerateBaseTransaction 基于Zipf分布生成交易，用于控制冲突概率
 func GenerateBaseTransaction(addressLen int, longTxCount, shortTxCount, fibonacciN, shortTxFibonacciLoopNumber, longTxFibonacciLoopNumber int, skew float64) [][]int {
+	return GenerateBaseTransactionWithRWKeyCount(addressLen, longTxCount, shortTxCount, fibonacciN,
+		shortTxFibonacciLoopNumber, longTxFibonacciLoopNumber, defaultSyntheticReadWriteKeyCount, skew)
+}
+
+// GenerateBaseTransactionWithRWKeyCount 基于Zipf分布生成交易，并控制每笔交易的读/写 key 数量。
+// brief transaction 的前 5 个字段保持兼容: [from, to, txType, fibonacciN, loopNumber]。
+// 第 6 个字段开始是额外参与读写集的地址 key；转换为真实交易时 read/write set 都使用这些 key。
+func GenerateBaseTransactionWithRWKeyCount(addressLen int, longTxCount, shortTxCount, fibonacciN, shortTxFibonacciLoopNumber, longTxFibonacciLoopNumber, readWriteKeyCount int, skew float64) [][]int {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	z := zipf.NewZipf(r, skew, uint64(addressLen+1))
+	readWriteKeyCount = normalizeSyntheticReadWriteKeyCount(readWriteKeyCount)
 
 	txCount := longTxCount + shortTxCount
 	txs := make([][]int, 0, txCount)
@@ -260,8 +281,8 @@ func GenerateBaseTransaction(addressLen int, longTxCount, shortTxCount, fibonacc
 		for from == to {
 			to = int(z.Uint64())
 		}
-		// tx []int = [from, to, txType, fibonacciN]
-		tx := make([]int, 5)
+		// tx []int = [from, to, txType, fibonacciN, loopNumber, extraRWKey...]
+		tx := make([]int, briefTxFixedFieldCount, briefTxFixedFieldCount+readWriteKeyCount-defaultSyntheticReadWriteKeyCount)
 		tx[0] = from + 1
 		tx[1] = to + 1
 
@@ -308,7 +329,64 @@ func GenerateBaseTransaction(addressLen int, longTxCount, shortTxCount, fibonacc
 			}
 		}
 		//tx[4] = fibonacciLoopNumber
+		tx = appendExtraSyntheticReadWriteKeys(tx, addressLen, readWriteKeyCount, z)
 		txs = append(txs, tx)
 	}
 	return txs
+}
+
+func normalizeSyntheticReadWriteKeyCount(readWriteKeyCount int) int {
+	if readWriteKeyCount < defaultSyntheticReadWriteKeyCount {
+		return defaultSyntheticReadWriteKeyCount
+	}
+	return readWriteKeyCount
+}
+
+func appendExtraSyntheticReadWriteKeys(tx []int, addressLen, readWriteKeyCount int, z *zipf.Zipf) []int {
+	readWriteKeyCount = normalizeSyntheticReadWriteKeyCount(readWriteKeyCount)
+	if readWriteKeyCount <= defaultSyntheticReadWriteKeyCount {
+		return tx
+	}
+
+	seen := make(map[int]struct{}, readWriteKeyCount)
+	for _, key := range tx[:defaultSyntheticReadWriteKeyCount] {
+		seen[key] = struct{}{}
+	}
+
+	for attempts := 0; len(seen) < readWriteKeyCount && attempts < readWriteKeyCount*20; attempts++ {
+		candidate := int(z.Uint64()) + 1
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		tx = append(tx, candidate)
+	}
+
+	// Zipf 在高度倾斜时可能反复抽中热点 key，最后用顺序扫描补齐，保证每笔交易 key 数量稳定。
+	maxCandidate := addressLen + syntheticReadWriteKeyCandidateSlack
+	for candidate := 1; len(seen) < readWriteKeyCount; candidate++ {
+		if candidate > maxCandidate {
+			maxCandidate *= 2
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		tx = append(tx, candidate)
+	}
+	return tx
+}
+
+func briefTxReadWriteKeys(btx []int) []string {
+	seen := make(map[string]struct{}, len(btx))
+	keys := make([]string, 0, len(btx)-briefTxFixedFieldCount+defaultSyntheticReadWriteKeyCount)
+	for _, rawKey := range append([]int{btx[0], btx[1]}, btx[briefTxFixedFieldCount:]...) {
+		key := common.BigToAddress(big.NewInt(int64(rawKey))).String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	return keys
 }

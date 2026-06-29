@@ -22,11 +22,13 @@ DEFAULT_METHODS = (
     "janus_cost_only",
     "janus_lp_relaxation",
 )
-DEFAULT_SKEWS = "0.4,0.6,0.8,1.0,1.2"
 DEFAULT_LONG_LOOPS = "20,30,40,50,60"
-DEFAULT_SKEW_SWEEP_SHORT_LOOP = 10
-DEFAULT_SKEW_SWEEP_LONG_LOOP = 20
+DEFAULT_RW_KEY_COUNTS = "2,4,6,8"
+DEFAULT_RW_KEY_SWEEP_SKEW = "1.0"
+DEFAULT_RW_KEY_SWEEP_SHORT_LOOP = 10
+DEFAULT_RW_KEY_SWEEP_LONG_LOOP = 20
 DEFAULT_LOOP_SWEEP_SKEW = "1.0"
+DEFAULT_LOOP_SWEEP_RW_KEY_COUNT = 2
 DEFAULT_LONG_RATE = 0.2
 
 NUMBER_RE = r"([0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)"
@@ -44,6 +46,7 @@ CSV_COLUMNS = (
     "method",
     "long_rate",
     "short_rate",
+    "read_write_key_count",
     "skew",
     "fibonacci_n",
     "short_fibonacci_loop",
@@ -64,6 +67,7 @@ CSV_COLUMNS = (
 class ExperimentCase:
     experiment: str
     case_id: str
+    read_write_key_count: int
     skew: str
     fibonacci_n: int | None
     short_fibonacci_loop: int | None
@@ -87,13 +91,12 @@ def parse_int_list(value: str) -> list[int]:
     return values
 
 
-def parse_skew_list(value: str) -> list[str]:
+def parse_single_skew(value: str) -> str:
     skews = parse_csv_list(value)
-    if not skews:
-        raise argparse.ArgumentTypeError("skew list must not be empty")
-    for skew in skews:
-        float(skew)
-    return skews
+    if len(skews) != 1:
+        raise argparse.ArgumentTypeError("this experiment expects exactly one skew value")
+    float(skews[0])
+    return skews[0]
 
 
 def parse_rate(value: str) -> float:
@@ -126,19 +129,21 @@ def format_float(value: float) -> str:
 
 def build_cases(args: argparse.Namespace) -> list[ExperimentCase]:
     cases: list[ExperimentCase] = []
-    for skew in args.skews:
+    for read_write_key_count in args.rw_key_counts:
         cases.append(
             ExperimentCase(
-                experiment="skew_sweep",
+                experiment="rw_key_count_sweep",
                 case_id=(
-                    f"skew_{sanitize_filename(skew.replace('.', 'p'))}"
-                    f"_sfln_{args.skew_sweep_short_fibonacci_loop}"
-                    f"_lfln_{args.skew_sweep_long_fibonacci_loop}"
+                    f"skew_{sanitize_filename(args.rw_key_sweep_skew.replace('.', 'p'))}"
+                    f"_rwk_{read_write_key_count}"
+                    f"_sfln_{args.rw_key_sweep_short_fibonacci_loop}"
+                    f"_lfln_{args.rw_key_sweep_long_fibonacci_loop}"
                 ),
-                skew=skew,
-                fibonacci_n=-1,
-                short_fibonacci_loop=args.skew_sweep_short_fibonacci_loop,
-                long_fibonacci_loop=args.skew_sweep_long_fibonacci_loop,
+                read_write_key_count=read_write_key_count,
+                skew=args.rw_key_sweep_skew,
+                fibonacci_n=None,
+                short_fibonacci_loop=args.rw_key_sweep_short_fibonacci_loop,
+                long_fibonacci_loop=args.rw_key_sweep_long_fibonacci_loop,
             )
         )
     for long_loop in args.long_fibonacci_loops:
@@ -147,9 +152,11 @@ def build_cases(args: argparse.Namespace) -> list[ExperimentCase]:
                 experiment="long_fibonacci_loop_sweep",
                 case_id=(
                     f"skew_{sanitize_filename(args.loop_sweep_skew.replace('.', 'p'))}"
+                    f"_rwk_{args.loop_sweep_rw_key_count}"
                     f"_sfln_{args.loop_sweep_short_fibonacci_loop}"
                     f"_lfln_{long_loop}"
                 ),
+                read_write_key_count=args.loop_sweep_rw_key_count,
                 skew=args.loop_sweep_skew,
                 fibonacci_n=None,
                 short_fibonacci_loop=args.loop_sweep_short_fibonacci_loop,
@@ -196,6 +203,8 @@ def build_command(args: argparse.Namespace, case: ExperimentCase) -> list[str]:
         format_float(args.long_rate),
         "-sr",
         format_float(short_rate),
+        "-rwk",
+        str(case.read_write_key_count),
         "-wa",
         format_float(args.watermark_alpha),
         "-wb",
@@ -288,6 +297,7 @@ def base_row(
         "method": method,
         "long_rate": format_float(args.long_rate),
         "short_rate": format_float(short_rate),
+        "read_write_key_count": case.read_write_key_count,
         "skew": case.skew,
         "fibonacci_n": "" if case.fibonacci_n is None else case.fibonacci_n,
         "short_fibonacci_loop": "" if case.short_fibonacci_loop is None else case.short_fibonacci_loop,
@@ -401,11 +411,33 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--watermark-alpha", type=float, default=1.5)
     parser.add_argument("--watermark-beta", type=float, default=3.5)
     parser.add_argument("--long-rate", type=parse_rate, default=DEFAULT_LONG_RATE)
-    parser.add_argument("--skews", type=parse_skew_list, default=parse_skew_list(DEFAULT_SKEWS))
-    parser.add_argument("--skew-sweep-short-fibonacci-loop", type=int, default=DEFAULT_SKEW_SWEEP_SHORT_LOOP)
-    parser.add_argument("--skew-sweep-long-fibonacci-loop", type=int, default=DEFAULT_SKEW_SWEEP_LONG_LOOP)
+    parser.add_argument("--rw-key-counts", type=parse_int_list, default=parse_int_list(DEFAULT_RW_KEY_COUNTS))
+    parser.add_argument(
+        "--rw-key-sweep-skew",
+        "--skew",
+        "--skews",
+        dest="rw_key_sweep_skew",
+        type=parse_single_skew,
+        default=DEFAULT_RW_KEY_SWEEP_SKEW,
+        help="Skew used by the read/write key-count sweep. Default: 1.0.",
+    )
+    parser.add_argument(
+        "--rw-key-sweep-short-fibonacci-loop",
+        "--skew-sweep-short-fibonacci-loop",
+        dest="rw_key_sweep_short_fibonacci_loop",
+        type=int,
+        default=DEFAULT_RW_KEY_SWEEP_SHORT_LOOP,
+    )
+    parser.add_argument(
+        "--rw-key-sweep-long-fibonacci-loop",
+        "--skew-sweep-long-fibonacci-loop",
+        dest="rw_key_sweep_long_fibonacci_loop",
+        type=int,
+        default=DEFAULT_RW_KEY_SWEEP_LONG_LOOP,
+    )
     parser.add_argument("--long-fibonacci-loops", type=parse_int_list, default=parse_int_list(DEFAULT_LONG_LOOPS))
-    parser.add_argument("--loop-sweep-skew", default=DEFAULT_LOOP_SWEEP_SKEW)
+    parser.add_argument("--loop-sweep-skew", type=parse_single_skew, default=DEFAULT_LOOP_SWEEP_SKEW)
+    parser.add_argument("--loop-sweep-rw-key-count", type=int, default=DEFAULT_LOOP_SWEEP_RW_KEY_COUNT)
     parser.add_argument("--loop-sweep-short-fibonacci-loop", type=int, default=10)
     parser.add_argument("--trials", type=int, default=1)
     parser.add_argument("--timeout", type=float, default=0, help="Per-case timeout in seconds; 0 disables timeout.")
@@ -430,9 +462,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         raise SystemExit("--trials must be greater than 0")
     if args.loop_sweep_short_fibonacci_loop <= 0:
         raise SystemExit("--loop-sweep-short-fibonacci-loop must be greater than 0")
-    if args.skew_sweep_short_fibonacci_loop <= 0 or args.skew_sweep_long_fibonacci_loop <= 0:
-        raise SystemExit("skew sweep fibonacci loop values must be greater than 0")
-    float(args.loop_sweep_skew)
+    if args.rw_key_sweep_short_fibonacci_loop <= 0 or args.rw_key_sweep_long_fibonacci_loop <= 0:
+        raise SystemExit("rw key sweep fibonacci loop values must be greater than 0")
+    if any(value < 2 for value in args.rw_key_counts):
+        raise SystemExit("--rw-key-counts values must be at least 2")
+    if args.loop_sweep_rw_key_count < 2:
+        raise SystemExit("--loop-sweep-rw-key-count must be at least 2")
+    if any(value <= 0 for value in args.long_fibonacci_loops):
+        raise SystemExit("--long-fibonacci-loops values must be greater than 0")
 
     args.output_dir = str(resolve_path(args.output_dir))
     if not args.log_dir:
@@ -459,6 +496,20 @@ def main(argv: list[str]) -> int:
     print(f"output: {summary_path}")
     print(f"logs: {log_dir}")
     print(f"methods: {','.join(args.methods)}")
+    print(
+        "rw_key_count_sweep:"
+        f" skew={args.rw_key_sweep_skew}"
+        f" rw_key_counts={','.join(str(value) for value in args.rw_key_counts)}"
+        f" short_loop={args.rw_key_sweep_short_fibonacci_loop}"
+        f" long_loop={args.rw_key_sweep_long_fibonacci_loop}"
+    )
+    print(
+        "long_fibonacci_loop_sweep:"
+        f" skew={args.loop_sweep_skew}"
+        f" rw_key_count={args.loop_sweep_rw_key_count}"
+        f" short_loop={args.loop_sweep_short_fibonacci_loop}"
+        f" long_loops={','.join(str(value) for value in args.long_fibonacci_loops)}"
+    )
     print(f"cases: {len(cases)}")
     print(f"started at: {dt.datetime.now().isoformat(timespec='seconds')}")
 

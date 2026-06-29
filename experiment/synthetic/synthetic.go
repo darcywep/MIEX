@@ -64,8 +64,9 @@ var (
 	addressNumberRate = 4 // 总共生成多少个地址 = blockTxSum * addressNumberRate
 
 	// longTxCountRate + shortTxCountRate = 1
-	longTxCountRate  = 0.2 // 长交易的比例，默认长:短 = 1:4
-	shortTxCountRate = 0.8 // 短交易的比例，默认长:短 = 1:4
+	longTxCountRate   = 0.2 // 长交易的比例，默认长:短 = 1:4
+	shortTxCountRate  = 0.8 // 短交易的比例，默认长:短 = 1:4
+	readWriteKeyCount = 2   // 每笔合成交易读/写 key 数量
 
 	waterMarkAlpha = 1.5 // 水位线参数 α
 	waterMarkBeta  = 3.5 // 水位线参数 β
@@ -87,8 +88,9 @@ type InputData struct {
 
 	Skew float64
 
-	LongTxCountRate  float64
-	ShortTxCountRate float64
+	LongTxCountRate   float64
+	ShortTxCountRate  float64
+	ReadWriteKeyCount int
 
 	WaterMarkAlpha float64
 	WaterMarkBeta  float64
@@ -222,6 +224,7 @@ func syntheticResultFileName(input InputData) string {
 		"_sk(" + fmt.Sprintf("%f", input.Skew) + ")" +
 		"_lr(" + fmt.Sprintf("%f", input.LongTxCountRate) + ")" +
 		"_sr(" + fmt.Sprintf("%f", input.ShortTxCountRate) + ")" +
+		"_rwk(" + strconv.Itoa(input.ReadWriteKeyCount) + ")" +
 		"_wa(" + fmt.Sprintf("%f", input.WaterMarkAlpha) + ")" +
 		"_wb(" + fmt.Sprintf("%f", input.WaterMarkBeta) + ")" +
 		"_f(" + strconv.Itoa(input.FibonacciN) + ")" +
@@ -392,6 +395,8 @@ func Run(args []string) error {
 		"long transaction rate (long + short = 1)")
 	fs.Float64Var(&shortTxCountRate, "sr", 0.8,
 		"short transaction rate (long + short = 1)")
+	fs.IntVar(&readWriteKeyCount, "rwk", 2,
+		"read/write key count per synthetic transaction (try 2, 4, 6, 8)")
 
 	fs.Float64Var(&waterMarkAlpha, "wa", 1.5, "water mark alpha")
 	fs.Float64Var(&waterMarkBeta, "wb", 3.5, "water mark beta")
@@ -416,6 +421,9 @@ func Run(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if readWriteKeyCount < 2 {
+		return fmt.Errorf("read/write key count must be at least 2: %d", readWriteKeyCount)
+	}
 	misclassificationSeed := normalizeTxTypeMisclassificationSeed(txTypeMisclassificationSeed)
 	fmt.Println(
 		"baseline:", *baseline,
@@ -426,6 +434,7 @@ func Run(args []string) error {
 		"\naddressNumberRate:", addressNumberRate,
 		"\nlongTxCountRate:", longTxCountRate,
 		"\nshortTxCountRate:", shortTxCountRate,
+		"\nreadWriteKeyCount:", readWriteKeyCount,
 		"\nwaterMarkAlpha:", waterMarkAlpha,
 		"\nwaterMarkBeta:", waterMarkBeta,
 		"\nfibonacciN:", fibonacciN,
@@ -446,9 +455,9 @@ func Run(args []string) error {
 	blocksInfo := make([][][]int, 0, blockNumber)
 	for i := 0; i < blockNumber; i++ {
 		// 生成交易（Zipf 控制冲突率）
-		// txsInfo [][]int = [from, to, txType, fibonacciN]
-		txsInfo := tools.GenerateBaseTransaction(blockTxNumber*addressNumberRate, int(float64(blockTxNumber)*longTxCountRate),
-			int(float64(blockTxNumber)*shortTxCountRate), fibonacciN, shortTxFibonacciLoopNumber, longTxFibonacciLoopNumber, skew)
+		// txsInfo [][]int = [from, to, txType, fibonacciN, loopNumber, extraRWKey...]
+		txsInfo := tools.GenerateBaseTransactionWithRWKeyCount(blockTxNumber*addressNumberRate, int(float64(blockTxNumber)*longTxCountRate),
+			int(float64(blockTxNumber)*shortTxCountRate), fibonacciN, shortTxFibonacciLoopNumber, longTxFibonacciLoopNumber, readWriteKeyCount, skew)
 		fmt.Printf("区块%d: 生成交易数量: %d\n", i, len(txsInfo)) // 生成交易基础信息
 		blocksInfo = append(blocksInfo, txsInfo)
 	}
@@ -464,8 +473,9 @@ func Run(args []string) error {
 		WaterMarkAlpha: waterMarkAlpha,
 		WaterMarkBeta:  waterMarkBeta,
 
-		LongTxCountRate:  longTxCountRate,
-		ShortTxCountRate: shortTxCountRate,
+		LongTxCountRate:   longTxCountRate,
+		ShortTxCountRate:  shortTxCountRate,
+		ReadWriteKeyCount: readWriteKeyCount,
 
 		FibonacciN:                  fibonacciN,
 		FibonacciLoopNum:            longTxFibonacciLoopNumber,

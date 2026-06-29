@@ -59,6 +59,16 @@ func TransactionReadWriteSet(tx *types.Transaction) (map[string]struct{}, map[st
 		return readSet, writeSet
 	}
 
+	if len(tx.ReadKeys) > 0 || len(tx.WriteKeys) > 0 {
+		for _, key := range tx.ReadKeys {
+			addRWKey(readSet, key)
+		}
+		for _, key := range tx.WriteKeys {
+			addRWKey(writeSet, key)
+		}
+		return readSet, writeSet
+	}
+
 	if from := tx.From(); from != nil {
 		addRWKey(readSet, from.String())
 		addRWKey(writeSet, from.String())
